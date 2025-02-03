@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -61,19 +60,10 @@ func checkFatalError(context string, err error) {
 	os.Exit(1)
 }
 
-func parseLogLevel(level string) zap.AtomicLevel {
-	switch {
-	case strings.EqualFold(level, "debug"):
-		return zap.NewAtomicLevelAt(zap.DebugLevel)
-	case strings.EqualFold(level, "info"):
-		return zap.NewAtomicLevelAt(zap.InfoLevel)
-	case strings.EqualFold(level, "warn"):
-		return zap.NewAtomicLevelAt(zap.WarnLevel)
-	case strings.EqualFold(level, "error"):
-		return zap.NewAtomicLevelAt(zap.ErrorLevel)
-	}
-	checkFatalError("failed to parse log level", fmt.Errorf("unrecognized level %q", level))
-	return zap.AtomicLevel{}
+func mustParseLogLevel(str string) zap.AtomicLevel {
+	level, err := zap.ParseAtomicLevel(str)
+	checkFatalError("failed to parse log level", err)
+	return level
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -104,7 +94,7 @@ func humanEncoder(showColors bool) zapcore.Encoder {
 }
 
 func initStdoutLog(colored bool, levelStr string) *zap.Logger {
-	level := parseLogLevel(levelStr)
+	level := mustParseLogLevel(levelStr)
 	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
 	return zap.New(core, zap.AddCaller())
 }
@@ -283,7 +273,7 @@ func main() {
 			}
 
 			// create the stdout logger
-			level := parseLogLevel(cfg.Log.StdOut.Level)
+			level := mustParseLogLevel(cfg.Log.StdOut.Level)
 			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
 		}
 
@@ -312,7 +302,7 @@ func main() {
 			defer closeFn()
 
 			// create the file logger
-			level := parseLogLevel(cfg.Log.File.Level)
+			level := mustParseLogLevel(cfg.Log.File.Level)
 			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
 		}
 
