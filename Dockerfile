@@ -1,0 +1,38 @@
+FROM golang:1.23 AS builder
+
+WORKDIR /indexd
+
+# get dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# copy source
+COPY . .
+# codegen
+RUN go generate ./...
+# build
+RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/indexd
+
+FROM debian:bookworm-slim
+
+LABEL maintainer="The Sia Foundation <info@sia.tech>" \
+    org.opencontainers.image.description.vendor="The Sia Foundation" \
+    org.opencontainers.image.description="A indexd container - provide storage on the Sia network and earn Siacoin" \
+    org.opencontainers.image.source="https://github.com/SiaFoundation/indexd" \
+    org.opencontainers.image.licenses=MIT
+
+# copy binary and certificates
+COPY --from=builder /indexd/bin/* /usr/bin/
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+ENV INDEXD_DATA_DIR=/data
+ENV INDEXD_CONFIG_FILE=/data/indexd.yml
+
+VOLUME [ "/data" ]
+
+# API port
+EXPOSE 9980/tcp
+# RPC port
+EXPOSE 9981/tcp
+
+ENTRYPOINT [ "indexd" ]
