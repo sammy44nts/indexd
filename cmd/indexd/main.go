@@ -194,11 +194,6 @@ func main() {
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, ``)
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store indexd metadata in")
-	// syncer
-	rootCmd.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen for p2p connections")
-	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "when true, will connect to default peers for syncing consensus")
-	// consensus
-	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, zen, etc)")
 	// log
 	rootCmd.StringVar(&logLevelOverride, "log", "", "overrides the log level for all enabled loggers (debug, info, warn, error)")
 
