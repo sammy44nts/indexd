@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,19 +26,19 @@ type (
 
 	// FileLog configures the file output of the logger.
 	FileLog struct {
-		Enabled bool   `yaml:"enabled,omitempty"`
-		Level   string `yaml:"level,omitempty"` // override the file log level
-		Format  string `yaml:"format,omitempty"`
+		Enabled bool            `yaml:"enabled,omitempty"`
+		Level   zap.AtomicLevel `yaml:"level,omitempty"`
+		Format  string          `yaml:"format,omitempty"`
 		// Path is the path of the log file.
 		Path string `yaml:"path,omitempty"`
 	}
 
 	// StdOutLog configures the standard output of the logger.
 	StdOutLog struct {
-		Level      string `yaml:"level,omitempty"` // override the stdout log level
-		Enabled    bool   `yaml:"enabled,omitempty"`
-		Format     string `yaml:"format,omitempty"`
-		EnableANSI bool   `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
+		Level      zap.AtomicLevel `yaml:"level,omitempty"`
+		Enabled    bool            `yaml:"enabled,omitempty"`
+		Format     string          `yaml:"format,omitempty"`
+		EnableANSI bool            `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
 	}
 
 	// Log contains the configuration for the logger.

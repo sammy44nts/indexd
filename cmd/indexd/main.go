@@ -38,12 +38,12 @@ var cfg = config.Config{
 	},
 	Log: config.Log{
 		File: config.FileLog{
-			Level:   "info",
+			Level:   zap.NewAtomicLevelAt(zapcore.InfoLevel), // the zero-value is Info, but better to be explicit
 			Enabled: true,
 			Format:  "json",
 		},
 		StdOut: config.StdOutLog{
-			Level:      "info",
+			Level:      zap.NewAtomicLevelAt(zapcore.InfoLevel), // the zero-value is Info, but better to be explicit
 			Enabled:    true,
 			Format:     "human",
 			EnableANSI: runtime.GOOS != "windows",
@@ -58,12 +58,6 @@ func checkFatalError(context string, err error) {
 	}
 	os.Stderr.WriteString(fmt.Sprintf("%s: %s\n", context, err))
 	os.Exit(1)
-}
-
-func mustParseLogLevel(str string) zap.AtomicLevel {
-	level, err := zap.ParseAtomicLevel(str)
-	checkFatalError("failed to parse log level", err)
-	return level
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -91,12 +85,6 @@ func humanEncoder(showColors bool) zapcore.Encoder {
 	cfg.StacktraceKey = ""
 	cfg.CallerKey = ""
 	return zapcore.NewConsoleEncoder(cfg)
-}
-
-func initStdoutLog(colored bool, levelStr string) *zap.Logger {
-	level := mustParseLogLevel(levelStr)
-	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
-	return zap.New(core, zap.AddCaller())
 }
 
 func tryConfigPaths() []string {
@@ -182,11 +170,8 @@ func main() {
 
 	// attempt to load the config file, command line flags will override any
 	// values set in the config file
-	configPath := tryLoadConfig()
-	if configPath != "" {
-
-	}
-	// set the data directory to the default if it is not set
+	tryLoadConfig()
+	// determine the data directory
 	cfg.Directory = dataDirectory(cfg.Directory)
 
 	var logLevelOverride string
@@ -194,7 +179,6 @@ func main() {
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, ``)
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store indexd metadata in")
-	// log
 	rootCmd.StringVar(&logLevelOverride, "log", "", "overrides the log level for all enabled loggers (debug, info, warn, error)")
 
 	versionCmd := flagg.New("version", ``)
@@ -209,8 +193,10 @@ func main() {
 	})
 
 	if logLevelOverride != "" {
-		cfg.Log.File.Level = logLevelOverride
-		cfg.Log.StdOut.Level = logLevelOverride
+		level, err := zap.ParseAtomicLevel(logLevelOverride)
+		checkFatalError("failed to parse log level", err)
+		cfg.Log.File.Level = level
+		cfg.Log.StdOut.Level = level
 	}
 
 	switch cmd {
@@ -255,10 +241,6 @@ func main() {
 		var logCores []zapcore.Core
 
 		if cfg.Log.StdOut.Enabled {
-			if cfg.Log.StdOut.Level == "" {
-				cfg.Log.StdOut.Level = "info"
-			}
-
 			var encoder zapcore.Encoder
 			switch cfg.Log.StdOut.Format {
 			case "json":
@@ -268,16 +250,10 @@ func main() {
 			}
 
 			// create the stdout logger
-			level := mustParseLogLevel(cfg.Log.StdOut.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), cfg.Log.StdOut.Level))
 		}
 
 		if cfg.Log.File.Enabled {
-			// if no log level is set for file, use the global log level
-			if cfg.Log.File.Level == "" {
-				cfg.Log.File.Level = "info"
-			}
-
 			// normalize log path
 			if cfg.Log.File.Path == "" {
 				cfg.Log.File.Path = filepath.Join(cfg.Directory, "indexd.log")
@@ -297,8 +273,7 @@ func main() {
 			defer closeFn()
 
 			// create the file logger
-			level := mustParseLogLevel(cfg.Log.File.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), cfg.Log.File.Level))
 		}
 
 		var log *zap.Logger
