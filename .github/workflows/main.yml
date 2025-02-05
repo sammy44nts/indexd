@@ -9,4 +9,4 @@ jobs:
   main:
     permissions:
       contents: read
-    uses: ./go-test.yml
+    uses: ./.github/workflows/go-test.yml
