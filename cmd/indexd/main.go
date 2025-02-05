@@ -22,16 +22,15 @@ import (
 )
 
 const (
-	apiPasswordEnvVar = "INDEXD_API_PASSWORD"
-	configFileEnvVar  = "INDEXD_CONFIG_FILE"
-	dataDirEnvVar     = "INDEXD_DATA_DIR"
+	configFileEnvVar = "INDEXD_CONFIG_FILE"
+	dataDirEnvVar    = "INDEXD_DATA_DIR"
 )
 
 var cfg = config.Config{
 	Directory: os.Getenv(dataDirEnvVar), // default to env variable
 	HTTP: config.HTTP{
-		Address:  "127.0.0.1:9980",
-		Password: os.Getenv(apiPasswordEnvVar),
+		Address:  "127.0.0.1:8080",
+		Password: "changeme_please",
 	},
 	Syncer: config.Syncer{
 		Address:   ":9981",
