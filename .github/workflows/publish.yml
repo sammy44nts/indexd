@@ -152,6 +152,7 @@ jobs:
           done
       - name: Sign Windows
         if: ${{ matrix.OS == 'windows-latest' }}
+        shell: bash
         run: |
           for file in bin/*; do
             azuresigntool sign -kvu "${{ secrets.AZURE_KEY_VAULT_URI }}" -kvi "${{ secrets.AZURE_CLIENT_ID }}" -kvt "${{ secrets.AZURE_TENANT_ID }}" -kvs "${{ secrets.AZURE_CLIENT_SECRET }}" -kvc ${{ secrets.AZURE_CERT_NAME }} -tr http://timestamp.digicert.com -v $file
@@ -172,6 +173,7 @@ jobs:
           xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
       - name: Package
         if: ${{ matrix.OS != 'macos-latest' }}
+        shell: bash
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/$RELEASE_NAME.zip
