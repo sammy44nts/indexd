@@ -69,7 +69,7 @@ func Connect(ctx context.Context, ci ConnectionInfo, log *zap.Logger) (*Store, e
 		log: log,
 	}
 	if err := store.init(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		return nil, fmt.Errorf("failed to initialize store: %w", err)
 	}
 	return store, nil
 }

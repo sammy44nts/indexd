@@ -15,7 +15,6 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/build"
 	"go.sia.tech/indexd/config"
-	"go.sia.tech/indexd/persist/postgres"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"lukechampine.com/flagg"
@@ -29,6 +28,10 @@ const (
 
 var cfg = config.Config{
 	Directory: os.Getenv(dataDirEnvVar), // default to env variable
+	HTTP: config.HTTP{
+		Address:  "127.0.0.1:8080",
+		Password: "changeme_please",
+	},
 	Syncer: config.Syncer{
 		Address:   ":9981",
 		Bootstrap: true,
@@ -180,6 +183,7 @@ func main() {
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, ``)
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store indexd metadata in")
+	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	rootCmd.StringVar(&logLevelOverride, "log", "", "overrides the log level for all enabled loggers (debug, info, warn, error)")
 
 	versionCmd := flagg.New("version", ``)
@@ -286,10 +290,6 @@ func main() {
 		defer log.Sync()
 		zap.RedirectStdLog(log.Named("stdlib"))
 
-		store, err := postgres.Connect(ctx, cfg.Database, log.Named("postgres"))
-		checkFatalError("failed to connect to postgre database", err)
-		defer store.Close()
-
-		<-ctx.Done() // TODO: do stuff
+		checkFatalError("daemon startup failed", runRootCmd(ctx, cfg, log))
 	}
 }

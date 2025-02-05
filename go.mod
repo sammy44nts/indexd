@@ -6,6 +6,7 @@ require (
 	github.com/lib/pq v1.10.9
 	go.sia.tech/core v0.9.1
 	go.sia.tech/coreutils v0.10.1
+	go.sia.tech/jape v0.12.1
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
@@ -14,7 +15,9 @@ require (
 )
 
 require (
+	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/tools v0.29.0 // indirect
 )
