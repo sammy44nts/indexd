@@ -26,7 +26,7 @@ func initPostgres(t *testing.T, log *zap.Logger) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := db.db.Exec(`DROP SCHEMA public CASCADE;CREATE SCHEMA public;`); err != nil {
+		if _, err := db.pool.Exec(context.Background(), `DROP SCHEMA public CASCADE;CREATE SCHEMA public;`); err != nil {
 			panic(err)
 		} else if err := db.Close(); err != nil {
 			panic(err)

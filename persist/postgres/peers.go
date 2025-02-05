@@ -21,7 +21,7 @@ func (s *Store) AddPeer(addr string) error {
 	}
 	return s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		const query = `INSERT INTO syncer_peers (ip_address, port, first_seen, last_connect) VALUES ($1, $2, NOW(), '0001-01-01'::TIMESTAMP WITH TIME ZONE) ON CONFLICT (ip_address) DO NOTHING`
-		_, err := tx.Exec(query, host, port)
+		_, err := tx.Exec(ctx, query, host, port)
 		return err
 	})
 }
@@ -36,7 +36,7 @@ func (s *Store) PeerInfo(addr string) (info syncer.PeerInfo, err error) {
 	}
 	err = s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		const query = `SELECT first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE ip_address=$1 AND port=$2`
-		err = tx.QueryRow(query, host, port).Scan(&info.FirstSeen, &info.LastConnect, &info.SyncedBlocks, (*sqlDurationMS)(&info.SyncDuration))
+		err = tx.QueryRow(ctx, query, host, port).Scan(&info.FirstSeen, &info.LastConnect, &info.SyncedBlocks, (*sqlDurationMS)(&info.SyncDuration))
 		if errors.Is(err, sql.ErrNoRows) {
 			err = syncer.ErrPeerNotFound
 		} else if err == nil {
@@ -51,7 +51,7 @@ func (s *Store) PeerInfo(addr string) (info syncer.PeerInfo, err error) {
 func (s *Store) Peers() (infos []syncer.PeerInfo, err error) {
 	err = s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		const query = `SELECT ip_address, port, first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers`
-		rows, err := tx.Query(query)
+		rows, err := tx.Query(ctx, query)
 		if err != nil {
 			return err
 		}
@@ -81,7 +81,7 @@ func (s *Store) UpdatePeerInfo(addr string, fn func(*syncer.PeerInfo)) error {
 	return s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		var info syncer.PeerInfo
 		err := tx.
-			QueryRow(`SELECT first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE ip_address=$1 AND port=$2`, host, port).
+			QueryRow(ctx, `SELECT first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE ip_address=$1 AND port=$2`, host, port).
 			Scan(&info.FirstSeen, &info.LastConnect, &info.SyncedBlocks, (*sqlDurationMS)(&info.SyncDuration))
 		if errors.Is(err, sql.ErrNoRows) {
 			return syncer.ErrPeerNotFound
@@ -92,13 +92,11 @@ func (s *Store) UpdatePeerInfo(addr string, fn func(*syncer.PeerInfo)) error {
 
 		fn(&info)
 
-		res, err := tx.Exec(`UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE ip_address=$5 AND port=$6`, info.FirstSeen, info.LastConnect, info.SyncedBlocks, sqlDurationMS(info.SyncDuration), host, port)
+		res, err := tx.Exec(ctx, `UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE ip_address=$5 AND port=$6`, info.FirstSeen, info.LastConnect, info.SyncedBlocks, sqlDurationMS(info.SyncDuration), host, port)
 		if err != nil {
 			return fmt.Errorf("failed to update peer info: %w", err)
-		} else if n, err := res.RowsAffected(); err != nil {
-			return err
-		} else if n != 1 {
-			return fmt.Errorf("expected 1 row to be updated, got %d", n)
+		} else if res.RowsAffected() != 1 {
+			return fmt.Errorf("expected 1 row to be updated, got %d", res.RowsAffected())
 		}
 		return nil
 	})
@@ -114,7 +112,7 @@ func (s *Store) Ban(addr string, duration time.Duration, reason string) error {
 	expiration := time.Now().Add(duration)
 	return s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		const query = `INSERT INTO syncer_bans (net_cidr, expiration, reason) VALUES ($1::INET, $2, $3) ON CONFLICT (net_cidr) DO UPDATE SET expiration=EXCLUDED.expiration, reason=EXCLUDED.reason`
-		_, err := tx.Exec(query, address, expiration, reason)
+		_, err := tx.Exec(ctx, query, address, expiration, reason)
 		return err
 	})
 }
@@ -136,7 +134,7 @@ func (s *Store) Banned(peer string) (bool, error) {
 	err = s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		var expiration time.Time
 		query := `SELECT expiration FROM syncer_bans WHERE net_cidr >>= $1::INET ORDER BY expiration DESC LIMIT 1`
-		err := tx.QueryRow(query, net.String()).Scan(&expiration)
+		err := tx.QueryRow(ctx, query, net.String()).Scan(&expiration)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		} else if err != nil {

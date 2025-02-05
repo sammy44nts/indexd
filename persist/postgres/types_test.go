@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.uber.org/zap/zaptest"
@@ -25,15 +26,17 @@ func TestCurrencyEncoding(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 			store := initPostgres(t, log.Named("postgres"))
 
-			_, err := store.db.Exec(`CREATE TEMP TABLE currency_encoding_temp (sc_value NUMERIC(50,0));`)
+			_, err := store.pool.Exec(ctx, `CREATE TEMP TABLE currency_encoding_temp (sc_value NUMERIC(50,0));`)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			err = store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-				_, err := tx.Exec(`INSERT INTO currency_encoding_temp VALUES ($1)`, sqlCurrency(test.expected))
+			err = store.transaction(ctx, func(ctx context.Context, tx *txn) error {
+				_, err := tx.Exec(ctx, `INSERT INTO currency_encoding_temp VALUES ($1)`, sqlCurrency(test.expected))
 				return err
 			})
 			if err != nil {
@@ -41,8 +44,8 @@ func TestCurrencyEncoding(t *testing.T) {
 			}
 
 			var value types.Currency
-			err = store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-				err := tx.QueryRow(`SELECT * FROM currency_encoding_temp`).Scan((*sqlCurrency)(&value))
+			err = store.transaction(ctx, func(ctx context.Context, tx *txn) error {
+				err := tx.QueryRow(ctx, `SELECT * FROM currency_encoding_temp`).Scan((*sqlCurrency)(&value))
 				return err
 			})
 			if err != nil {

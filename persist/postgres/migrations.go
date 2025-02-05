@@ -1,5 +1,9 @@
 package postgres
 
-import "go.uber.org/zap"
+import (
+	"context"
 
-var migrations = []func(tx *txn, log *zap.Logger) error{}
+	"go.uber.org/zap"
+)
+
+var migrations = []func(context.Context, *txn, *zap.Logger) error{}

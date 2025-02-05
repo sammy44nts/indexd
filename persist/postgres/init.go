@@ -2,12 +2,12 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	_ "embed"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
@@ -17,31 +17,31 @@ import (
 var initDatabase string
 
 func initSettings(ctx context.Context, tx *txn) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO global_settings(id, db_version) VALUES (0, 1);`)
+	_, err := tx.Exec(ctx, `INSERT INTO global_settings(id, db_version) VALUES (0, 1);`)
 	return err
 }
 
 // getDBVersion returns the current version of the database.
-func getDBVersion(db *sql.DB) (version int64) {
+func getDBVersion(ctx context.Context, pool *pgxpool.Pool) (version int64) {
 	// error is ignored -- the database may not have been initialized yet.
-	db.QueryRow(`SELECT db_version FROM global_settings;`).Scan(&version)
+	pool.QueryRow(ctx, `SELECT db_version FROM global_settings;`).Scan(&version)
 	return
 }
 
 // setDBVersion sets the current version of the database.
-func setDBVersion(tx *txn, version int64) error {
+func setDBVersion(ctx context.Context, tx *txn, version int64) error {
 	const query = `UPDATE global_settings SET db_version=$1 RETURNING id;`
 	var dbID int64
-	return tx.QueryRow(query, version).Scan(&dbID)
+	return tx.QueryRow(ctx, query, version).Scan(&dbID)
 }
 
 func (s *Store) initNewDatabase(ctx context.Context, target int64) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		if _, err := tx.Exec(initDatabase); err != nil {
+		if _, err := tx.Exec(ctx, initDatabase); err != nil {
 			return err
 		} else if err := initSettings(ctx, tx); err != nil {
 			return fmt.Errorf("failed to init settings: %w", err)
-		} else if err := setDBVersion(tx, target); err != nil {
+		} else if err := setDBVersion(ctx, tx, target); err != nil {
 			return fmt.Errorf("failed to set initial database version: %w", err)
 		}
 		return nil
@@ -56,10 +56,10 @@ func (s *Store) upgradeDatabase(ctx context.Context, current, target int64) erro
 		start := time.Now()
 		fn := migrations[current-1]
 		err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-			if err := fn(tx, log); err != nil {
+			if err := fn(ctx, tx, log); err != nil {
 				return err
 			}
-			return setDBVersion(tx, version)
+			return setDBVersion(ctx, tx, version)
 		})
 		if err != nil {
 			return fmt.Errorf("migration %d failed: %w", version, err)
@@ -71,7 +71,7 @@ func (s *Store) upgradeDatabase(ctx context.Context, current, target int64) erro
 
 func (s *Store) init(ctx context.Context) error {
 	target := int64(len(migrations) + 1) // init.sql is the initial schema
-	version := getDBVersion(s.db)
+	version := getDBVersion(ctx, s.pool)
 	switch {
 	case version == 0:
 		if err := s.initNewDatabase(ctx, target); err != nil {

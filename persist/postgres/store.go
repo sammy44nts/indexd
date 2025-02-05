@@ -2,11 +2,11 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 
-	_ "github.com/lib/pq" // postgres driver
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -25,8 +25,8 @@ type (
 
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
-		db  *sql.DB
-		log *zap.Logger
+		pool *pgxpool.Pool
+		log  *zap.Logger
 	}
 )
 
@@ -36,37 +36,38 @@ func (ci ConnectionInfo) String() string {
 }
 
 func (s *Store) transaction(ctx context.Context, fn func(context.Context, *txn) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	log := s.log.Named("transaction").With(zap.String("id", hex.EncodeToString(frand.Bytes(4))))
 	if err := fn(ctx, &txn{tx, log}); err != nil {
 		return err
-	} else if err := tx.Commit(); err != nil {
+	} else if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
 }
 
-// Close closes the underlying database.
+// Close closes the underlying database connection.
 func (s *Store) Close() error {
-	return s.db.Close()
+	s.pool.Close()
+	return nil
 }
 
 // Connect connects to a running PostgresSQL server. The passed in context
 // determines the lifecycle of necessary migrations. If the context is cancelled,
 // the running migration will be interupted and an error returned.
 func Connect(ctx context.Context, ci ConnectionInfo, log *zap.Logger) (*Store, error) {
-	db, err := sql.Open("postgres", ci.String())
+	pool, err := pgxpool.New(ctx, ci.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 	store := &Store{
-		db:  db,
-		log: log,
+		pool: pool,
+		log:  log,
 	}
 	if err := store.init(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize store: %w", err)
