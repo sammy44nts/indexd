@@ -2,9 +2,6 @@ name: Lint & Test
 on:
   workflow_call:
 
-env:
-  CGO_ENABLED: 1
-
 jobs:
   lint:
     name: Lint
