@@ -80,7 +80,6 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 	web := http.Server{
 		Handler: jape.BasicAuth(password)(api.NewServer(cm, s, store, apiOpts...)),
 	}
-	defer web.Close()
 
 	httpListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
