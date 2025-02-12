@@ -4,12 +4,12 @@ import (
 	"go.sia.tech/jape"
 )
 
-// A Client provides methods for interacting with an autopilot.
+// A Client provides methods for interacting with an indexer.
 type Client struct {
 	c jape.Client
 }
 
-// NewClient returns a new autopilot client.
+// NewClient returns a new indexer client.
 func NewClient(addr, password string) *Client {
 	return &Client{jape.Client{
 		BaseURL:  addr,
@@ -17,7 +17,7 @@ func NewClient(addr, password string) *Client {
 	}}
 }
 
-// State returns the current state of the autopilot.
+// State returns the current state of the indexer.
 func (c *Client) State() (state State, err error) {
 	err = c.c.GET("/state", &state)
 	return

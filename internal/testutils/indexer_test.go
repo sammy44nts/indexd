@@ -10,10 +10,9 @@ import (
 
 func TestIndexer(t *testing.T) {
 	n, genesis := testutil.V2Network()
-	indexer, cleanup := NewIndexer(t, n, genesis, zap.NewNop())
-	defer cleanup()
+	indexer := NewIndexer(t, n, genesis, zap.NewNop())
 
-	state, err := indexer.Client().State()
+	state, err := indexer.State()
 	if err != nil {
 		t.Fatal(err)
 	} else if state.BuildState == (api.BuildState{}) {

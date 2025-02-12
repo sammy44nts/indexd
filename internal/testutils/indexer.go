@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -28,19 +29,22 @@ import (
 // Indexer is a test utility combining an indexer, an http client for the
 // indexer and useful helpers for testing.
 type Indexer struct {
-	client   *api.Client
-	closeFns []func() error
+	*api.Client
 }
 
-// Client returns a ready-to-go API client for the indexer.
-func (i *Indexer) Client() *api.Client {
-	return i.client
+// NewIndexer creates a new indexer for testing that is automatically closed up
+// after the test is finished.
+func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *zap.Logger) *Indexer {
+	indexer, cleanup := NewIndexerNoCleanup(t, n, genesis, log)
+	t.Cleanup(cleanup)
+	return indexer
 }
 
-// NewIndexer creates a new indexer for testing. It returns a cleanup function
-// that closes all of its resources and causes the test to fail if any of them
-// fail to close.
-func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *zap.Logger) (*Indexer, func()) {
+// NewIndexerNoCleanup creates a new indexer for testing. It returns a cleanup
+// function that closes all of its resources and causes the test to fail if any
+// of them fail to close. Useful for tests that require closing the indexer
+// ahead of time.
+func NewIndexerNoCleanup(t testing.TB, n *consensus.Network, genesis types.Block, log *zap.Logger) (*Indexer, func()) {
 	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesis)
 	if err != nil {
 		t.Fatalf("failed to create chain store: %v", err)
@@ -61,7 +65,6 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 		syncer.WithSendBlocksTimeout(2*time.Second),
 		syncer.WithRPCTimeout(2*time.Second),
 	)
-	t.Cleanup(func() { s.Close() })
 	go s.Run()
 
 	apiOpts := []api.ServerOption{
@@ -88,15 +91,15 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 	}()
 
 	return &Indexer{
-			client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
+			Client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
 		}, func() {
-			if err := web.Shutdown(context.Background()); err != nil {
+			if err := closeWithTimeout(shutdownCloser{&web}); err != nil {
 				t.Errorf("failed to shutdown webserver: %v", err)
 			}
-			if err := s.Close(); err != nil {
+			if err := closeWithTimeout(s); err != nil {
 				t.Errorf("failed to close syncer: %v", err)
 			}
-			if err := store.Close(); err != nil {
+			if err := closeWithTimeout(store); err != nil {
 				t.Errorf("failed to close store: %v", err)
 			}
 		}
@@ -135,4 +138,31 @@ func initTestDB(t testing.TB, log *zap.Logger) *postgres.Store {
 		t.Fatalf("failed to connect to postgres database: %v", err)
 	}
 	return store
+}
+
+type shutdowner interface {
+	Shutdown(context.Context) error
+}
+
+type shutdownCloser struct {
+	inner shutdowner
+}
+
+func (s shutdownCloser) Close() error {
+	return s.inner.Shutdown(context.Background())
+}
+
+func closeWithTimeout(c io.Closer) error {
+	closed := make(chan struct{})
+	defer close(closed)
+
+	time.AfterFunc(30*time.Second, func() {
+		select {
+		case <-closed:
+		default:
+			panic("indexer ")
+		}
+	})
+
+	return c.Close()
 }
