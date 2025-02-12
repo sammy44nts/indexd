@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -93,13 +92,13 @@ func NewIndexerNoCleanup(t testing.TB, n *consensus.Network, genesis types.Block
 	return &Indexer{
 			Client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
 		}, func() {
-			if err := closeWithTimeout(shutdownCloser{&web}); err != nil {
+			if err := shutdownWithTimeout(web.Shutdown); err != nil {
 				t.Errorf("failed to shutdown webserver: %v", err)
 			}
-			if err := closeWithTimeout(s); err != nil {
+			if err := closeWithTimeout(s.Close); err != nil {
 				t.Errorf("failed to close syncer: %v", err)
 			}
-			if err := closeWithTimeout(store); err != nil {
+			if err := closeWithTimeout(store.Close); err != nil {
 				t.Errorf("failed to close store: %v", err)
 			}
 		}
@@ -140,19 +139,9 @@ func initTestDB(t testing.TB, log *zap.Logger) *postgres.Store {
 	return store
 }
 
-type shutdowner interface {
-	Shutdown(context.Context) error
-}
-
-type shutdownCloser struct {
-	inner shutdowner
-}
-
-func (s shutdownCloser) Close() error {
-	return s.inner.Shutdown(context.Background())
-}
-
-func closeWithTimeout(c io.Closer) error {
+// closeWithTimeout is a helper which closes a resource and panics if it takes
+// longer than 30 seconds.
+func closeWithTimeout(closeFn func() error) error {
 	closed := make(chan struct{})
 	defer close(closed)
 
@@ -160,9 +149,20 @@ func closeWithTimeout(c io.Closer) error {
 		select {
 		case <-closed:
 		default:
-			panic("indexer ")
+			panic("timeout")
 		}
 	})
 
-	return c.Close()
+	return closeFn()
+}
+
+// shutdownWithTimeout is a wrapper around closeWithTimeout to handle shutdown
+// functions.
+// NOTE: We pass a background context here since we want to be notified if the
+// graceful shutdown times out during testing rather than forcing a shutdown by
+// closing the ctx.
+func shutdownWithTimeout(shutdownFn func(context.Context) error) error {
+	return closeWithTimeout(func() error {
+		return shutdownFn(context.Background())
+	})
 }
