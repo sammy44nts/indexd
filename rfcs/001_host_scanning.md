@@ -23,7 +23,7 @@ performing host scans. Scanning a host includes the following steps:
 any of the following checks fail, the host is considered "bad":
   - More than 1 week of uptime and a 90%+ uptime overall
   - MaxDuration is greater than configured contract period
-  - MaxCollateral per contract of at least 1TB worth of data (TODO: what happens if we reach it?)
+  - MaxCollateral per contract of at least 1TB worth of data
   - Perform [Gouging Checks](003_gouging_checks.md)
   - Protocol version of at least 1.0.0
   - Prices should be valid for at least 1 hour
@@ -32,7 +32,7 @@ any of the following checks fail, the host is considered "bad":
 - Update database
   - Store breakdown of checks in the database
   - Store host settings in the database
-  - Store IP subnet of the host in the database (to compute health of slabs)
+  - Store IP subnet(s) of the host in the database (to compute health of slabs)
 
 #### Scheduled Scans
 
@@ -63,5 +63,5 @@ To avoid scanning hosts that have disappeared forever, hosts are deleted from
 the database when the following conditions are met:
 
 - We don't have a contract with the host (let it expire first)
-- The host has been offline for more than 3 months
+- The host has been offline for more than 12 months
 - The host has at least 10 consecutive failed scans

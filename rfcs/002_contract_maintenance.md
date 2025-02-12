@@ -22,7 +22,7 @@ least 50 contracts that meet the following requirements:
 
 - The corresponding host is considered "good" (see [Host Scanning](001_host_scanning.md))
 - The corresponding host doesn't share the same IP subnet as another host we have a contract with (if they do, they count as one)
-- The contract has less than 10TB of data in it (if it has more and the host is good, we form another contract with the same host)
+- The contract has less than 10TB of data in it and hasn't reached its MaxCollateral (if it has more and the host is good, we form another contract with the same host)
 - The corresponding host has at least 10GB of free space
 - The contract is neither out of collateral nor out of funds
 - The contract is not less than half a renew window away from expiring
@@ -35,8 +35,8 @@ To achieve that, we perform the following steps:
 5. Form a contract with the host
 6. Repeat from step 2 until the desired number of contracts is reached
 
-Initially we fund contracts with 10SC of allowance and however much collateral
-that converts to. e.g. if 10SC equals 100GB of data, we add 100GB worth of
+Initially we fund contracts with 10GB (upload+download+storage) of allowance and
+10GB of collateral. e.g. if 10SC equals 100GB of data, we add 100GB worth of
 collateral.
 
 ### Contract Renewals

@@ -18,13 +18,13 @@ changes them.
 
 | Setting           | Assertion |
 |-------------------|----------------|
-| ContractPrice     | < 10SC |
+| ContractPrice     | < 1SC |
 | Collateral        | > configured MinCollateral && >= 2x StoragePrice|
 | StoragePrice      | < configurd MaxStoragePrice |
 | IngressPrice      | < configured MaxIngressPrice |
 | EgressPrice       | < configured MaxEgressPrice |
 | FreeSectorPrice   | <= 1SC / TB |
-| TipHeight         | not more than 144 blocks in the past|
+| TipHeight         | not more than 144 blocks in the past |
 
 ### When to perform the checks
 
