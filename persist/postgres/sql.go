@@ -69,22 +69,32 @@ func (r *row) Scan(dest ...any) error {
 
 // Exec executes a query without returning any rows. The args are for
 // any placeholder parameters in the query.
-func (tx *txn) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+func (tx *txn) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	start := time.Now()
-	result, err := tx.Tx.Exec(ctx, query, args...)
+	result, err := tx.Tx.Exec(ctx, sql, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		tx.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow exec", zap.String("sql", sql), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
 
+// Prepare creates a prepared statement for later queries or executions.
+func (tx *txn) Prepare(ctx context.Context, name, sql string) (*pgconn.StatementDescription, error) {
+	start := time.Now()
+	desc, err := tx.Tx.Prepare(ctx, name, sql)
+	if dur := time.Since(start); dur > longQueryDuration {
+		tx.log.Debug("slow prepare", zap.String("sql", sql), zap.Duration("elapsed", dur), zap.Stack("stack"))
+	}
+	return desc, err
+}
+
 // Query executes a query that returns rows, typically a SELECT. The
 // args are for any placeholder parameters in the query.
-func (tx *txn) Query(ctx context.Context, query string, args ...any) (*rows, error) {
+func (tx *txn) Query(ctx context.Context, sql string, args ...any) (*rows, error) {
 	start := time.Now()
-	r, err := tx.Tx.Query(ctx, query, args...)
+	r, err := tx.Tx.Query(ctx, sql, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		tx.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow query", zap.String("sql", sql), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return &rows{r, tx.log.Named("rows")}, err
 }
@@ -94,11 +104,11 @@ func (tx *txn) Query(ctx context.Context, query string, args ...any) (*rows, err
 // Row's Scan method is called. If the query selects no rows, the *Row's
 // Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
 // first selected row and discards the rest.
-func (tx *txn) QueryRow(ctx context.Context, query string, args ...any) *row {
+func (tx *txn) QueryRow(ctx context.Context, sql string, args ...any) *row {
 	start := time.Now()
-	r := tx.Tx.QueryRow(ctx, query, args...)
+	r := tx.Tx.QueryRow(ctx, sql, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		tx.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow query row", zap.String("sql", sql), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return &row{r, tx.log.Named("row")}
 }
