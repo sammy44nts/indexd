@@ -35,6 +35,7 @@ CREATE TABLE wallet_siacoin_elements (
     leaf_index INTEGER NOT NULL,
     maturity_height INTEGER NOT NULL
 );
+CREATE INDEX wallet_siacoin_elements_output_id_idx ON wallet_siacoin_elements(output_id);
 
 CREATE TABLE global_settings (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
