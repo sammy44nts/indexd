@@ -1,7 +1,9 @@
 package testutils
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/testutil"
@@ -21,9 +23,9 @@ type (
 // Cluster is a test cluster that contains an indexer, multiple hosts and an app
 // that interacts with them.
 type Cluster struct {
-	app     *App
-	indexer *Indexer
-	hosts   []*Host
+	App     *App
+	Hosts   []*Host
+	Indexer *Indexer
 }
 
 var (
@@ -59,12 +61,30 @@ func NewCluster(t testing.TB, opts ...ClusterOpt) *Cluster {
 	n, genesis := testutil.V2Network()
 	indexer := NewIndexer(t, n, genesis, zap.NewNop())
 
-	// mine until after v2 height to fund indexer
+	// mine until after v2 height to reach v2 and to fund indexer
 	indexer.MineBlocks(t, types.Address{}, int(n.HardforkV2.AllowHeight)) // TODO: add wallet to indexer and actually fund it
 
-	// TODO: create hosts and connect them to the indexer
+	// create hosts and connect them to the indexer
+	var hosts []*Host
+	for i := 0; i < cfg.nHosts; i++ {
+		pk := types.GeneratePrivateKey()
+		h := NewHost(t, pk, n, genesis, cfg.logger)
+		_, err := h.s.Connect(context.Background(), indexer.syncer.Addr())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hosts = append(hosts, h)
+	}
 
-	// TODO: fund hosts
+	// fund hosts with one block each
+	for _, h := range hosts {
+		indexer.MineBlocks(t, h.w.Address(), 1)
+	}
+
+	// mine more blocks to get outputs to mature
+	indexer.MineBlocks(t, types.Address{}, int(n.MaturityDelay))
+
+	// TODO: add volumes to hosts
 
 	// TODO: announce hosts
 
@@ -73,8 +93,24 @@ func NewCluster(t testing.TB, opts ...ClusterOpt) *Cluster {
 	// TODO: mine blocks and sync up
 
 	// TODO: create app
+	app := &App{}
 
 	return &Cluster{
-		indexer: indexer,
+		App:     app,
+		Hosts:   hosts,
+		Indexer: indexer,
 	}
+}
+
+func Retry(t testing.TB, tries int, durationBetweenAttempts time.Duration, fn func() error) {
+	t.Helper()
+	var err error
+	for i := 0; i < tries; i++ {
+		err = fn()
+		if err == nil {
+			return
+		}
+		time.Sleep(durationBetweenAttempts)
+	}
+	t.Fatal(err)
 }

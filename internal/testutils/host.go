@@ -62,6 +62,7 @@ func NewHost(t testing.TB, pk types.PrivateKey, n *consensus.Network, genesis ty
 	},
 		syncer.WithSendBlocksTimeout(2*time.Second),
 		syncer.WithRPCTimeout(2*time.Second),
+		syncer.WithSyncInterval(100*time.Millisecond),
 	)
 	t.Cleanup(func() { s.Close() })
 	go s.Run()

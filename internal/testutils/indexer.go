@@ -114,7 +114,7 @@ func (idx *Indexer) MineBlocks(t testing.TB, addr types.Address, n int) {
 		if b.V2 == nil {
 			idx.syncer.BroadcastHeader(b.Header())
 		} else {
-			idx.syncer.BroadcastV2BlockOutline(gateway.OutlineBlock(b, idx.cm.PoolTransactions(), cn.Chain.V2PoolTransactions()))
+			idx.syncer.BroadcastV2BlockOutline(gateway.OutlineBlock(b, idx.cm.PoolTransactions(), idx.cm.V2PoolTransactions()))
 		}
 	}
 }

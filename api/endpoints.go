@@ -21,3 +21,7 @@ func (a *api) handleGETState(jc jape.Context) {
 		},
 	})
 }
+
+func (a *api) handleGETConsensusTip(jc jape.Context) {
+	jc.Encode(a.chain.TipState())
+}

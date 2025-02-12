@@ -3,13 +3,16 @@ package api
 import (
 	"net/http"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 )
 
 type (
 	// A ChainManager retrieves the current blockchain state
-	ChainManager interface{}
+	ChainManager interface {
+		TipState() consensus.State
+	}
 
 	// A Store is a persistent store for the indexer.
 	Store interface{}
@@ -39,6 +42,7 @@ func NewServer(chain ChainManager, syncer Syncer, store Store, opts ...ServerOpt
 	}
 
 	return jape.Mux(map[string]jape.Handler{
-		"GET /state": a.handleGETState,
+		"GET /state":         a.handleGETState,
+		"GET /consensus/tip": a.handleGETConsensusTip,
 	})
 }
