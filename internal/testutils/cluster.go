@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,10 +21,9 @@ type (
 	ClusterOpt func(*clusterOpts)
 )
 
-// Cluster is a test cluster that contains an indexer, multiple hosts and an app
-// that interacts with them.
+// Cluster is a test cluster that contains an indexer, hosts and other helper
+// types as needed for integration testing.
 type Cluster struct {
-	App     *App
 	Hosts   []*Host
 	Indexer *Indexer
 }
@@ -84,24 +84,30 @@ func NewCluster(t testing.TB, opts ...ClusterOpt) *Cluster {
 	// mine more blocks to get outputs to mature
 	indexer.MineBlocks(t, types.Address{}, int(n.MaturityDelay))
 
-	// TODO: add volumes to hosts
+	// TODO: implement as needed
+	// - add volumes to hosts
+	// - announce hosts
+	// - wait for contracts
+	// - sync cluster
 
-	// TODO: announce hosts
-
-	// TODO: wait for contracts with the hosts
-
-	// TODO: mine blocks and sync up
-
-	// TODO: create app
-	app := &App{}
+	Retry(t, 100, 100*time.Millisecond, func() error {
+		tip := indexer.cm.Tip()
+		for _, h := range hosts {
+			if h.c.Tip() != tip {
+				return fmt.Errorf("host's tip doesn't match indexer's: %v %v", tip, h.c.Tip())
+			}
+		}
+		return nil
+	})
 
 	return &Cluster{
-		App:     app,
 		Hosts:   hosts,
 		Indexer: indexer,
 	}
 }
 
+// Retry retries a function until it returns nil or the number of tries is
+// reached.
 func Retry(t testing.TB, tries int, durationBetweenAttempts time.Duration, fn func() error) {
 	t.Helper()
 	var err error

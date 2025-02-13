@@ -36,5 +36,13 @@ func TestNewCluster(t *testing.T) {
 		return nil
 	})
 
-	// TODO: assert that we have contracts with the hosts
+	// assert all peers are synced
+	tip := indexer.cm.Tip()
+	for _, h := range cluster.Hosts {
+		if h.c.Tip() != tip {
+			t.Fatal("host is not synced")
+		}
+	}
+
+	// TODO: extend this as features get implemented
 }
