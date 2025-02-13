@@ -6,12 +6,13 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/testutil"
-	"go.sia.tech/indexd/internal/rhp/v4"
+	rhp "go.sia.tech/indexd/internal/rhp/v4"
+	"go.uber.org/goleak"
 	"go.uber.org/zap"
 )
 
 func TestMain(m *testing.M) {
-	VerifyTestMain(m)
+	goleak.VerifyTestMain(m)
 }
 
 func TestHost(t *testing.T) {

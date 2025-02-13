@@ -49,7 +49,7 @@ func NewHost(t testing.TB, pk types.PrivateKey, n *consensus.Network, genesis ty
 	}
 	cm := chain.NewManager(db, tipstate)
 
-	syncerListener, err := net.Listen("tcp", ":0")
+	syncerListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func NewHost(t testing.TB, pk types.PrivateKey, n *consensus.Network, genesis ty
 	s := syncer.New(syncerListener, cm, testutil.NewEphemeralPeerStore(), gateway.Header{
 		GenesisID:  genesis.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
-		NetAddress: "localhost:1234",
+		NetAddress: syncerListener.Addr().String(),
 	},
 		syncer.WithSendBlocksTimeout(2*time.Second),
 		syncer.WithRPCTimeout(2*time.Second),

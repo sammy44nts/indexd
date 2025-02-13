@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/indexd/internal/testutils"
+	"go.uber.org/goleak"
 	"go.uber.org/zap"
 )
 
 func TestMain(m *testing.M) {
-	testutils.VerifyTestMain(m)
+	goleak.VerifyTestMain(m)
 }
 
 func initPostgres(t *testing.T, log *zap.Logger) *Store {
