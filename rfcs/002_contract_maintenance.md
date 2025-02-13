@@ -5,8 +5,8 @@
 For data to remain on the network, contracts needs to be formed and renewed. The
 contract maintenance process automates this by performing a range of checks on
 hosts and existing contracts to determine whether the contracts we have are
-still sufficient. This RFC outlines the necessary step performed by the contract
-maintenance code.
+still sufficient. This RFC outlines the necessary steps performed by the
+contract maintenance code.
 
 ### Contract Archiving
 
@@ -35,8 +35,8 @@ To achieve that, we perform the following steps:
 5. Form a contract with the host
 6. Repeat from step 2 until the desired number of contracts is reached
 
-Initially we fund contracts with 10GB (upload+download+storage) of allowance and
-10GB of collateral. e.g. if 10SC equals 100GB of data, we add 100GB worth of
+Initially, we fund contracts with 10GB (upload+download+storage) of allowance
+and 10GB of collateral. e.g. if 10SC equals 100GB of data, we add 100GB worth of
 collateral.
 
 ### Contract Renewals

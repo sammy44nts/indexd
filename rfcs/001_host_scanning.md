@@ -2,8 +2,8 @@
 
 ## Abstract
 
-The foundation of renting on the Sia network is are the contracts that renters
-for with hosts to pay them for their provided services. Since the Sia network is
+The foundation of renting on the Sia network are the contracts that renters form
+with hosts to pay them for their provided services. Since the Sia network is
 completely permissionless, hosts can come and go as they please. This means, we
 need to be careful about what hosts to pick for forming contracts which requires
 scanning them and tracking some metrics about them.
@@ -17,7 +17,7 @@ performing host scans. Scanning a host includes the following steps:
   - Upon success, add the time that has passed since the last scan to the host's uptime
   - Upon failure, add the time that has passed since the last scan to the host's downtime
   - Increment the number of successful, failed and total scans in the store
-  - Update the next scan time to be in 24 +- 6 hours to spread scans out
+  - Update the next scan time to be in 24 ± 6 hours to spread scans out
 
 - Perform the following checks on the host to determine whether it's good. If
 any of the following checks fail, the host is considered "bad":
@@ -40,9 +40,9 @@ Hosts should be scanned periodically to accurately determine their uptime. To do
 so we use the following approach.
 
 - If a host hasn't been scanned yet, scan it
-- If the scan was a success, schedule another scan for 24 +- 6 hours from now
+- If the scan was a success, schedule another scan for 24 ± 6 hours from now
 - If the scan failed use an exponential backoff to schedule the next scan in 8,
-16, 32, 64, 128 hours with 128 hours being the max
+16, 32, 64, 128 and hours with 128 hours being the max
 
 #### Unscheduled Scans
 
@@ -51,7 +51,7 @@ frequently for various operations for which we need valid prices, which in turn
 requires us to fetch valid settings from hosts. The following operations trigger
 a scan as a byproduct:
 
-- Forming/Renewing/Refreshing a contract always fetches a new price table
+- Forming, Renewing and Refreshing a contract always fetches a new price table
 - Fetching new prices for:
   - Refilling an account
   - Pinning sectors

@@ -20,7 +20,7 @@ changes them.
 |-------------------|----------------|
 | ContractPrice     | < 1SC |
 | Collateral        | > configured MinCollateral && >= 2x StoragePrice|
-| StoragePrice      | < configurd MaxStoragePrice |
+| StoragePrice      | < configured MaxStoragePrice |
 | IngressPrice      | < configured MaxIngressPrice |
 | EgressPrice       | < configured MaxEgressPrice |
 | FreeSectorPrice   | <= 1SC / TB |
