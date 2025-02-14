@@ -19,8 +19,8 @@ that right before we allow users to access third party indexers
 
 Unlike `renterd`, the `indexer` doesn't locally track the expected balance of
 accounts to know when to fund them. Instead, it uses a ratelimit-based approach.
-Accounts are funded with at most 1SC per hour as needed. To do so, the following
-state will be stored for every account and host:
+Accounts are funded with at most 1SC per hour. To do so, the following state
+will be stored for every account and host:
 
 | **Field** | **Description** |
 |-------|-------------|
