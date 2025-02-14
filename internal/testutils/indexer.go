@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/persist/postgres"
+	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -34,6 +35,7 @@ type Indexer struct {
 
 	cm     *chain.Manager
 	syncer *syncer.Syncer
+	wallet *wallet.SingleAddressWallet
 }
 
 // NewIndexer creates a new indexer for testing that is automatically closed up
@@ -53,6 +55,8 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 	if err != nil {
 		t.Fatalf("failed to create wallet: %v", err)
 	}
+
+	sub := subscriber.New(cm, wm, store, subscriber.WithLogger(log.Named("subscriber")))
 
 	syncerListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -100,6 +104,9 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 		if err := closeWithTimeout(wm.Close); err != nil {
 			t.Errorf("failed to close wallet: %v", err)
 		}
+		if err := closeWithTimeout(sub.Close); err != nil {
+			t.Errorf("failed to close subscriber: %v", err)
+		}
 		if err := closeWithTimeout(store.Close); err != nil {
 			t.Errorf("failed to close store: %v", err)
 		}
@@ -109,6 +116,7 @@ func NewIndexer(t testing.TB, n *consensus.Network, genesis types.Block, log *za
 
 		cm:     cm,
 		syncer: s,
+		wallet: wm,
 	}
 }
 

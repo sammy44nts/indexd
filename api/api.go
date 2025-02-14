@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"go.sia.tech/core/consensus"
@@ -20,7 +21,9 @@ type (
 	}
 
 	// A Store is a persistent store for the indexer.
-	Store interface{}
+	Store interface {
+		LastScannedIndex(context.Context) (types.ChainIndex, error)
+	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {

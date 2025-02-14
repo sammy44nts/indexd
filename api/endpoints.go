@@ -38,6 +38,11 @@ func (a *api) checkServerError(jc jape.Context, context string, err error) bool 
 }
 
 func (a *api) handleGETState(jc jape.Context) {
+	ci, err := a.store.LastScannedIndex(jc.Request.Context())
+	if jc.Check("failed to get last scanned index", err) != nil {
+		return
+	}
+
 	jc.Encode(State{
 		StartTime: startTime,
 		BuildState: BuildState{
@@ -46,6 +51,7 @@ func (a *api) handleGETState(jc jape.Context) {
 			OS:        runtime.GOOS,
 			BuildTime: build.Time(),
 		},
+		ScanHeight: ci.Height,
 	})
 }
 
