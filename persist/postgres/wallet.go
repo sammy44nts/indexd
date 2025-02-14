@@ -52,6 +52,15 @@ func (s *Store) UnspentSiacoinElements() (sces []types.SiacoinElement, err error
 // height, descending. If no more transactions are available, (nil, nil) should
 // be returned.
 func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err error) {
+	// sanity check input
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be positive")
+	} else if limit < 0 {
+		return nil, fmt.Errorf("limit must be positive")
+	} else if limit == 0 {
+		return nil, nil
+	}
+
 	ci, err := s.Tip()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last scanned index: %w", err)
