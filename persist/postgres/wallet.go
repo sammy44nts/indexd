@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -53,9 +52,11 @@ func (s *Store) UnspentSiacoinElements() (sces []types.SiacoinElement, err error
 // height, descending. If no more transactions are available, (nil, nil) should
 // be returned.
 func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err error) {
-	if limit == 0 || limit == -1 {
-		limit = math.MaxInt64
+	ci, err := s.Tip()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last scanned index: %w", err)
 	}
+
 	err = s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `SELECT chain_index, maturity_height, event_id, event_type, event_data FROM wallet_events ORDER BY maturity_height DESC, id DESC LIMIT $1 OFFSET $2`, limit, offset)
 		if err != nil {
@@ -68,6 +69,9 @@ func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err erro
 			err := rows.Scan((*sqlChainIndex)(&event.Index), &event.MaturityHeight, (*sqlHash256)(&event.ID), &event.Type, sqlDecodeEvent(&event.Data))
 			if err != nil {
 				return fmt.Errorf("failed to scan wallet event: %w", err)
+			}
+			if ci.Height > event.Index.Height {
+				event.Confirmations = ci.Height - event.Index.Height
 			}
 			events = append(events, event)
 		}

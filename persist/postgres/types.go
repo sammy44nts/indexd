@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"time"
 
@@ -116,7 +115,7 @@ func (event sqlEventData) Value() (driver.Value, error) {
 	case wallet.EventV2Transaction:
 		types.V2Transaction(data).EncodeTo(e)
 	default:
-		return nil, fmt.Errorf("unknown event type: %s", event.eventType) // should never happen
+		panic(fmt.Sprintf("unknown event type %v", event.eventType)) // developer error
 	}
 	if err := e.Flush(); err != nil {
 		return nil, err
@@ -127,7 +126,7 @@ func (event sqlEventData) Value() (driver.Value, error) {
 func (ed *sqlEventData) Scan(src any) error {
 	// sanity check to avoid nil pointer dereferences
 	if ed.data == nil {
-		return errors.New("EventData.Scan: nil pointer") // developer error
+		panic("EventData.Scan: nil pointer") // developer error
 	}
 	switch src := src.(type) {
 	case []byte:
@@ -157,7 +156,7 @@ func (ed *sqlEventData) Scan(src any) error {
 			e.DecodeFrom(dec)
 			*ed.data = e
 		default:
-			return fmt.Errorf("unknown event type %v", ed.eventType)
+			panic(fmt.Sprintf("unknown event type %v", ed.eventType)) // developer error
 		}
 		return dec.Err()
 	default:
