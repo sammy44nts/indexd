@@ -24,7 +24,7 @@ var (
 	ErrInvalidOffset = errors.New("offset must be non-negative")
 
 	// ErrInvalidLimit is returned when the requested limit is invalid.
-	ErrInvalidLimit = fmt.Errorf("limit must between -1 and %d", maxLimit)
+	ErrInvalidLimit = fmt.Errorf("limit must between 1 and %d", maxLimit)
 )
 
 var startTime = time.Now()
@@ -141,22 +141,19 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 
 func parseOffsetLimit(jc jape.Context) (offset int, limit int, ok bool) {
 	if jc.DecodeForm("offset", &offset) != nil {
-		return
+		return 0, 0, false
 	} else if offset < 0 {
 		jc.Error(ErrInvalidOffset, http.StatusBadRequest)
-		return
+		return 0, 0, false
 	}
 
 	limit = defaultLimit
 	if jc.DecodeForm("limit", &limit) != nil {
-		return
-	} else if limit < -1 || limit > maxLimit {
+		return 0, 0, false
+	} else if limit < 1 || limit > maxLimit {
 		jc.Error(ErrInvalidLimit, http.StatusBadRequest)
-		return
-	} else if limit == -1 {
-		limit = maxLimit
+		return 0, 0, false
 	}
 
-	ok = true
-	return
+	return offset, limit, true
 }
