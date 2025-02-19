@@ -172,14 +172,14 @@ CREATE TABLE slabs (
 
 CREATE TABLE sectors (
     id BIGSERIAL PRIMARY KEY,
-    slab_id BIGINT REFERENCES slabs(id) NOT NULL ON DELETE CASCADE,
+    slab_id BIGINT REFERENCES slabs(id) NOT NULL,
     slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
     root BYTEA UNIQUE NOT NULL
 )
 
 CREATE TABLE host_sectors (
     host_id INTEGER REFERENCES hosts(id) NOT NULL,
-    sector_id BIGINT REFERENCES sectors(id) NOT NULL ON DELETE CASCADE,
+    sector_id BIGINT REFERENCES sectors(id) NOT NULL,
     PRIMARY KEY (host_id, sector_id), -- a sector should only exist once per host
 
     contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL, -- determines whether the sector is pinned
