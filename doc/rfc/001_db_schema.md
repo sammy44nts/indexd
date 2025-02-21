@@ -25,7 +25,14 @@ configuration entry.
 CREATE TABLE global_settings (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
     db_version INTEGER NOT NULL, -- used for migrations
-    last_scanned_index BYTEA -- chain index of the last scanned block
+    last_scanned_index BYTEA, -- chain index of the last scanned block
+
+    -- pricing related settings, limits default to whatever default indexd is shipped with if NULL
+    pinned_currency TEXT, -- e.g. USD, EUR, etc.
+    min_collateral NUMERIC(50,0), -- hastings / byte / block
+    max_storage_price NUMERIC(50,0), -- hastings / byte / block
+    max_ingress_price NUMERIC(50,0), -- hastings / byte
+    max_egress_price NUMERIC(50,0) -- hastings / byte
 );
 ```
 
