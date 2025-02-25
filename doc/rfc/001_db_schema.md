@@ -166,6 +166,7 @@ CREATE TABLE host_settings (
 CREATE TABLE contracts (
   id SERIAL PRIMARY KEY
 
+  is_good BOOLEAN NOT NULL DEFAULT TRUE,
   -- TODO: f/u with more fields in a separate PR
 )
 ```
@@ -178,6 +179,7 @@ CREATE TABLE slabs (
 
     digest BYTEA UNIQUE NOT NULL, -- unique identifier for the slab derived from sector roots
     encryption_key BYTEA NOT NULL,
+    last_repair_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
     min_shards SMALLINT NOT NULL CHECK(min_shards > 0)
 )
 
@@ -186,7 +188,7 @@ CREATE TABLE sectors (
     sector_root BYTEA UNIQUE NOT NULL
 
     -- uploading
-    host_id INTEGER REFERENCES hosts(id) NOT NULL, -- host that stores sector
+    host_id INTEGER REFERENCES hosts(id), -- host that stores sector
     contract_id INTEGER REFERENCES contracts(id), -- null if not pinned
     uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() -- allow sorting by upload time
 
@@ -196,5 +198,5 @@ CREATE TABLE sectors (
     UNIQUE(slab_id, slab_index) -- enforce one sector per index per slab
 )
 -- quick lookup of sectors to pin prioritized by upload time
-CREATE INDEX host_sectors_contract_id_uploaded_at_idx ON host_sectors(contract_id, uploaded_at ASC)
+CREATE INDEX sectors_contract_id_uploaded_at_idx ON host_sectors(contract_id, uploaded_at ASC)
 ```
