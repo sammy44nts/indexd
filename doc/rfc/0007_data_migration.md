@@ -11,42 +11,19 @@ unhealthy slabs from the database and repairs them.
 
 ### Health
 
-The health of a slab is determined by the percentage of available parity shards.
-That makes it easy to compare the health of slabs of various redundancy
-settings. A slab with fewer redundancy shards will drop in health faster when a
-host goes bad than one with many and will therefore be repaired sooner.
+The health of a slab is determined by its likelihood of becoming unrecoverable.
+In `renterd` this was a relatively hard and expensive to compute metric since it
+accounts for sectors that are stored redundantly on multiple hosts. The database
+schema of `indexd` is more straightforward. Since we only ever keep a single row
+per sector in the `sectors` table of our database, we can simply determine the
+number of shards until failure by counting the result of joining `slabs.id` with
+`sectors.slab_id` and `sectors.contract_id` with `contracts.id` and filtering for
+`sectors.host_id != NULL AND contract.is_good == TRUE`. Subtracting
+`slabs.min_shards` from that number gives us the remaining shards until failure.
 
-Computing the health is achieved with the following algorithm which is
-periodically applied to all slabs that have a health_valid_until that is in the
-past:
-
-1. Retrieve all rows from `host_sectors` that are either not pinned yet
-(`contract_id` is `NULL`) or have a good contract (`is_good` is `TRUE`).
-2. Make sure they are sorted by their index within the slab and their
-`uploaded_at` time in descending order (to prioritize the more recent ones).
-3. Loop over the sectors and increment a counter for each sector that:
-    - Has a `slab_index` for which we counted a good sector yet.
-    - Has a `host_id` for which we haven't counted a sector yet.
-    - Has an IP subnet for which we haven't counted a sector yet.
-4. Compute the health of the slab using the formula:
-    `health = 100 * (good_shards - min_shards / (total_shards - min_shards))`
-5. Update the health of the slab in the database:
-    - If it is < 0 set it to -1 so that all lost slabs have the same health.
-    - If it is > 100, search for the bug that is causing it because it should never happen.
-
-With all of the above in place, the database also exposes a `slabs, nextRefresh := UnhealthySlabs(lastRepairAttemptCutoff,  limit)` method which returns up to `limit` slabs for which the following holds true:
-- The slabs haven't had a repair attempated on them since `lastRepairAttemptCutoff`.
-- The slabs are sorted from most unhealthy to least unhealthy.
-
-The point of the former is to allow the repair loop to exhaust the list of
-unhealthy slabs without getting stuck on unrepairable slabs. The repair time is
-set to NULL upon a successful repair or to the current batches start time upon a
-failed repair. A failed repair won't be attempted for another another.
-
-The point of `nextRefresh` is to provide a marker for the repair loop. If
-`UnhealthySlabs` returns fewer than `limit` slabs, the repair loop knows to
-sleep until `nextRefresh` since there won't be any new slabs to repair until the
-health is updated again.
+Fetching slabs for repair is then as simple as querying the health of all slabs,
+ordered by the number of shards until failure and limiting the results to a
+number just enough to saturate our repair loop such as `10`.
 
 ### Repair Loop
 
@@ -55,14 +32,15 @@ process and looks like this:
 
 1. Fetch all good hosts we can upload to from the database.
 2. Fetch up to 10 slabs for repair and launch a goroutine for each slab.
-3. Determine which shards are missing or stored on bad hosts by using the same
-algorithm as the health check.
+3. Determine which shards are missing or stored on bad contracts. Then find
+replacements for them taking into account the IP subnets of hosts that already
+store shards.
 4. Fetch the account balance and fund the account if necessary for the repair.
 5. Download the slab and reconstruct the missing shards (NOTE: compare the
 reconstructed shard to the sector root we think it is supposed to hash to. See
 [Lost Slabs and Bad Metadata](#lost-slabs-and-bad-metadata)).
 6. Upload the missing shards one after another, reevaluating which hosts to use
-by continuously applying the rules of the health check (NOTE: uploading a
+by continuously applying the IP net check (NOTE: uploading a
 missing shard to a host affects the hosts that we can upload the remaining
 missing shards to).
 7. Wait for the goroutines to finish.
