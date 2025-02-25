@@ -170,32 +170,17 @@ CREATE TABLE slabs (
 
 CREATE TABLE sectors (
     id BIGSERIAL PRIMARY KEY,
+    sector_root BYTEA UNIQUE NOT NULL
+
+    -- uploading
+    host_id INTEGER REFERENCES hosts(id) NOT NULL, -- host that stores sector
+    contract_id INTEGER REFERENCES contracts(id), -- null if not pinned
+    uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() -- allow sorting by upload time
+
+    -- slab
     slab_id BIGINT REFERENCES slabs(id) NOT NULL,
     slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
-    root BYTEA UNIQUE NOT NULL
-)
--- enforce one sector per index per slab
-CREATE UNIQUE INDEX sectors_slab_id_slab_index_idx ON sectors(slab_id, slab_index ASC)
-```
-
-CREATE TABLE host_sectors (
-    id BIGSERIAL PRIMARY KEY,
-    host_id INTEGER REFERENCES hosts(id) NOT NULL,
-
-    -- NULL if sector isn't pinned yet
-    contract_id INTEGER REFERENCES contracts(id),
-
-    -- a sector should only ever be stored on one host and pinned to one contract
-    -- which is why this is UNIQUE. If a sector is migrated, the previous row is
-    -- overwritten.
-    sector_id BIGINT REFERENCES sectors(id) UNIQUE NOT NULL,
-
-    -- NOTE: instead of expiration, we track the upload time and update
-    -- contract_id after successfully pinning them or when the host reports that
-    -- they don't have the sector. That way, we can still prioritize sectors that
-    -- expire soon but might get lucky when pinning after what we thought was the
-    -- expiration date.
-    uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    UNIQUE(slab_id, slab_index) -- enforce one sector per index per slab
 )
 -- quick lookup of sectors to pin prioritized by upload time
 CREATE INDEX host_sectors_contract_id_uploaded_at_idx ON host_sectors(contract_id, uploaded_at ASC)
