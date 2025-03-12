@@ -177,13 +177,19 @@ INNER JOIN contracts c ON fces.contract_id = c.id
 
 func (tx *updateTx) ContractElementsForBroadcast(maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error) {
 	rows, err := tx.tx.Query(tx.ctx, `
-WITH current_height AS (SELECT height FROM global_settings)
-SELECT fces.contract_id, fces.contract, fces.leaf_index, fces.merkle_proof
+WITH current_height AS (
+    SELECT scanned_height FROM global_settings
+)
+SELECT
+    contracts.contract_id,
+    fces.contract,
+    fces.leaf_index,
+    fces.merkle_proof
 FROM contracts
-INNER JOIN contract_elements ON contracts.id = contract_elements.contract_id
-SELECT contract_id, contract, leaf_index, merkle_proof
-WHERE current_height + $1 >= expiration_height
-`)
+INNER JOIN contract_elements fces ON contracts.id = fces.contract_id
+CROSS JOIN current_height
+WHERE current_height.scanned_height >= contracts.expiration_height + $1;
+`, maxBlocksSinceExpiry)
 	if err != nil {
 		return nil, err
 	}
