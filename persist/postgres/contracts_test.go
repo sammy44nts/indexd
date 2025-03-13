@@ -172,11 +172,18 @@ func TestPruneExpiredContractElements(t *testing.T) {
 	assertContracts([]types.FileContractID{})
 
 	// assert only the elements got pruned but the contracts remain
-	contracts, err := store.Contracts()
+	err = store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		var count int
+		err := tx.QueryRow(ctx, "SELECT COUNT(*) FROM contracts").Scan(&count)
+		if err != nil {
+			return err
+		} else if count != 3 {
+			t.Fatalf("expected 3 contracts, got %d", count)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	} else if len(contracts) != 3 {
-		t.Fatalf("expected 3 contracts, got %d", len(contracts))
 	}
 }
 
@@ -454,7 +461,7 @@ func TestSetContractGood(t *testing.T) {
 	}
 
 	// form contracts
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		expectedFormed := contracts.Contract{
 			ID:      types.FileContractID{byte(i + 1)},
 			HostKey: hk,

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"slices"
+
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
@@ -39,7 +41,7 @@ func (s *storeMock) ContractElementsForBroadcast(ctx context.Context, maxBlocksS
 func (s *storeMock) PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error {
 	var filtered []types.V2FileContractElement
 	for _, c := range s.contracts {
-		if c.V2FileContract.ExpirationHeight+maxBlocksSinceExpiry <= s.height {
+		if c.V2FileContract.ExpirationHeight+maxBlocksSinceExpiry > s.height {
 			filtered = append(filtered, c)
 		}
 	}
@@ -135,7 +137,7 @@ func (cm *chainManagerMock) AddV2PoolTransactions(basis types.ChainIndex, txns [
 func (cm *chainManagerMock) V2PoolTransactions() []types.V2Transaction {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	return append([]types.V2Transaction(nil), cm.tpool...)
+	return slices.Clone(cm.tpool)
 }
 
 func (cm *chainManagerMock) RecommendedFee() types.Currency {
@@ -156,7 +158,7 @@ func (s *syncerMock) BroadcastV2TransactionSet(index types.ChainIndex, txns []ty
 func (s *syncerMock) BroadcastedSets() []types.V2Transaction {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]types.V2Transaction(nil), s.broadcasted...)
+	return slices.Clone(s.broadcasted)
 }
 
 type walletMock struct {
@@ -311,7 +313,7 @@ func TestUpdateContractElementProofs(t *testing.T) {
 	}
 }
 
-func TestBroadcastExpiredContracts(t *testing.T) {
+func TestProcessActions(t *testing.T) {
 	cmMock := &chainManagerMock{}
 	syncerMock := &syncerMock{}
 	store := &storeMock{}
@@ -327,39 +329,48 @@ func TestBroadcastExpiredContracts(t *testing.T) {
 		},
 	}
 
+	// assert asserts the number of txns in the mocked pool, the number of
+	// broadcasted transactions in the mocked syncer, the number of resolutions
+	// in the latest broadcasted transactions and the contract elements in the
+	// store.
+	assert := func(poolTxns, broadcastedTxns, resolutions, fces int) {
+		t.Helper()
+		if len(cmMock.V2PoolTransactions()) != poolTxns {
+			t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
+		} else if sets := syncerMock.BroadcastedSets(); len(sets) != broadcastedTxns {
+			t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
+		} else if broadcastedTxns > 0 && len(sets[broadcastedTxns-1].FileContractResolutions) != resolutions {
+			t.Fatalf("expected 1 contract resolution in broadcast, got %v", len(sets[0].FileContracts))
+		} else if len(store.contracts) != fces {
+			t.Fatalf("expected 1 contract in store, got %v", len(store.contracts))
+		}
+	}
+
 	// broadcast when no contract should be broadcasted
-	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
+	if err := contracts.ProcessActions(); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmMock.V2PoolTransactions()) != 0 {
-		t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
-	} else if len(syncerMock.BroadcastedSets()) != 0 {
-		t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
-	}
+	assert(0, 0, 0, 0)
 
 	// broadcast with 1 contract not yet expired
 	store.contracts = []types.V2FileContractElement{contract}
 	store.height = contract.V2FileContract.ExpirationHeight + 143
-	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
+	if err := contracts.ProcessActions(); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
-	if len(cmMock.V2PoolTransactions()) != 0 {
-		t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
-	} else if len(syncerMock.BroadcastedSets()) != 0 {
-		t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
-	}
+	assert(0, 0, 0, 1)
 
 	// broadcast with 1 contract to broadcast
 	store.height++
-	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
+	if err := contracts.ProcessActions(); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmMock.V2PoolTransactions()) != 1 {
-		t.Fatalf("expected 1 contract in tpool, got %v", len(cmMock.tpool))
-	} else if sets := syncerMock.BroadcastedSets(); len(sets) != 1 {
-		t.Fatalf("expected 1 broadcasted contracts, got %v", len(syncerMock.broadcasted))
-	} else if len(sets[0].FileContractResolutions) != 1 {
-		t.Fatalf("expected 1 contract resolution in broadcast, got %v", len(sets[0].FileContracts))
+	assert(1, 1, 1, 1)
+
+	// increase the height even more to get the contract pruned
+	store.height += 144
+	if err := contracts.ProcessActions(); err != nil {
+		t.Fatal(err)
 	}
+	assert(2, 2, 1, 0)
 }
