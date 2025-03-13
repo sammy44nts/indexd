@@ -178,6 +178,22 @@ WHERE current_height.scanned_height >= contracts.expiration_height + $1;
 	return fces, err
 }
 
+// PruneExpiredContractElements prunes contract elements for contracts that have
+// been expired for at least 'maxBlocksSinceExpiry' blocks.
+func (s *Store) PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `
+WITH current_height AS (
+    SELECT scanned_height FROM global_settings
+)
+DELETE FROM contract_elements fces
+USING contracts, current_height
+WHERE fces.contract_id = contracts.id AND current_height.scanned_height >= contracts.expiration_height + $1;
+`, maxBlocksSinceExpiry)
+		return err
+	})
+}
+
 // SetContractBad marks a contract as bad.
 func (s *Store) SetContractBad(contractID types.FileContractID) error {
 	return s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {

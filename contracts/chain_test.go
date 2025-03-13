@@ -22,11 +22,29 @@ func (u *mockProofUpdater) UpdateElementProof(stateElement *types.StateElement) 
 }
 
 type storeMock struct {
-	toBroadcast []types.V2FileContractElement
+	height    uint64
+	contracts []types.V2FileContractElement
 }
 
 func (s *storeMock) ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error) {
-	return s.toBroadcast, nil
+	var toBroadcast []types.V2FileContractElement
+	for _, c := range s.contracts {
+		if c.V2FileContract.ExpirationHeight+maxBlocksSinceExpiry <= s.height {
+			toBroadcast = append(toBroadcast, c)
+		}
+	}
+	return toBroadcast, nil
+}
+
+func (s *storeMock) PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error {
+	var filtered []types.V2FileContractElement
+	for _, c := range s.contracts {
+		if c.V2FileContract.ExpirationHeight+maxBlocksSinceExpiry <= s.height {
+			filtered = append(filtered, c)
+		}
+	}
+	s.contracts = filtered
+	return nil
 }
 
 // mockUpdateTx is a mocked implementation of UpdateTx which allows for unit
@@ -319,8 +337,21 @@ func TestBroadcastExpiredContracts(t *testing.T) {
 		t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
 	}
 
+	// broadcast with 1 contract not yet expired
+	store.contracts = []types.V2FileContractElement{contract}
+	store.height = contract.V2FileContract.ExpirationHeight + 143
+	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if len(cmMock.V2PoolTransactions()) != 0 {
+		t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
+	} else if len(syncerMock.BroadcastedSets()) != 0 {
+		t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
+	}
+
 	// broadcast with 1 contract to broadcast
-	store.toBroadcast = []types.V2FileContractElement{contract}
+	store.height++
 	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
 		t.Fatal(err)
 	}

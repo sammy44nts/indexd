@@ -21,6 +21,7 @@ type (
 	// requires.
 	Store interface {
 		ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error)
+		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 	}
 
 	// Syncer is the minimal interface of Syncer functionality the

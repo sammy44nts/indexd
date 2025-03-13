@@ -62,6 +62,13 @@ func (m *ContractManager) ProcessActions() error {
 	if err := m.broadcastExpiredContracts(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("failed to broadcast expired contracts: %w", err)
 	}
+
+	// prune expired contracts 'expiredContractPruneBuffer' blocks after
+	// we begin broadcasting resolutions
+	if err := m.store.PruneExpiredContractElements(ctx, m.expiredContractBroadcastBuffer+m.expiredContractPruneBuffer); err != nil {
+		return fmt.Errorf("failed to prune expired contracts: %w", err)
+	}
+
 	return nil
 }
 
@@ -91,9 +98,6 @@ func (m *ContractManager) UpdateChainState(tx UpdateTx, reverted []chain.RevertU
 	if err := tx.RejectPendingContracts(maxFormation); err != nil {
 		return fmt.Errorf("failed to reject pending contracts: %w", err)
 	}
-
-	// TODO: prune expired contracts 'expiredContractPruneBuffer' blocks after
-	// we begin broadcasting resolutions
 
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 func TestContractElementsForBroadcast(t *testing.T) {
@@ -83,6 +84,99 @@ func TestContractElementsForBroadcast(t *testing.T) {
 		t.Fatalf("expected 1 contract to broadcast, got %d", len(fces))
 	} else if !reflect.DeepEqual(fces[0], fce) {
 		t.Fatalf("mismatch: \n%+v\n%+v", fce, fces[0])
+	}
+}
+
+func TestPruneExpiredContractElements(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add a host
+	hk := types.PublicKey{1, 1, 1}
+	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addContract := func(expirationHeight uint64) types.FileContractID {
+		t.Helper()
+		var contractID types.FileContractID
+		frand.Read(contractID[:])
+		if err := store.AddFormedContract(context.Background(), contractID, hk, 50, expirationHeight, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3)); err != nil {
+			t.Fatal(err)
+		}
+		err = store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+			return tx.UpdateContractElements(types.V2FileContractElement{
+				ID: contractID,
+			})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contractID
+	}
+
+	assertContracts := func(contractIDs []types.FileContractID) {
+		t.Helper()
+		_ = store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+			fces, err := tx.ContractElements()
+			if err != nil {
+				t.Fatal(err)
+			} else if len(fces) != len(contractIDs) {
+				t.Fatalf("expected %d contracts, got %d", len(contractIDs), len(fces))
+			}
+		outer:
+			for _, c := range fces {
+				for _, id := range contractIDs {
+					if c.ID == id {
+						continue outer
+					}
+				}
+				t.Fatalf("contract %v is missing", c.ID)
+			}
+			return nil
+		})
+	}
+
+	// set height to block 12
+	bh := uint64(12)
+	err = store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.UpdateLastScannedIndex(context.Background(), types.ChainIndex{Height: bh})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add 3 contracts at different expiration heights
+	c1 := addContract(10)
+	c2 := addContract(11)
+	c3 := addContract(12)
+
+	// prune with a buffer of 3, should not prune anything
+	if err := store.PruneExpiredContractElements(context.Background(), 3); err != nil {
+		t.Fatal(err)
+	}
+	assertContracts([]types.FileContractID{c1, c2, c3})
+
+	// prune with a buffer of 1, should prune c1 and c2
+	if err := store.PruneExpiredContractElements(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	assertContracts([]types.FileContractID{c3})
+
+	// prune with a buffer of 0 to prune c3 too
+	if err := store.PruneExpiredContractElements(context.Background(), 0); err != nil {
+		t.Fatal(err)
+	}
+	assertContracts([]types.FileContractID{})
+
+	// assert only the elements got pruned but the contracts remain
+	contracts, err := store.Contracts()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(contracts) != 3 {
+		t.Fatalf("expected 3 contracts, got %d", len(contracts))
 	}
 }
 
