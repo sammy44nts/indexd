@@ -28,7 +28,7 @@ CREATE TABLE global_settings (
 
     -- chain index of the last scanned block
     scanned_height BIGINT NOT NULL DEFAULT 0 CHECK(scanned_height >= 0),
-    scanned_block_id BYTEA
+    scanned_block_id BYTEA CHECK (LENGTH(scanned_block_id) = 32),
 
     -- pinned price limits in currency's base unit (e.g. ¢ for USD)
     pinned_currency TEXT, -- e.g. USD, EUR, etc.
