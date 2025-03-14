@@ -313,7 +313,6 @@ func TestBroadcastExpiredContracts(t *testing.T) {
 	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
 	if len(cmMock.V2PoolTransactions()) != 0 {
 		t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
 	} else if len(syncerMock.BroadcastedSets()) != 0 {
@@ -325,7 +324,6 @@ func TestBroadcastExpiredContracts(t *testing.T) {
 	if err := contracts.broadcastExpiredContracts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
 	if len(cmMock.V2PoolTransactions()) != 1 {
 		t.Fatalf("expected 1 contract in tpool, got %v", len(cmMock.tpool))
 	} else if sets := syncerMock.BroadcastedSets(); len(sets) != 1 {

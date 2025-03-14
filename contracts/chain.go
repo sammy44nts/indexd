@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ func (m *ContractManager) ProcessActions() error {
 	// broadcast resolutions for expired contracts
 	// 'expiredContractBroadcastBuffer' blocks after their window end to give
 	// hosts a chance to do it themselves before we do it
-	if err := m.broadcastExpiredContracts(ctx); err != nil {
+	if err := m.broadcastExpiredContracts(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("failed to broadcast expired contracts: %w", err)
 	}
 	return nil
@@ -214,18 +215,17 @@ func (m *ContractManager) broadcastExpiredContracts(ctx context.Context) error {
 
 		// verify txn and broadcast it
 		_, err = m.cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn})
-		if err != nil &&
-			(strings.Contains(err.Error(), "has already been resolved") ||
-				strings.Contains(err.Error(), "not present in the accumulator")) {
-			m.w.ReleaseInputs(nil, []types.V2Transaction{txn})
-			m.log.Debug("failed to broadcast contract expiration txn", zap.Error(err))
-			continue
-		} else if err != nil {
-			m.log.Error("failed to broadcast contract expiration txn", zap.Error(err))
+		if err != nil {
+			if strings.Contains(err.Error(), "has already been resolved") ||
+				strings.Contains(err.Error(), "not present in the accumulator") {
+				m.log.Debug("failed to broadcast contract expiration txn", zap.Error(err))
+			} else {
+				m.log.Error("failed to broadcast contract expiration txn", zap.Error(err))
+			}
 			m.w.ReleaseInputs(nil, []types.V2Transaction{txn})
 			continue
 		}
-		go m.s.BroadcastV2TransactionSet(basis, []types.V2Transaction{txn})
+		m.s.BroadcastV2TransactionSet(basis, []types.V2Transaction{txn})
 	}
 	return nil
 }
