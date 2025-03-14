@@ -13,7 +13,7 @@ import (
 func TestSingleAddressWalletStoreTip(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	if _, err := store.pool.Exec(context.Background(), `UPDATE global_settings SET scanned_height = 0, scanned_block_id = NULL`); err != nil {
+	if _, err := store.pool.Exec(context.Background(), `UPDATE global_settings SET scanned_height = 0, scanned_block_id = $1`, sqlHash256{}); err != nil {
 		t.Fatal(err)
 	}
 

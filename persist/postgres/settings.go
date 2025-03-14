@@ -9,7 +9,7 @@ import (
 // LastScannedIndex returns the last scanned index.
 func (s *Store) LastScannedIndex(ctx context.Context) (ci types.ChainIndex, err error) {
 	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		return tx.QueryRow(ctx, `SELECT scanned_height, scanned_block_id FROM global_settings`).Scan(&ci.Height, asNullable((*sqlHash256)(&ci.ID)))
+		return tx.QueryRow(ctx, `SELECT scanned_height, scanned_block_id FROM global_settings`).Scan(&ci.Height, (*sqlHash256)(&ci.ID))
 	})
 	return
 }
