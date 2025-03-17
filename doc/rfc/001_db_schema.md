@@ -27,6 +27,9 @@ CREATE TABLE global_settings (
     db_version INTEGER NOT NULL, -- used for migrations
     last_scanned_index BYTEA, -- chain index of the last scanned block
 
+    -- contract manager settings
+    contracts_period INTEGER NOT NULL DEFAULT 144 * 7 * 6 CHECK(contracts_period > contracts_renew_window), -- 6 weeks
+
     -- pinned price limits in currency's base unit (e.g. ¢ for USD)
     pinned_currency TEXT, -- e.g. USD, EUR, etc.
     pinned_min_collateral BIGINT, -- fiat / TB / month
@@ -41,7 +44,6 @@ CREATE TABLE global_settings (
     max_egress_price NUMERIC(50,0) -- hastings / byte
 
     -- host checks
-    contract_period INTEGER NOT NULL, -- duration of contracts in blocks
     min_protocol_version BYTEA NOT NULL DEFAULT '\x010000' -- minimum protocol version
 );
 ```

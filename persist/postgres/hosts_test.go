@@ -232,7 +232,7 @@ func TestHostChecks(t *testing.T) {
 	settingMaxEgressPrice := types.Siacoins(4).Div64(oneTB)
 
 	// update global settings
-	if _, err := db.pool.Exec(context.Background(), `UPDATE global_settings SET contract_period = $1, min_collateral = $2, max_storage_price = $3, max_ingress_price = $4, max_egress_price = $5`,
+	if _, err := db.pool.Exec(context.Background(), `UPDATE global_settings SET contracts_period = $1, min_collateral = $2, max_storage_price = $3, max_ingress_price = $4, max_egress_price = $5`,
 		settingPeriod,
 		sqlCurrency(settingMinCollataral),
 		sqlCurrency(settingMaxStoragePrice),

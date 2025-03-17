@@ -4,7 +4,7 @@ CREATE TABLE hosts (
     total_scans INTEGER NOT NULL DEFAULT 0,
     failed_scans INTEGER NOT NULL DEFAULT 0,
     consecutive_failed_scans INTEGER NOT NULL DEFAULT 0,
-    recent_uptime DOUBLE PRECISION NOT NULL DEFAULT 1,
+    recent_uptime DOUBLE PRECISION NOT NULL DEFAULT 1 CHECK (recent_uptime BETWEEN 0 AND 1),
     last_failed_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
     last_successful_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
     last_announcement TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
@@ -92,12 +92,15 @@ CREATE TABLE global_settings (
     db_version INTEGER NOT NULL, -- used for migrations
     last_scanned_index BYTEA CHECK (LENGTH(last_scanned_index) = 8+32), -- chain index of the last scanned block
 
+    -- contract manager settings
+    contracts_period INTEGER NOT NULL DEFAULT 144 * 7 * 6 CHECK(contracts_period > contracts_renew_window), -- 6 weeks
+    contracts_renew_window INTEGER NOT NULL DEFAULT 144 * 7 * 2 CHECK(contracts_renew_window > 0), -- 2 weeks
+
     min_collateral NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
     max_storage_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
     max_ingress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
     max_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
 
-    contract_period INTEGER NOT NULL DEFAULT 0, -- duration of contracts in blocks
     min_protocol_version BYTEA NOT NULL DEFAULT '\x010000' -- minimum protocol version
 );
 
