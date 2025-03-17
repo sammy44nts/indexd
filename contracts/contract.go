@@ -17,6 +17,33 @@ const (
 )
 
 type (
+	ContractQueryOpts struct {
+		Revisable *bool
+		Good      *bool
+	}
+
+	// ContractQueryOpt is a functional option for querying contracts.
+	ContractQueryOpt func(*ContractQueryOpts)
+)
+
+var (
+	optTrue = true
+
+	DefaultContractQueryOpts = ContractQueryOpts{
+		Revisable: &optTrue, // return active contracts
+		Good:      nil,      // return both good and bad contracts
+	}
+)
+
+// WithRevisable filters contracts by whether they can still be revised. This
+// defaults to 'true'.
+func WithRevisable(revisable bool) ContractQueryOpt {
+	return func(opts *ContractQueryOpts) {
+		opts.Revisable = &revisable
+	}
+}
+
+type (
 	// ContractState describes the current state of the contract on the network
 	// - pending: the contract has not yet been seen on-chain
 	// - active: the contract was mined on-chain
@@ -47,13 +74,17 @@ type (
 		RenewedTo        types.FileContractID `json:"renewedTo"`
 		State            ContractState        `json:"state"`
 
-		Capacity uint64 `json:"capacity"` // already paid for capacity (always >=Size)
-		Size     uint64 `json:"size"`     // current size of the contract
+		Capacity           uint64           `json:"capacity"`           // already paid for capacity (always >=Size)
+		RemainingAllowance types.Currency   `json:"remainingAllowance"` // remaining renter allowance
+		RevisionNumber     uint64           `json:"revisionNumber"`     // current revision number
+		Size               uint64           `json:"size"`               // current size of the contract
+		Spending           ContractSpending `json:"spending"`
+		TotalCollateral    types.Currency   `json:"totalCollateral"` // total amount of collateral locked in contract
+		UsedCollateral     types.Currency   `json:"usedCollateral"`  // used collateral
 
-		ContractPrice    types.Currency   `json:"contractPrice"`    // price of the contract creation as charged by the host
-		InitialAllowance types.Currency   `json:"initialAllowance"` // initial renter allowance locked in contract
-		MinerFee         types.Currency   `json:"minerFee"`         // miner fee spent on formation txn
-		Spending         ContractSpending `json:"spending"`
+		ContractPrice    types.Currency `json:"contractPrice"`    // price of the contract creation as charged by the host
+		InitialAllowance types.Currency `json:"initialAllowance"` // initial renter allowance locked in contract
+		MinerFee         types.Currency `json:"minerFee"`         // miner fee spent on formation txn
 
 		// Good determines whether a contract is good or bad. A contract that
 		// is not good, will have its data migrated to a new contract.

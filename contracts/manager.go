@@ -7,10 +7,17 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
+	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
+)
+
+const (
+	minRemainingStorage = 10e9 / uint64(proto.SectorSize) // 10GB
+	maxContractSize     = 10e12                           // 10TB
 )
 
 type (
@@ -26,6 +33,8 @@ type (
 	// requires.
 	Store interface {
 		ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error)
+		Contracts(ctx context.Context, queryOpts ...ContractQueryOpt) ([]Contract, error)
+		Host(ctx context.Context, hostKey types.PublicKey) (hosts.Host, error)
 		MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error)
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
@@ -159,7 +168,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 		case <-time.After(cm.maintenanceFrequency):
 		}
 
-		if err := cm.performContractMaintenance(ctx); err != nil {
+		if err := cm.performContractMaintenance(ctx, log); err != nil {
 			log.Error("contract maintenance failed", zap.Error(err))
 		}
 
@@ -192,7 +201,7 @@ func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
 	}
 }
 
-func (cm *ContractManager) performContractMaintenance(ctx context.Context) error {
+func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *zap.Logger) error {
 	// fetch settings and determine if maintenance is supposed to run
 	settings, err := cm.store.MaintenanceSettings(ctx)
 	if err != nil {
@@ -210,8 +219,74 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context) error
 	// TODO: Mark any contracts that failed to renew/refresh and are too close
 	// to the expiration height as bad
 
-	// TODO: Form enough contracts to meet the desired number of usable
-	// contracts
+	// form new contracts until there are enough good contracts to use
+	if err := cm.performContractFormation(ctx, settings.WantedContracts, log); err != nil {
+		return fmt.Errorf("failed to form contracts: %w", err)
+	}
+
+	return nil
+}
+
+func (cm *ContractManager) performContractFormation(ctx context.Context, wanted uint, log *zap.Logger) error {
+	formationLog := log.Named("formation")
+	activeContracts, err := cm.store.Contracts(ctx, WithRevisable(true))
+	if err != nil {
+		return fmt.Errorf("failed to fetch active contracts: %w", err)
+	}
+
+	// helper to check if a host is good to form a contract with
+	usedCidrs := make(map[string]struct{})
+	checkHost := func(host hosts.Host, log *zap.Logger) bool {
+		if good := true; !good { // TODO: update
+			// host should be good
+			log.Debug("ignore contract since host is not good", zap.Stringer("hostKey", host.PublicKey))
+			return false
+		} else if _, used := usedCidrs[""]; used { // TODO: update
+			// host should be on a unique cidr
+			log.Debug("ignore contract since host's cidr has already been used", zap.Stringer("hostKey", host.PublicKey))
+			return false
+		} else if host.Settings.RemainingStorage < minRemainingStorage {
+			// host should at least have 10GB of storage left
+			log.Debug("ignore contract since host has less than 1GB of storage left", zap.Stringer("hostKey", host.PublicKey), zap.Uint64("remainingStorage", host.Settings.RemainingStorage))
+			return false
+		}
+		return true
+	}
+
+	// determine how many contracts we need to form
+	for _, contract := range activeContracts {
+		contractLog := formationLog.Named(contract.ID.String()).With(zap.Stringer("hostKey", contract.HostKey))
+
+		// host checks
+		host, err := cm.store.Host(ctx, contract.HostKey)
+		if err != nil {
+			contractLog.Error("failed to fetch host for contract", zap.Error(err))
+			continue
+		} else if !checkHost(host, contractLog) {
+			continue
+		}
+
+		// contract checks
+		if !contract.Good {
+			// contract should be good
+			log.Debug("skipping contract since it's not good")
+			continue
+		} else if contract.Size >= maxContractSize {
+			// contracts should be smaller than 10TB
+			log.Debug("skipping contract since it is too large", zap.Uint64("size", contract.Size))
+			continue
+		} else if contract.UsedCollateral.Cmp(host.Settings.MaxCollateral) > 0 {
+			// host should be willing to put more collateral into the contract
+			contractLog.Debug("ignore contract since the host won't put more collateral into it", zap.Stringer("maxCollateral", host.Settings.MaxCollateral), zap.Stringer("usedCollateral", contract.UsedCollateral))
+			continue
+		}
+
+		// contract is good
+		wanted--
+		// TODO: add cidr
+	}
+
+	// TODO: form contracts
 
 	return nil
 }

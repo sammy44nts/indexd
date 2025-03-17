@@ -11,41 +11,6 @@ import (
 	"go.sia.tech/indexd/contracts"
 )
 
-type (
-	contractQueryOpts struct {
-		revisable *bool
-		good      *bool
-	}
-
-	// ContractQueryOpt is a functional option for querying contracts.
-	ContractQueryOpt func(*contractQueryOpts)
-)
-
-// WithRevisable filters contracts by whether they can still be revised. This
-// defaults to 'true'.
-func WithRevisable(active bool) ContractQueryOpt {
-	return func(opts *contractQueryOpts) {
-		opts.revisable = &active
-	}
-}
-
-// WithGood filters contracts by whether they are considered good or bad. The
-// default behavior is to return both.
-func WithGood(good bool) ContractQueryOpt {
-	return func(opts *contractQueryOpts) {
-		opts.good = &good
-	}
-}
-
-var (
-	optTrue = true
-
-	defaultContractQueryOpts = contractQueryOpts{
-		revisable: &optTrue, // return active contracts
-		good:      nil,      // return both good and bad contracts
-	}
-)
-
 // AddFormedContract adds a freshly formed contract to the database.
 func (s *Store) AddFormedContract(ctx context.Context, contractID types.FileContractID, hostKey types.PublicKey, proofHeight, expirationHeight uint64, contractPrice, allowance, minerFee types.Currency) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
@@ -136,8 +101,8 @@ WHERE c.contract_id = $1`, sqlHash256(contractID)))
 
 // Contracts queries the contracts in the database. By default, only active
 // contracts are returned.
-func (s *Store) Contracts(queryOpts ...ContractQueryOpt) ([]contracts.Contract, error) {
-	opts := defaultContractQueryOpts
+func (s *Store) Contracts(ctx context.Context, queryOpts ...contracts.ContractQueryOpt) ([]contracts.Contract, error) {
+	opts := contracts.DefaultContractQueryOpts
 	for _, opt := range queryOpts {
 		opt(&opts)
 	}
