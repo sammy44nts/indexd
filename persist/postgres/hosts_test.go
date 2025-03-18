@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -28,8 +29,8 @@ func TestAddHostAnnouncement(t *testing.T) {
 	// assert host is not found
 	hk := types.PublicKey{1}
 	_, err := db.Host(context.Background(), hk)
-	if !errors.Is(err, ErrHostNotFound) {
-		t.Fatal("expected ErrHostNotFound, got", err)
+	if !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
 
 	// announce the host
@@ -163,10 +164,10 @@ func TestHost(t *testing.T) {
 	hk := types.GeneratePrivateKey().PublicKey()
 	hs := testHostSettings(hk)
 
-	// assert [ErrHostNotFound] is returned
+	// assert [hosts.ErrNotFound] is returned
 	_, err := db.Host(context.Background(), hk)
-	if !errors.Is(err, ErrHostNotFound) {
-		t.Fatal("expected ErrHostNotFound, got", err)
+	if !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
 
 	// add a host
@@ -571,8 +572,8 @@ func TestPruneHosts(t *testing.T) {
 		t.Fatal(err)
 	} else if n != 1 {
 		t.Fatal("unexpected", n)
-	} else if _, err := db.Host(context.Background(), h1); !errors.Is(err, ErrHostNotFound) {
-		t.Fatal("expected ErrHostNotFound, got", err)
+	} else if _, err := db.Host(context.Background(), h1); !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
 
 	// simulate failed scan for h2
@@ -622,8 +623,8 @@ func TestPruneHosts(t *testing.T) {
 		t.Fatal(err)
 	} else if n != 1 {
 		t.Fatal("unexpected", n)
-	} else if _, err = db.Host(context.Background(), h1); !errors.Is(err, ErrHostNotFound) {
-		t.Fatal("expected ErrHostNotFound, got", err)
+	} else if _, err = db.Host(context.Background(), h1); !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
 
 	// delete all contracts
@@ -645,11 +646,11 @@ func TestUpdateHost(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db := initPostgres(t, log.Named("postgres"))
 
-	// assert [ErrHostNotFound] is returned
+	// assert [hosts.ErrNotFound] is returned
 	hk := types.GeneratePrivateKey().PublicKey()
 	err := db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, false, time.Time{})
-	if !errors.Is(err, ErrHostNotFound) {
-		t.Fatal("expected ErrHostNotFound, got", err)
+	if !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
 
 	// add a host
@@ -694,16 +695,14 @@ func TestUpdateHost(t *testing.T) {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(h.Settings, hs) {
 		t.Fatal("expected settings to match")
-	} else if h.TotalScans != 3 {
-		t.Fatal("unexpected", h.TotalScans)
 	} else if h.ConsecutiveFailedScans != 0 {
 		t.Fatal("unexpected", h.ConsecutiveFailedScans)
 	} else if h.LastSuccessfulScan.IsZero() {
 		t.Fatal("expected last successful scan to be set")
 	} else if !h.NextScan.Equal(nextScan) {
 		t.Fatal("unexpected next scan", h.NextScan)
-	} else if h.FailedScans != 2 {
-		t.Fatal("unexpected failed scans", h.FailedScans)
+	} else if h.RecentUptime == 1 {
+		t.Fatal("expected recent uptime to be updated")
 	} else if len(h.Networks) != 1 {
 		t.Fatal("unexpected networks", h.Networks)
 	} else if h.Networks[0].String() != networks[0].String() {

@@ -1,8 +1,6 @@
 CREATE TABLE hosts (
     id SERIAL PRIMARY KEY,
     public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
-    total_scans INTEGER NOT NULL DEFAULT 0,
-    failed_scans INTEGER NOT NULL DEFAULT 0,
     consecutive_failed_scans INTEGER NOT NULL DEFAULT 0,
     recent_uptime DOUBLE PRECISION NOT NULL DEFAULT 1 CHECK (recent_uptime BETWEEN 0 AND 1),
     last_failed_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',

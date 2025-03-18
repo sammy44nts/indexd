@@ -25,12 +25,6 @@ const (
 	uptimeHalfLife = 60 * 60 * 24 * 7 * 4 // 1 month
 )
 
-var (
-	// ErrHostNotFound is returned by database operations that fail due to a host
-	// not being found.
-	ErrHostNotFound = errors.New("host not found")
-)
-
 type dbHost struct {
 	id int64
 	hosts.Host
@@ -61,9 +55,65 @@ func (u *updateTx) AddHostAnnouncement(hk types.PublicKey, ha chain.V2HostAnnoun
 // Host returns the host for given public key
 func (s *Store) Host(ctx context.Context, hk types.PublicKey) (hosts.Host, error) {
 	var host hosts.Host
-	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		host, err = queryHost(ctx, tx, hk)
-		return
+	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		dbHost, err := scanHost(tx.QueryRow(ctx, `
+WITH globals AS (
+	SELECT
+		min_collateral,
+		max_storage_price,
+		max_ingress_price,
+		max_egress_price,
+		contracts_period,
+		(get_byte(min_protocol_version, 0) << 16) + (get_byte(min_protocol_version, 1) << 8) + (get_byte(min_protocol_version, 2)) AS min_version,
+		1099511627776::NUMERIC AS one_tb,
+		1E24::NUMERIC AS one_sc
+	FROM global_settings
+), hosts AS (
+	SELECT 
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
+		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime,
+		settings_protocol_version, settings_release, settings_wallet_address,
+		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
+		settings_remaining_storage, settings_total_storage, settings_contract_price,
+		settings_collateral, settings_storage_price, settings_ingress_price,
+		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until,
+		GREATEST(last_failed_scan, last_successful_scan) != '0001-01-01 00:00:00+00'::timestamptz as scanned,
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+	FROM hosts
+	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
+	WHERE hosts.public_key = $1
+) SELECT 
+	hosts.*,
+	scanned AND recent_uptime > 0.9 AND last_failed_scan < NOW() - INTERVAL '1 week',
+	scanned AND settings_max_contract_duration >= globals.contracts_period,
+	scanned AND settings_max_collateral > globals.min_collateral AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
+	scanned AND settings_version >= globals.min_version,
+	scanned AND settings_valid_until >= (NOW() + INTERVAL '1 hour'),
+	scanned AND settings_accepting_contracts,
+	scanned AND settings_contract_price <= globals.one_sc,
+	scanned AND settings_collateral >= globals.min_collateral AND settings_collateral >= 2 * settings_storage_price,
+	scanned AND settings_storage_price <= globals.max_storage_price,
+	scanned AND settings_ingress_price <= globals.max_ingress_price,
+	scanned AND settings_egress_price <= globals.max_egress_price,
+	scanned AND settings_free_sector_price <= globals.one_sc / globals.one_tb
+FROM hosts CROSS JOIN globals;`, sqlPublicKey(hk)))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
+		} else if err != nil {
+			return fmt.Errorf("failed to query host: %w", err)
+		}
+
+		dbHost.Addresses, err = queryHostAddresses(ctx, tx, dbHost.id)
+		if err != nil {
+			return fmt.Errorf("failed to query host addresses: %w", err)
+		}
+		dbHost.Networks, err = queryHostNetworks(ctx, tx, dbHost.id)
+		if err != nil {
+			return fmt.Errorf("failed to query host networks: %w", err)
+		}
+
+		host = dbHost.Host
+		return nil
 	}); err != nil {
 		return hosts.Host{}, err
 	}
@@ -80,8 +130,81 @@ func (s *Store) Hosts(ctx context.Context, offset, limit int) ([]hosts.Host, err
 
 	var hosts []hosts.Host
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		hosts, err = queryHosts(ctx, tx, offset, limit)
-		return
+		rows, err := tx.Query(ctx, `
+WITH globals AS (
+    SELECT
+        min_collateral,
+        max_storage_price,
+        max_ingress_price,
+		max_egress_price,
+		contracts_period,
+		(get_byte(min_protocol_version, 0) << 16) + (get_byte(min_protocol_version, 1) << 8) + (get_byte(min_protocol_version, 2)) AS min_version,
+		1099511627776::NUMERIC AS one_tb,
+		1E24::NUMERIC AS one_sc
+    FROM global_settings
+), hosts AS (
+	SELECT 
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
+		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime,
+		settings_protocol_version, settings_release, settings_wallet_address,
+		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
+		settings_remaining_storage, settings_total_storage, settings_contract_price,
+		settings_collateral, settings_storage_price, settings_ingress_price,
+		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until,
+		GREATEST(last_failed_scan, last_successful_scan) != '0001-01-01 00:00:00+00'::timestamptz as scanned,
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+	FROM hosts
+	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
+	LIMIT $1 OFFSET $2
+) SELECT 
+ 	hosts.*,
+	scanned AND recent_uptime > 0.9 AND last_failed_scan < NOW() - INTERVAL '1 week',
+	scanned AND settings_max_contract_duration >= globals.contracts_period,
+	scanned AND settings_max_collateral > globals.min_collateral AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
+	scanned AND settings_version >= globals.min_version,
+	scanned AND settings_valid_until >= (NOW() + INTERVAL '1 hour'),
+	scanned AND settings_accepting_contracts,
+	scanned AND settings_contract_price <= globals.one_sc,
+	scanned AND settings_collateral >= globals.min_collateral AND settings_collateral >= 2 * settings_storage_price,
+	scanned AND settings_storage_price <= globals.max_storage_price,
+	scanned AND settings_ingress_price <= globals.max_ingress_price,
+	scanned AND settings_egress_price <= globals.max_egress_price,
+	scanned AND settings_free_sector_price <= globals.one_sc / globals.one_tb
+FROM hosts CROSS JOIN globals;`, limit, offset)
+		if err != nil {
+			return fmt.Errorf("failed to query hosts: %w", err)
+		}
+		defer rows.Close()
+
+		var dbHosts []dbHost
+		for rows.Next() {
+			var host dbHost
+			host, err := scanHost(rows)
+			if err != nil {
+				return fmt.Errorf("failed to scan host: %w", err)
+			}
+			dbHosts = append(dbHosts, host)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		} else if len(dbHosts) == 0 {
+			return nil
+		}
+
+		// decorate host addresses and networks
+		for _, h := range dbHosts {
+			h.Addresses, err = queryHostAddresses(ctx, tx, h.id)
+			if err != nil {
+				return fmt.Errorf("failed to query host addresses: %w", err)
+			}
+			h.Networks, err = queryHostNetworks(ctx, tx, h.id)
+			if err != nil {
+				return fmt.Errorf("failed to query host networks: %w", err)
+			}
+			hosts = append(hosts, h.Host)
+		}
+
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -210,8 +333,6 @@ WITH computed AS (
 UPDATE hosts 
 SET
  	recent_uptime = recent_uptime * decay_factor,
-	total_scans = total_scans + 1,
-	failed_scans = failed_scans + 1,
 	consecutive_failed_scans = consecutive_failed_scans + 1,
 	last_failed_scan = NOW(),
 	next_scan = $3
@@ -219,7 +340,7 @@ FROM computed
 WHERE hosts.id = computed.id`, sqlPublicKey(hk), uptimeHalfLife, nextScan); err != nil {
 				return err
 			} else if res.RowsAffected() == 0 {
-				return ErrHostNotFound
+				return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
 			}
 			return nil
 		}
@@ -245,7 +366,6 @@ WITH computed AS (
 UPDATE hosts
 SET
 	recent_uptime = 1 * (1 - decay_factor) + recent_uptime * decay_factor,
-	total_scans = total_scans + 1,
 	consecutive_failed_scans = 0,
 	last_successful_scan = NOW(),
 	next_scan = $3,
@@ -288,7 +408,7 @@ WHERE hosts.id = computed.id RETURNING hosts.id`,
 			hs.Prices.ValidUntil,
 		).Scan(&hostID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHostNotFound
+			return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
 		} else if err != nil {
 			return fmt.Errorf("failed to update host with scan: %w", err)
 		} else if hostID == 0 {
@@ -309,146 +429,6 @@ WHERE hosts.id = computed.id RETURNING hosts.id`,
 
 		return nil
 	})
-}
-
-func queryHost(ctx context.Context, tx *txn, hk types.PublicKey) (hosts.Host, error) {
-	host, err := scanHost(tx.QueryRow(ctx, `
-WITH globals AS (
-	SELECT
-		min_collateral,
-		max_storage_price,
-		max_ingress_price,
-		max_egress_price,
-		contracts_period,
-		(get_byte(min_protocol_version, 0) << 16) + (get_byte(min_protocol_version, 1) << 8) + (get_byte(min_protocol_version, 2)) AS min_version,
-		1099511627776::NUMERIC AS one_tb,
-		1E24::NUMERIC AS one_sc
-	FROM global_settings
-), hosts AS (
-	SELECT 
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
-		total_scans, failed_scans, consecutive_failed_scans,recent_uptime,
-		last_failed_scan, last_successful_scan, next_scan,
-		settings_protocol_version, settings_release, settings_wallet_address,
-		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
-		settings_remaining_storage, settings_total_storage, settings_contract_price,
-		settings_collateral, settings_storage_price, settings_ingress_price,
-		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until,
-		total_scans - failed_scans > 0 as scanned,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
-	FROM hosts
-	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
-	WHERE hosts.public_key = $1
-) SELECT 
-	hosts.*,
-	scanned AND recent_uptime > 0.9 AND last_failed_scan < NOW() - INTERVAL '1 week',
-	scanned AND settings_max_contract_duration >= globals.contracts_period,
-	scanned AND settings_max_collateral > globals.min_collateral AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
-	scanned AND settings_version >= globals.min_version,
-	scanned AND settings_valid_until >= (NOW() + INTERVAL '1 hour'),
-	scanned AND settings_accepting_contracts,
-	scanned AND settings_contract_price <= globals.one_sc,
-	scanned AND settings_collateral >= globals.min_collateral AND settings_collateral >= 2 * settings_storage_price,
-	scanned AND settings_storage_price <= globals.max_storage_price,
-	scanned AND settings_ingress_price <= globals.max_ingress_price,
-	scanned AND settings_egress_price <= globals.max_egress_price,
-	scanned AND settings_free_sector_price <= globals.one_sc / globals.one_tb
-FROM hosts CROSS JOIN globals;`, sqlPublicKey(hk)))
-	if errors.Is(err, sql.ErrNoRows) {
-		return hosts.Host{}, fmt.Errorf("host %q: %w", hk, ErrHostNotFound)
-	} else if err != nil {
-		return hosts.Host{}, fmt.Errorf("failed to query host: %w", err)
-	}
-
-	host.Addresses, err = queryHostAddresses(ctx, tx, host.id)
-	if err != nil {
-		return hosts.Host{}, fmt.Errorf("failed to query host addresses: %w", err)
-	}
-	host.Networks, err = queryHostNetworks(ctx, tx, host.id)
-	if err != nil {
-		return hosts.Host{}, fmt.Errorf("failed to query host networks: %w", err)
-	}
-	return host.Host, nil
-}
-
-func queryHosts(ctx context.Context, tx *txn, offset, limit int) ([]hosts.Host, error) {
-	rows, err := tx.Query(ctx, `
-WITH globals AS (
-    SELECT
-        min_collateral,
-        max_storage_price,
-        max_ingress_price,
-		max_egress_price,
-		contracts_period,
-		(get_byte(min_protocol_version, 0) << 16) + (get_byte(min_protocol_version, 1) << 8) + (get_byte(min_protocol_version, 2)) AS min_version,
-		1099511627776::NUMERIC AS one_tb,
-		1E24::NUMERIC AS one_sc
-    FROM global_settings
-), hosts AS (
-	SELECT 
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
-		total_scans, failed_scans, consecutive_failed_scans,recent_uptime,
-		last_failed_scan, last_successful_scan, next_scan,
-		settings_protocol_version, settings_release, settings_wallet_address,
-		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
-		settings_remaining_storage, settings_total_storage, settings_contract_price,
-		settings_collateral, settings_storage_price, settings_ingress_price,
-		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until,
-		total_scans - failed_scans > 0 as scanned,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
-	FROM hosts
-	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
-	LIMIT $1 OFFSET $2
-) SELECT 
- 	hosts.*,
-	scanned AND recent_uptime > 0.9 AND last_failed_scan < NOW() - INTERVAL '1 week',
-	scanned AND settings_max_contract_duration >= globals.contracts_period,
-	scanned AND settings_max_collateral > globals.min_collateral AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
-	scanned AND settings_version >= globals.min_version,
-	scanned AND settings_valid_until >= (NOW() + INTERVAL '1 hour'),
-	scanned AND settings_accepting_contracts,
-	scanned AND settings_contract_price <= globals.one_sc,
-	scanned AND settings_collateral >= globals.min_collateral AND settings_collateral >= 2 * settings_storage_price,
-	scanned AND settings_storage_price <= globals.max_storage_price,
-	scanned AND settings_ingress_price <= globals.max_ingress_price,
-	scanned AND settings_egress_price <= globals.max_egress_price,
-	scanned AND settings_free_sector_price <= globals.one_sc / globals.one_tb
-FROM hosts CROSS JOIN globals;`, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query hosts: %w", err)
-	}
-	defer rows.Close()
-
-	var dbHosts []dbHost
-	for rows.Next() {
-		var host dbHost
-		host, err := scanHost(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan host: %w", err)
-		}
-		dbHosts = append(dbHosts, host)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	} else if len(dbHosts) == 0 {
-		return nil, nil
-	}
-
-	// decorate host addresses and networks
-	var hosts []hosts.Host
-	for _, h := range dbHosts {
-		h.Addresses, err = queryHostAddresses(ctx, tx, h.id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query host addresses: %w", err)
-		}
-		h.Networks, err = queryHostNetworks(ctx, tx, h.id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query host networks: %w", err)
-		}
-		hosts = append(hosts, h.Host)
-	}
-
-	return hosts, nil
 }
 
 func queryHostAddresses(ctx context.Context, tx *txn, hostID int64) ([]chain.NetAddress, error) {
@@ -502,13 +482,11 @@ func scanHost(s scanner) (host dbHost, err error) {
 		(*sqlPublicKey)(&host.PublicKey),
 		&host.LastAnnouncement,
 		&host.Blocked,
-		&host.TotalScans,
-		&host.FailedScans,
-		&host.ConsecutiveFailedScans,
-		&host.RecentUptime,
 		&host.LastFailedScan,
 		&host.LastSuccessfulScan,
 		&host.NextScan,
+		&host.ConsecutiveFailedScans,
+		&host.RecentUptime,
 		(*sqlProtocolVersion)(&host.Settings.ProtocolVersion),
 		&host.Settings.Release,
 		(*sqlHash256)(&host.Settings.WalletAddress),
