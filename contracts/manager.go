@@ -183,11 +183,11 @@ func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
 			return false
 		case <-time.After(time.Second):
 		}
-		if len(cm.s.Peers()) > 0 && time.Since(cm.cm.TipState().PrevTimestamps[0]) < 3*time.Hour {
+		if time.Since(cm.cm.TipState().PrevTimestamps[0]) < 3*time.Hour {
 			return true
 		}
 		once.Do(func() {
-			log.Info("waiting for consensus to be synced and syncer to be online before starting maintenance")
+			log.Info("waiting for consensus to be synced before starting maintenance")
 		})
 	}
 }
