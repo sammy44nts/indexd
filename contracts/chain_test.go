@@ -170,7 +170,11 @@ func (s *syncerMock) BroadcastV2TransactionSet(index types.ChainIndex, txns []ty
 func (s *syncerMock) BroadcastedSets() []types.V2Transaction {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]types.V2Transaction(nil), s.broadcasted...)
+	return slices.Clone(s.broadcasted)
+}
+
+func (s *syncerMock) Peers() []*syncer.Peer {
+	return []*syncer.Peer{{}}
 }
 
 type walletMock struct {
@@ -181,10 +185,6 @@ func (w *walletMock) FundV2Transaction(txn *types.V2Transaction, amount types.Cu
 }
 func (w *walletMock) ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) {}
 func (w *walletMock) SignV2Inputs(txn *types.V2Transaction, toSign []int)                  {}
-
-func (s *syncerMock) Peers() []*syncer.Peer {
-	return []*syncer.Peer{{}}
-}
 
 func TestApplyRevertDiff(t *testing.T) {
 	contracts := newContractManager(nil, nil, nil, nil)
