@@ -346,11 +346,11 @@ func TestProcessActions(t *testing.T) {
 	assert := func(poolTxns, broadcastedTxns, resolutions, pruneCalls, rejectCalls int) {
 		t.Helper()
 		if len(cmMock.V2PoolTransactions()) != poolTxns {
-			t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
+			t.Fatalf("expected %v contract in tpool, got %v", poolTxns, len(cmMock.tpool))
 		} else if sets := syncerMock.BroadcastedSets(); len(sets) != broadcastedTxns {
-			t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
+			t.Fatalf("expected %v broadcasted contracts, got %v", broadcastedTxns, len(syncerMock.broadcasted))
 		} else if broadcastedTxns > 0 && len(sets[broadcastedTxns-1].FileContractResolutions) != resolutions {
-			t.Fatalf("expected 1 contract resolution in broadcast, got %v", len(sets[0].FileContracts))
+			t.Fatalf("expected %v contract resolution in broadcast, got %v", resolutions, len(sets[0].FileContracts))
 		} else if store.pruneCalls != pruneCalls {
 			t.Fatalf("expected %v calls to PruneExpiredContractElements, got %v", pruneCalls, store.pruneCalls)
 		} else if store.rejectCalls != rejectCalls {

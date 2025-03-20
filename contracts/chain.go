@@ -49,12 +49,6 @@ func (tx *updateTx) IsKnownContract(fcid types.FileContractID) (bool, error) {
 // not guaranteed to be called on every update but will eventually be called
 // after applying all batches of a sync.
 func (m *ContractManager) ProcessActions(ctx context.Context) error {
-	ctx, cancel, err := m.tg.AddContext(context.Background())
-	if err != nil {
-		return err
-	}
-	defer cancel()
-
 	// reject all contracts that have been pending for more than 'contractRejectBuffer'
 	maxFormation := time.Now().Add(-m.contractRejectBuffer)
 	if err := m.store.RejectPendingContracts(ctx, maxFormation); err != nil {
