@@ -13,6 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestExplorerAPI(t *testing.T) {
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
+
+	rate, err := indexer.ExplorerSiacoinExchangeRate(context.Background(), "usd")
+	if err != nil {
+		t.Fatal(err)
+	} else if rate == 0 {
+		t.Fatal("expected non-zero rate")
+	}
+}
+
 func TestHostsAPI(t *testing.T) {
 	// create cluster
 	c := testutils.NewConsensusNode(t, zap.NewNop())
@@ -42,16 +54,51 @@ func TestHostsAPI(t *testing.T) {
 		t.Fatal("expected 2 hosts", len(hosts))
 	} else if h1, err := indexer.Host(context.Background(), h1.PublicKey()); err != nil {
 		t.Fatal(err)
-	} else if h1.TotalScans != 1 {
-		t.Fatal("expected 1 scan", h1.TotalScans)
-	} else if h1.FailedScans != 0 {
-		t.Fatal("expected 0 failed scans", h1.FailedScans)
+	} else if h1.LastSuccessfulScan.IsZero() {
+		t.Fatal("expected h1 to be scanned successfully")
+	} else if !h1.LastFailedScan.IsZero() {
+		t.Fatal("expected h1 to not have failed scans")
 	} else if h2, err := indexer.Host(context.Background(), h2.PublicKey()); err != nil {
 		t.Fatal(err)
-	} else if h2.TotalScans != 1 {
-		t.Fatal("expected 1 scan", h2.TotalScans)
-	} else if h2.FailedScans != 0 {
-		t.Fatal("expected 0 failed scans", h2.FailedScans)
+	} else if h2.LastSuccessfulScan.IsZero() {
+		t.Fatal("expected h2 to be scanned successfully")
+	} else if !h2.LastFailedScan.IsZero() {
+		t.Fatal("expected h2 to not have failed scans")
+	}
+
+	// assert blocklist is empty and unblocking unknown host is noop
+	if blocklist, err := indexer.HostsBlocklist(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(blocklist) != 0 {
+		t.Fatal("expected 0 blocklisted hosts", len(blocklist))
+	} else if indexer.HostsBlocklistRemove(context.Background(), types.GeneratePrivateKey().PublicKey()) != nil {
+		t.Fatal("expected error")
+	}
+
+	// block both hosts
+	if err := indexer.HostsBlocklistAdd(context.Background(), []types.PublicKey{h1.PublicKey(), h2.PublicKey()}); err != nil {
+		t.Fatal(err)
+	} else if blocklist, err := indexer.HostsBlocklist(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(blocklist) != 2 {
+		t.Fatal("expected 2 blocklisted hosts", len(blocklist))
+	} else if h1, err := indexer.Host(context.Background(), h1.PublicKey()); err != nil {
+		t.Fatal(err)
+	} else if !h1.Blocked {
+		t.Fatal("expected host to be blocked", h1.Blocked)
+	} else if h2, err := indexer.Host(context.Background(), h2.PublicKey()); err != nil {
+		t.Fatal(err)
+	} else if !h2.Blocked {
+		t.Fatal("expected host to be blocked", h2.Blocked)
+	}
+
+	// unblock h1
+	if err := indexer.HostsBlocklistRemove(context.Background(), h1.PublicKey()); err != nil {
+		t.Fatal(err)
+	} else if h1, err := indexer.Host(context.Background(), h1.PublicKey()); err != nil {
+		t.Fatal(err)
+	} else if h1.Blocked {
+		t.Fatal("expected host to be unblocked", h1.Blocked)
 	}
 }
 

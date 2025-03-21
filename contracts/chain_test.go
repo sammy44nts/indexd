@@ -160,6 +160,10 @@ func (cm *chainManagerMock) TipState() consensus.State {
 	}
 }
 
+func (cm *chainManagerMock) V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error) {
+	return basis, []types.V2Transaction{txn}, nil
+}
+
 func (cm *chainManagerMock) V2PoolTransactions() []types.V2Transaction {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -364,11 +368,11 @@ func TestProcessActions(t *testing.T) {
 	assert := func(poolTxns, broadcastedTxns, resolutions, pruneCalls, rejectCalls int) {
 		t.Helper()
 		if len(cmMock.V2PoolTransactions()) != poolTxns {
-			t.Fatalf("expected 0 contract in tpool, got %v", len(cmMock.tpool))
+			t.Fatalf("expected %v contract in tpool, got %v", poolTxns, len(cmMock.tpool))
 		} else if sets := syncerMock.BroadcastedSets(); len(sets) != broadcastedTxns {
-			t.Fatalf("expected 0 broadcasted contracts, got %v", len(syncerMock.broadcasted))
+			t.Fatalf("expected %v broadcasted contracts, got %v", broadcastedTxns, len(syncerMock.broadcasted))
 		} else if broadcastedTxns > 0 && len(sets[broadcastedTxns-1].FileContractResolutions) != resolutions {
-			t.Fatalf("expected 1 contract resolution in broadcast, got %v", len(sets[0].FileContracts))
+			t.Fatalf("expected %v contract resolution in broadcast, got %v", resolutions, len(sets[0].FileContracts))
 		} else if store.pruneCalls != pruneCalls {
 			t.Fatalf("expected %v calls to PruneExpiredContractElements, got %v", pruneCalls, store.pruneCalls)
 		} else if store.rejectCalls != rejectCalls {
@@ -377,14 +381,14 @@ func TestProcessActions(t *testing.T) {
 	}
 
 	// broadcast when no contract should be broadcasted
-	if err := contracts.ProcessActions(); err != nil {
+	if err := contracts.ProcessActions(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assert(0, 0, 0, 1, 1)
 
 	// broadcast with 1 contract to broadcast
 	store.toBroadcast = []types.V2FileContractElement{contract}
-	if err := contracts.ProcessActions(); err != nil {
+	if err := contracts.ProcessActions(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assert(1, 1, 1, 2, 2)

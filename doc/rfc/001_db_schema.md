@@ -1,6 +1,6 @@
-# Request for Comments (RFC): Indexer Database Schema
+# Indexer Database Schema
 
-## 1. Introduction
+## 1. Abstract
 
 This RFC outlines the database schema for the `indexer`, which is a service
 storing and maintaing data on the Sia network. The schema is designed for
@@ -48,6 +48,9 @@ CREATE TABLE global_settings (
     max_storage_price NUMERIC(50,0), -- hastings / byte / block
     max_ingress_price NUMERIC(50,0), -- hastings / byte
     max_egress_price NUMERIC(50,0) -- hastings / byte
+
+    -- host checks
+    min_protocol_version BYTEA NOT NULL DEFAULT '\x010000' -- minimum protocol version
 );
 ```
 
@@ -119,12 +122,12 @@ CREATE INDEX syncer_bans_net_cidr_idx ON syncer_bans USING gist (net_cidr inet_o
 CREATE TABLE hosts (
     id SERIAL PRIMARY KEY,
     public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
-    total_scans INTEGER NOT NULL DEFAULT 0,
-    failed_scans INTEGER NOT NULL DEFAULT 0,
     consecutive_failed_scans INTEGER NOT NULL DEFAULT 0,
-    last_successful_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
-    last_announcement TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
-    next_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    recent_uptime DOUBLE PRECISION NOT NULL DEFAULT 0.894 CHECK (recent_uptime > 0 AND recent_uptime < 1),
+    last_failed_scan TIMESTAMP WITH TIME ZONE,
+    last_successful_scan TIMESTAMP WITH TIME ZONE,
+    last_announcement TIMESTAMP WITH TIME ZONE,
+    next_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     lost_sectors INTEGER NOT NULL DEFAULT 0,
 
     settings_protocol_version BYTEA NOT NULL DEFAULT '\x000000'::bytea CHECK (LENGTH(settings_protocol_version) = 3),
@@ -142,7 +145,7 @@ CREATE TABLE hosts (
     settings_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0,
     settings_free_sector_price NUMERIC(50,0) NOT NULL DEFAULT 0,
     settings_tip_height BIGINT NOT NULL DEFAULT 0,
-    settings_valid_until TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00'
+    settings_valid_until TIMESTAMP WITH TIME ZONE
 )
 
 CREATE TABLE host_addresses (
@@ -206,7 +209,22 @@ CREATE TABLE contract_elements (
 );
 ```
 
-### 2.5 Slabs and Sectors
+### 2.5 Accounts
+
+```postgresql
+CREATE TABLE accounts (
+    id BIGSERIAL PRIMARY KEY,
+    public_key BYTEA UNIQUE NOT NULL,
+);
+
+CREATE TABLE account_slabs (
+    account_id INTEGER REFERENCES accounts(id) NOT NULL,
+    slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
+    CONSTRAINT account_slabs_pk PRIMARY KEY (account_id, slab_id)
+);
+```
+
+### 2.6 Slabs and Sectors
 
 ```postgresql
 CREATE TABLE slabs (
@@ -214,7 +232,7 @@ CREATE TABLE slabs (
 
     digest BYTEA UNIQUE NOT NULL, -- unique identifier for the slab derived from sector roots
     encryption_key BYTEA NOT NULL,
-    last_repair_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    last_repair_attempt TIMESTAMP WITH TIME ZONE,
     min_shards SMALLINT NOT NULL CHECK(min_shards > 0)
 )
 
@@ -233,7 +251,7 @@ CREATE TABLE sectors (
     UNIQUE(slab_id, slab_index), -- enforce one sector per index per slab
 
     -- data integrity
-    next_integrity_check TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    next_integrity_check TIMESTAMP WITH TIME ZONE,
     consecutive_failed_checks SMALLINT NOT NULL DEFAULT 0
 )
 -- quick lookup of sectors to pin prioritized by upload time

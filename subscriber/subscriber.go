@@ -2,6 +2,7 @@ package subscriber
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -26,7 +27,7 @@ type (
 
 	// ContractManager manages contract state.
 	ContractManager interface {
-		ProcessActions() error
+		ProcessActions(context.Context) error
 		UpdateChainState(tx contracts.UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
 	}
 
@@ -83,7 +84,7 @@ func (s *Subscriber) Close() error {
 
 // New creates a new chain subscriber. The returned subscriber is already
 // processing chain updates and needs to be closed.
-func New(cm ChainManager, hm HostManager, contracts ContractManager, wm WalletManager, store Store, opts ...Option) *Subscriber {
+func New(cm ChainManager, hm HostManager, contracts ContractManager, wm WalletManager, store Store, opts ...Option) (*Subscriber, error) {
 	s := &Subscriber{
 		cm:        cm,
 		contracts: contracts,
@@ -109,35 +110,43 @@ func New(cm ChainManager, hm HostManager, contracts ContractManager, wm WalletMa
 		close(reorgCh)
 	}
 
-	done, err := s.tg.Add()
+	ctx, cancel, err := s.tg.AddContext(context.Background())
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	go func() {
-		defer done()
-		for range reorgCh {
+		defer cancel()
+		for {
 			select {
 			case <-reorgCh:
-				err := s.Sync()
-				if err != nil {
+				err := s.Sync(ctx)
+				if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, threadgroup.ErrClosed) {
 					s.log.Panic("failed to sync database", zap.Error(err))
 				}
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
 
 	reorgCh <- struct{}{} // trigger initial sync
-	return s
+	return s, nil
 }
 
 // Sync syncs the subscriber with the chain manager. It's usually not necessary
 // to manually call this since the Subscriber will do that itself but it can be
 // used to guarantee the subscriber is synced at a given point in time.
-func (s *Subscriber) Sync() error {
+func (s *Subscriber) Sync(ctx context.Context) error {
+	ctx, cancel, err := s.tg.AddContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	index, err := s.tip()
+	index, err := s.store.LastScannedIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get last scanned index: %w", err)
 	}
@@ -146,8 +155,8 @@ func (s *Subscriber) Sync() error {
 	s.log.Debug("syncing", zap.Uint64("height", index.Height), zap.Stringer("id", index.ID))
 	for index != s.cm.Tip() {
 		select {
-		case <-s.tg.Done():
-			break
+		case <-ctx.Done():
+			return ctx.Err()
 		default:
 		}
 
@@ -158,8 +167,8 @@ func (s *Subscriber) Sync() error {
 			break
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		if err := s.store.UpdateChainState(ctx, func(tx UpdateTx) error {
+		updateCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		err = s.store.UpdateChainState(updateCtx, func(tx UpdateTx) error {
 			if err := s.hm.UpdateChainState(tx, aus); err != nil {
 				return fmt.Errorf("failed to update host chain state: %w", err)
 			} else if err := s.contracts.UpdateChainState(tx, rus, aus); err != nil {
@@ -174,15 +183,15 @@ func (s *Subscriber) Sync() error {
 				index = rus[len(rus)-1].State.Index
 			}
 
-			if err := tx.UpdateLastScannedIndex(ctx, aus[len(aus)-1].State.Index); err != nil {
+			if err := tx.UpdateLastScannedIndex(updateCtx, index); err != nil {
 				return fmt.Errorf("failed to update last scanned index: %w", err)
 			}
 			return nil
-		}); err != nil {
-			cancel()
+		})
+		cancel()
+		if err != nil {
 			return fmt.Errorf("failed to apply updates: %w", err)
 		}
-		cancel()
 
 		if time.Since(lastUpdate) > 5*time.Minute {
 			s.log.Debug("syncing", zap.Uint64("height", index.Height), zap.Stringer("id", index.ID))
@@ -191,16 +200,10 @@ func (s *Subscriber) Sync() error {
 	}
 
 	// post-sync actions
-	if err := s.contracts.ProcessActions(); err != nil {
+	if err := s.contracts.ProcessActions(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		s.log.Named("contracts").Error("failed to process actions", zap.Error(err))
 	}
 
 	s.log.Debug("synced", zap.Uint64("height", index.Height), zap.Stringer("id", index.ID))
 	return nil
-}
-
-func (s *Subscriber) tip() (types.ChainIndex, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	return s.store.LastScannedIndex(ctx)
 }

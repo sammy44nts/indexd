@@ -48,13 +48,7 @@ func (tx *updateTx) IsKnownContract(fcid types.FileContractID) (bool, error) {
 // UpdateChainState that don't need to be atomic with the chain update. It is
 // not guaranteed to be called on every update but will eventually be called
 // after applying all batches of a sync.
-func (m *ContractManager) ProcessActions() error {
-	ctx, cancel, err := m.tg.AddContext(context.Background())
-	if err != nil {
-		return err
-	}
-	defer cancel()
-
+func (m *ContractManager) ProcessActions(ctx context.Context) error {
 	// reject all contracts that have been pending for more than 'contractRejectBuffer'
 	maxFormation := time.Now().Add(-m.contractRejectBuffer)
 	if err := m.store.RejectPendingContracts(ctx, maxFormation); err != nil {
@@ -73,7 +67,6 @@ func (m *ContractManager) ProcessActions() error {
 	if err := m.store.PruneExpiredContractElements(ctx, m.expiredContractBroadcastBuffer+m.expiredContractPruneBuffer); err != nil {
 		return fmt.Errorf("failed to prune expired contracts: %w", err)
 	}
-
 	return nil
 }
 
@@ -97,7 +90,6 @@ func (m *ContractManager) UpdateChainState(tx UpdateTx, reverted []chain.RevertU
 			return fmt.Errorf("failed to apply chain update: %w", err)
 		}
 	}
-
 	return nil
 }
 
@@ -216,8 +208,16 @@ func (m *ContractManager) broadcastExpiredContracts(ctx context.Context) error {
 		}
 		m.w.SignV2Inputs(&txn, toSign)
 
+		// fetch potential parents and basis for broadcasting the txn set
+		basis, txnSet, err := m.cm.V2TransactionSet(basis, txn)
+		if err != nil {
+			m.log.Error("failed to retrieve txn set for broadcasting", zap.Error(err))
+			m.w.ReleaseInputs(nil, []types.V2Transaction{txn})
+			continue
+		}
+
 		// verify txn and broadcast it
-		_, err = m.cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn})
+		_, err = m.cm.AddV2PoolTransactions(basis, txnSet)
 		if err != nil {
 			if strings.Contains(err.Error(), "has already been resolved") ||
 				strings.Contains(err.Error(), "not present in the accumulator") {

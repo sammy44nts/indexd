@@ -9,7 +9,8 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/build"
-	"go.sia.tech/indexd/persist/postgres"
+	"go.sia.tech/indexd/explorer"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 )
@@ -56,13 +57,32 @@ func (a *api) handleGETState(jc jape.Context) {
 	})
 }
 
+func (a *api) handleGETExplorerSiacoinExchangeRate(jc jape.Context) {
+	if a.explorer == nil {
+		jc.Error(explorer.ErrDisabled, http.StatusServiceUnavailable)
+		return
+	}
+
+	var currency string
+	if jc.DecodeParam("currency", &currency) != nil {
+		return
+	}
+
+	rate, err := a.explorer.SiacoinExchangeRate(jc.Request.Context(), currency)
+	if jc.Check("failed to get siacoin exchange rate", err) != nil {
+		return
+	}
+
+	jc.Encode(rate)
+}
+
 func (a *api) handleGETHost(jc jape.Context) {
 	var hk types.PublicKey
 	if jc.DecodeParam("hostkey", &hk) != nil {
 		return
 	}
 	host, err := a.store.Host(jc.Request.Context(), hk)
-	if errors.Is(err, postgres.ErrHostNotFound) {
+	if errors.Is(err, hosts.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
 	} else if jc.Check("failed to get host", err) != nil {
@@ -81,6 +101,34 @@ func (a *api) handleGETHosts(jc jape.Context) {
 		return
 	}
 	jc.Encode(hosts)
+}
+
+func (a *api) handleGETHostsBlocklist(jc jape.Context) {
+	offset, limit, ok := parseOffsetLimit(jc)
+	if !ok {
+		return
+	}
+	hosts, err := a.store.BlockedHosts(jc.Request.Context(), offset, limit)
+	if jc.Check("failed to get blocklist", err) != nil {
+		return
+	}
+	jc.Encode(hosts)
+}
+
+func (a *api) handlePUTHostsBlocklist(jc jape.Context) {
+	var hks []types.PublicKey
+	if jc.Decode(&hks) != nil {
+		return
+	}
+	jc.Check("failed to add host keys to blocklist", a.store.BlockHosts(jc.Request.Context(), hks))
+}
+
+func (a *api) handleDELETEHostsBlocklist(jc jape.Context) {
+	var hk types.PublicKey
+	if jc.DecodeParam("hostkey", &hk) != nil {
+		return
+	}
+	jc.Check("failed to unblock host", a.store.UnblockHost(jc.Request.Context(), hk))
 }
 
 func (a *api) handleGETWallet(jc jape.Context) {

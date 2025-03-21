@@ -29,6 +29,7 @@ type (
 		AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error)
 		RecommendedFee() types.Currency
 		TipState() consensus.State
+		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
 	ContractFormer interface {
@@ -140,13 +141,6 @@ func NewManager(chainManager ChainManager, contractFormer ContractFormer, store 
 	return cm, nil
 }
 
-// Close terminates any background tasks of the manager and waits for them to
-// exit.
-func (cm *ContractManager) Close() error {
-	cm.tg.Stop()
-	return nil
-}
-
 func newContractManager(chainManager ChainManager, contractFormer ContractFormer, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
 	cm := &ContractManager{
 		cm: chainManager,
@@ -169,6 +163,13 @@ func newContractManager(chainManager ChainManager, contractFormer ContractFormer
 		opt(cm)
 	}
 	return cm
+}
+
+// Close closes the contract manager, terminates any background tasks and waits
+// for them to exit.
+func (cm *ContractManager) Close() error {
+	cm.tg.Stop()
+	return nil
 }
 
 // maintenanceLoop performs any background tasks that the contract manager needs
@@ -211,11 +212,11 @@ func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
 			return false
 		case <-time.After(time.Second):
 		}
-		if len(cm.s.Peers()) > 0 && time.Since(cm.cm.TipState().PrevTimestamps[0]) < 3*time.Hour {
+		if time.Since(cm.cm.TipState().PrevTimestamps[0]) < 3*time.Hour {
 			return true
 		}
 		once.Do(func() {
-			log.Info("waiting for consensus to be synced and syncer to be online before starting maintenance")
+			log.Info("waiting for consensus to be synced before starting maintenance")
 		})
 	}
 }

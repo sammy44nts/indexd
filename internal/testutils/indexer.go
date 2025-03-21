@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/contracts"
+	"go.sia.tech/indexd/explorer"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/persist/postgres"
 	"go.sia.tech/indexd/subscriber"
@@ -76,12 +77,15 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
 
-	sub := subscriber.New(c.cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
+	subscriber, err := subscriber.New(c.cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
+	if err != nil {
+		t.Fatalf("failed to create subscriber: %v", err)
+	}
 
 	// sync subscriber
 	syncFn := func() {
 		t.Helper()
-		if err := sub.Sync(); err != nil {
+		if err := subscriber.Sync(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,6 +93,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 
 	apiOpts := []api.ServerOption{
 		api.WithLogger(log.Named("api")),
+		api.WithExplorer(explorer.New("https://api.siascan.com")),
 	}
 
 	password := hex.EncodeToString(frand.Bytes(16))
@@ -123,7 +128,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		if err := closeWithTimeout(contracts.Close); err != nil {
 			t.Errorf("failed to close contract manager: %v", err)
 		}
-		if err := closeWithTimeout(sub.Close); err != nil {
+		if err := closeWithTimeout(subscriber.Close); err != nil {
 			t.Errorf("failed to close subscriber: %v", err)
 		}
 		if err := closeWithTimeout(store.Close); err != nil {

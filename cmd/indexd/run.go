@@ -23,6 +23,7 @@ import (
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/config"
 	"go.sia.tech/indexd/contracts"
+	"go.sia.tech/indexd/explorer"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/persist/postgres"
 	"go.sia.tech/indexd/subscriber"
@@ -110,8 +111,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer contracts.Close()
 
-	sub := subscriber.New(cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
-	defer sub.Close()
+	subscriber, err := subscriber.New(cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
+	if err != nil {
+		return fmt.Errorf("failed to create subscriber: %w", err)
+	}
+	defer subscriber.Close()
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
@@ -121,6 +125,10 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	apiOpts := []api.ServerOption{
 		api.WithLogger(log.Named("api")),
+	}
+
+	if cfg.Explorer.Enabled {
+		apiOpts = append(apiOpts, api.WithExplorer(explorer.New(cfg.Explorer.URL)))
 	}
 
 	web := http.Server{

@@ -30,6 +30,12 @@ func (c *Client) State(ctx context.Context) (state State, err error) {
 	return
 }
 
+// ExplorerSiacoinExchangeRate returns the exchange rate for the given currency.
+func (c *Client) ExplorerSiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error) {
+	err = c.c.GET(ctx, fmt.Sprintf("/explorer/exchange-rate/siacoin/%s", currency), &rate)
+	return
+}
+
 // Host returns information about a particular host known to the indexer.
 func (c *Client) Host(ctx context.Context, hostKey types.PublicKey) (h hosts.Host, err error) {
 	err = c.c.GET(ctx, fmt.Sprintf("/host/%s", hostKey), &h)
@@ -43,6 +49,28 @@ func (c *Client) Hosts(ctx context.Context, opts ...URLQueryParameterOption) (ho
 		opt(values)
 	}
 	err = c.c.GET(ctx, "/hosts?"+values.Encode(), &hosts)
+	return
+}
+
+// HostsBlocklist returns the host key of all hosts on the blocklist.
+func (c *Client) HostsBlocklist(ctx context.Context, opts ...URLQueryParameterOption) (blocklist []types.PublicKey, err error) {
+	values := url.Values{}
+	for _, opt := range opts {
+		opt(values)
+	}
+	err = c.c.GET(ctx, "/hosts/blocklist?"+values.Encode(), &blocklist)
+	return
+}
+
+// HostsBlocklistAdd adds the given host keys to the blocklist.
+func (c *Client) HostsBlocklistAdd(ctx context.Context, hostKeys []types.PublicKey) (err error) {
+	err = c.c.PUT(ctx, "/hosts/blocklist", hostKeys)
+	return
+}
+
+// HostsBlocklistRemove removes the host with given host key from the blocklist.
+func (c *Client) HostsBlocklistRemove(ctx context.Context, hostKey types.PublicKey) (err error) {
+	err = c.c.DELETE(ctx, fmt.Sprintf("/hosts/blocklist/%s", hostKey))
 	return
 }
 
