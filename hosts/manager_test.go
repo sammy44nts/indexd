@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	"go.sia.tech/coreutils/syncer"
 	"go.uber.org/zap"
 )
 
@@ -48,12 +49,6 @@ func (s *mockStore) PruneHosts(ctx context.Context, lastSuccessfulScanCutoff tim
 
 func (s *mockStore) UpdateHost(ctx context.Context, hk types.PublicKey, networks []net.IPNet, hs proto4.HostSettings, scanSucceeded bool, nextScan time.Time) error {
 	return nil
-}
-
-type mockPinger struct{ online bool }
-
-func (p mockPinger) Online() bool {
-	return p.online
 }
 
 // mockResolver is a mock that implements the Resolver interface.
@@ -99,7 +94,7 @@ func TestHostManager(t *testing.T) {
 	db := &mockStore{hosts: make(map[types.PublicKey]Host)}
 
 	// create host manager
-	mgr, err := NewManager(db, WithAnnouncementMaxAge(time.Minute))
+	mgr, err := NewManager(&mockSyncer{peers: []*syncer.Peer{{}}}, db, WithAnnouncementMaxAge(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +290,6 @@ func TestCalculateNextScanTime(t *testing.T) {
 
 // TestResolveHost unit tests the functionality of ResolveHost.
 func TestResolveHost(t *testing.T) {
-	p := mockPinger{}
 	r := &mockResolver{
 		ips: map[string][]net.IPAddr{
 			"h1.com": {{IP: net.IPv4(127, 0, 0, 1)}, {IP: net.IPv4(1, 2, 3, 4)}},
@@ -304,13 +298,13 @@ func TestResolveHost(t *testing.T) {
 	}
 
 	// assert [context.Cancelled] is returned when context is cancelled
-	_, _, err := resolveHost(cancelledCtx, p, r, []chain.NetAddress{testMuxAddr("h1.com:1234")}, zap.NewNop())
+	_, _, err := resolveHost(cancelledCtx, r, []chain.NetAddress{testMuxAddr("h1.com:1234")}, zap.NewNop())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 
 	// assert incorrect addresses are filtered out
-	addrs, _, err := resolveHost(context.Background(), p, r, []chain.NetAddress{testMuxAddr("h1.com")}, zap.NewNop())
+	addrs, _, err := resolveHost(context.Background(), r, []chain.NetAddress{testMuxAddr("h1.com")}, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addrs) != 0 {
@@ -318,7 +312,7 @@ func TestResolveHost(t *testing.T) {
 	}
 
 	// assert net addresses with private IPs are filtered out
-	addrs, _, err = resolveHost(context.Background(), p, r, []chain.NetAddress{testMuxAddr("h1.com:1234")}, zap.NewNop())
+	addrs, _, err = resolveHost(context.Background(), r, []chain.NetAddress{testMuxAddr("h1.com:1234")}, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addrs) != 0 {
@@ -326,21 +320,13 @@ func TestResolveHost(t *testing.T) {
 	}
 
 	// assert net addresses get resolved and networks are returned
-	addrs, networks, err := resolveHost(context.Background(), p, r, []chain.NetAddress{testMuxAddr("h2.com:1234")}, zap.NewNop())
+	addrs, networks, err := resolveHost(context.Background(), r, []chain.NetAddress{testMuxAddr("h2.com:1234")}, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addrs) != 1 {
 		t.Fatal("unexpected", len(addrs))
 	} else if len(networks) != 1 {
 		t.Fatal("unexpected", len(networks))
-	}
-
-	// assert [errNodeOffline] is returned when the indexer is offline
-	r.fail = true
-	p.online = false
-	_, _, err = resolveHost(cancelledCtx, p, r, []chain.NetAddress{testMuxAddr("h2.com:1234")}, zap.NewNop())
-	if !errors.Is(err, errNodeOffline) {
-		t.Fatal("unexpected error", err)
 	}
 }
 

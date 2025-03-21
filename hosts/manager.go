@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -46,20 +47,20 @@ type (
 		scanFrequency      time.Duration
 		scanInterval       time.Duration
 
-		pinger   Pinger
-		resolver Resolver
-		scanner  Scanner
-		store    Store
+		onlineChecker OnlineChecker
+		resolver      Resolver
+		scanner       Scanner
+		store         Store
 
 		tg  *threadgroup.ThreadGroup
 		log *zap.Logger
 	}
 
-	// Pinger defines an interface to check whether the indexer is online. It's
+	// OnlineChecker defines an interface to check whether the indexer is online. It's
 	// used to ensure hosts aren't punished for failing a scan if the indexer is
 	// offline.
-	Pinger interface {
-		Online() bool
+	OnlineChecker interface {
+		IsOnline() bool
 	}
 
 	// Resolver defines an interface to resolve hostnames.
@@ -81,6 +82,11 @@ type (
 		UpdateHost(ctx context.Context, hk types.PublicKey, networks []net.IPNet, hs proto4.HostSettings, scanSucceeded bool, nextScan time.Time) error
 	}
 
+	// Syncer defines an interface that exposes the Peers method.
+	Syncer interface {
+		Peers() []*syncer.Peer
+	}
+
 	// UpdateTx defines what the host manager needs to atomically process a
 	// chain update in the database.
 	UpdateTx interface {
@@ -89,18 +95,18 @@ type (
 )
 
 // NewManager creates a new host manager.
-func NewManager(store Store, opts ...Option) (*HostManager, error) {
+func NewManager(syncer Syncer, store Store, opts ...Option) (*HostManager, error) {
 	m := &HostManager{
 		announcementMaxAge: time.Hour * 24 * 365,
 		scanFrequency:      time.Hour,
 		scanInterval:       time.Hour * 24,
 
-		pinger:   pinger{},
-		resolver: &net.Resolver{},
-		scanner:  &scanner{},
-		store:    store,
-		tg:       threadgroup.New(),
-		log:      zap.NewNop(),
+		onlineChecker: &onlineChecker{addresses: fallbackSites, syncer: syncer},
+		resolver:      &net.Resolver{},
+		scanner:       &scanner{},
+		store:         store,
+		tg:            threadgroup.New(),
+		log:           zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -161,7 +167,7 @@ func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (proto4.
 	scanCtx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
 
-	addrs, networks, err := resolveHost(scanCtx, m.pinger, m.resolver, host.Addresses, logger)
+	addrs, networks, err := resolveHost(scanCtx, m.resolver, host.Addresses, logger)
 	if err != nil {
 		return proto4.HostSettings{}, fmt.Errorf("failed to resolve host, %w", err)
 	}
@@ -173,7 +179,9 @@ func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (proto4.
 
 	consecutiveFailures := host.ConsecutiveFailedScans
 	success := settings != (proto4.HostSettings{})
-	if !success {
+	if !success && !m.onlineChecker.IsOnline() {
+		return proto4.HostSettings{}, errNodeOffline
+	} else if !success {
 		consecutiveFailures++
 	}
 
@@ -350,7 +358,7 @@ func calculateNextScanTime(lastScan time.Time, success bool, consecScanFailures 
 // and/or private addresses, and a list of networks in CIDR notation. The only
 // error this function returns is [context.Canceled], other errors that occur
 // during the resolving and parsing are debug logged but otherwise ignored.
-func resolveHost(ctx context.Context, pinger Pinger, resolver Resolver, addresses []chain.NetAddress, log *zap.Logger) ([]chain.NetAddress, []net.IPNet, error) {
+func resolveHost(ctx context.Context, resolver Resolver, addresses []chain.NetAddress, log *zap.Logger) ([]chain.NetAddress, []net.IPNet, error) {
 	var filtered []chain.NetAddress
 	var networks []net.IPNet
 	for _, na := range addresses {
@@ -364,9 +372,6 @@ func resolveHost(ctx context.Context, pinger Pinger, resolver Resolver, addresse
 		if errors.Is(err, context.Canceled) {
 			return nil, nil, err
 		} else if err != nil {
-			if !pinger.Online() {
-				return nil, nil, errNodeOffline
-			}
 			log.Debug("failed to resolve host", zap.String("host", host), zap.Error(err))
 			continue
 		}

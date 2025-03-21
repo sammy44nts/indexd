@@ -28,16 +28,20 @@ func (c *scanner) Settings(ctx context.Context, hk types.PublicKey, addr string)
 }
 
 var fallbackSites = []string{
-	"1.1.1.1:80", // Cloudflare
-	"www.google.com:80",
-	"www.amazon.com:80",
+	"1.1.1.1:443", // Cloudflare
+	"www.google.com:443",
+	"www.amazon.com:443",
 }
 
-type pinger struct{}
+type onlineChecker struct {
+	syncer    Syncer
+	addresses []string
+}
 
-// Online returns true if any of the fallback sites are reachable.
-func (pinger) Online() bool {
-	return slices.ContainsFunc(fallbackSites, isReachable)
+// IsOnline returns true if the syncer has peers or if any of the fallback sites
+// are reachable.
+func (p *onlineChecker) IsOnline() bool {
+	return len(p.syncer.Peers()) > 0 || slices.ContainsFunc(p.addresses, isReachable)
 }
 
 // isReachable attempts to establish a TCP connection to the given host with a short timeout.
