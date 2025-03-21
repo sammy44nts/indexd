@@ -3,10 +3,10 @@ CREATE TABLE hosts (
     public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
     consecutive_failed_scans INTEGER NOT NULL DEFAULT 0,
     recent_uptime DOUBLE PRECISION NOT NULL DEFAULT 0.894 CHECK (recent_uptime > 0 AND recent_uptime < 1),
-    last_failed_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
-    last_successful_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
-    last_announcement TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
-    next_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    last_failed_scan TIMESTAMP WITH TIME ZONE,
+    last_successful_scan TIMESTAMP WITH TIME ZONE,
+    last_announcement TIMESTAMP WITH TIME ZONE NOT NULL,
+    next_scan TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     lost_sectors INTEGER NOT NULL DEFAULT 0,
 
     settings_protocol_version BYTEA NOT NULL DEFAULT '\x000000'::bytea CHECK (LENGTH(settings_protocol_version) = 3),
@@ -24,7 +24,7 @@ CREATE TABLE hosts (
     settings_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0,
     settings_free_sector_price NUMERIC(50,0) NOT NULL DEFAULT 0,
     settings_tip_height BIGINT NOT NULL DEFAULT 0,
-    settings_valid_until TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00'
+    settings_valid_until TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX idx_hosts_next_scan_idx ON hosts(next_scan);
 
@@ -51,7 +51,7 @@ CREATE TABLE syncer_peers (
     ip_address INET PRIMARY KEY,
     port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
     first_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    last_connect TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    last_connect TIMESTAMP WITH TIME ZONE,
     synced_blocks INTEGER NOT NULL DEFAULT 0 CHECK (synced_blocks >= 0),
     sync_duration INTEGER NOT NULL DEFAULT 0 CHECK (sync_duration >= 0)
 );

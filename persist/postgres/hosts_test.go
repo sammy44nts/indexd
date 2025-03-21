@@ -180,7 +180,7 @@ func TestHost(t *testing.T) {
 
 	// update the host
 	networks := []net.IPNet{{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)}}
-	err = db.UpdateHost(context.Background(), hk, networks, hs, true, time.Time{})
+	err = db.UpdateHost(context.Background(), hk, networks, hs, true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,13 +277,13 @@ func TestHostChecks(t *testing.T) {
 			ValidUntil:      time.Now().Add(59 * time.Minute).Round(time.Microsecond),
 			TipHeight:       frand.Uint64n(1e3),
 		},
-	}, true, time.Time{})
+	}, true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// fail scan to ensure we fail on uptime
-	err = db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, false, time.Time{})
+	err = db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,58 +310,58 @@ func TestHostChecks(t *testing.T) {
 
 	// adjust max duration so we pass the check
 	hs.MaxContractDuration = settingPeriod
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("MaxContractDuration")
 
 	// adjust max collateral so we pass the check
 	hs.MaxCollateral = hs.Prices.Collateral.Mul64(oneTB).Mul64(settingPeriod)
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("MaxCollateral")
 
 	// adjust protocol to pass the check
 	hs.ProtocolVersion = [3]uint8{1, 0, 0}
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("ProtocolVersion")
 
 	// adjust price validity so we pass the check
 	hs.Prices.ValidUntil = time.Now().Add(time.Second * 3601)
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("PriceValidity")
 
 	// adjust accepting contracts so we pass the check
 	hs.AcceptingContracts = true
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("AcceptingContracts")
 
 	// adjust contract price so we pass the check
 	hs.Prices.ContractPrice = oneSC.Sub(oneH)
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("ContractPrice")
 
 	// adjust collateral so we pass the check
 	hs.Prices.Collateral = hs.Prices.StoragePrice.Mul64(2)
 	hs.MaxCollateral = hs.Prices.Collateral.Mul64(oneTB).Mul64(settingPeriod)
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("Collateral")
 
 	// adjust storage price so we pass the check
 	hs.Prices.StoragePrice = settingMaxStoragePrice
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("StoragePrice")
 
 	// adjust egress price so we pass the check
 	hs.Prices.EgressPrice = settingMaxEgressPrice
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("EgressPrice")
 
 	// adjust ingress price so we pass the check
 	hs.Prices.IngressPrice = settingMaxIngressPrice
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("IngressPrice")
 
 	// adjust free sector price so we pass the check
 	hs.Prices.FreeSectorPrice = oneSC.Div64(oneTB)
-	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Time{})
+	_ = db.UpdateHost(context.Background(), hk, nil, hs, true, time.Now())
 	assertCheckOK("FreeSectorPrice")
 
 	// assert host is usable
@@ -560,7 +560,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// simulate failed scan for h1
-	err = db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, false, time.Time{})
+	err = db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, false, time.Now())
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -576,7 +576,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// simulate failed scan for h2
-	err = db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, false, time.Time{})
+	err = db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, false, time.Now())
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -593,10 +593,10 @@ func TestPruneHosts(t *testing.T) {
 	h1 = addHost()
 	h2 = addHost()
 	err = errors.Join(
-		db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, true, time.Time{}),
-		db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, false, time.Time{}),
-		db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, true, time.Time{}),
-		db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, false, time.Time{}),
+		db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, true, time.Now()),
+		db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, false, time.Now()),
+		db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, true, time.Now()),
+		db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, false, time.Now()),
 	)
 	if err != nil {
 		t.Fatal("unexpected", err)
@@ -647,7 +647,7 @@ func TestUpdateHost(t *testing.T) {
 
 	// assert [hosts.ErrNotFound] is returned
 	hk := types.GeneratePrivateKey().PublicKey()
-	err := db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, false, time.Time{})
+	err := db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, false, time.Now())
 	if !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
@@ -661,19 +661,21 @@ func TestUpdateHost(t *testing.T) {
 
 	// assert host settings are not inserted if the scan failed
 	hs := testHostSettings(hk)
-	err = db.UpdateHost(context.Background(), hk, nil, hs, false, time.Time{})
+	err = db.UpdateHost(context.Background(), hk, nil, hs, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	} else if h, err := db.Host(context.Background(), hk); err != nil {
 		t.Fatal(err)
-	} else if h.Settings != (proto4.HostSettings{Prices: proto4.HostPrices{ValidUntil: time.Time{}.Local()}}) {
+	} else if h.Settings != (proto4.HostSettings{}) {
 		t.Fatal("expected no settings", h.Settings, proto4.HostSettings{})
 	} else if !h.LastSuccessfulScan.IsZero() {
 		t.Fatal("expected no last successful scan")
+	} else if h.LastFailedScan.IsZero() {
+		t.Fatal("expected last failed scan to be set")
 	}
 
 	// assert consecutive failed scans are incremented
-	err = db.UpdateHost(context.Background(), hk, nil, hs, false, time.Time{})
+	err = db.UpdateHost(context.Background(), hk, nil, hs, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	} else if h, err := db.Host(context.Background(), hk); err != nil {
