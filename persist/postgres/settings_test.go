@@ -5,9 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"go.sia.tech/core/types"
 	"go.uber.org/zap/zaptest"
-	"lukechampine.com/frand"
 )
 
 func TestPinnedSettings(t *testing.T) {
@@ -42,39 +40,6 @@ func TestPinnedSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(ps, update) {
-		t.Fatal("unexpected", update)
-	}
-}
-
-func TestUpdatePriceSettings(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	db := initPostgres(t, log.Named("postgres"))
-
-	prices, err := db.PriceSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	} else if !prices.MaxEgressPrice.IsZero() {
-		t.Fatal("unexpected", prices.MaxEgressPrice)
-	} else if !prices.MaxIngressPrice.IsZero() {
-		t.Fatal("unexpected", prices.MaxIngressPrice)
-	} else if !prices.MaxStoragePrice.IsZero() {
-		t.Fatal("unexpected", prices.MaxStoragePrice)
-	} else if !prices.MinCollateral.IsZero() {
-		t.Fatal("unexpected", prices.MinCollateral)
-	}
-
-	prices.MaxEgressPrice = types.NewCurrency64(frand.Uint64n(1e6))
-	prices.MaxIngressPrice = types.NewCurrency64(frand.Uint64n(1e6))
-	prices.MaxStoragePrice = types.NewCurrency64(frand.Uint64n(1e6))
-	prices.MinCollateral = types.NewCurrency64(frand.Uint64n(1e6))
-	if err := db.UpdatePriceSettings(context.Background(), prices); err != nil {
-		t.Fatal(err)
-	}
-
-	update, err := db.PriceSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	} else if !reflect.DeepEqual(prices, update) {
 		t.Fatal("unexpected", update)
 	}
 }

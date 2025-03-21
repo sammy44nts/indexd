@@ -196,6 +196,15 @@ func (s *Store) SetContractBad(contractID types.FileContractID) error {
 	})
 }
 
+// UpdateContractSettings updates the contract settings.
+func (s *Store) UpdateContractSettings(ctx context.Context, cs contracts.ContractSettings) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		query := `UPDATE global_settings SET contract_period = $1, contract_renew_window = $2`
+		_, err := tx.Exec(ctx, query, cs.Period, cs.RenewWindow)
+		return err
+	})
+}
+
 func (tx *updateTx) ContractElements() ([]types.V2FileContractElement, error) {
 	rows, err := tx.tx.Query(tx.ctx, `
 SELECT c.contract_id, fces.contract, fces.leaf_index, fces.merkle_proof

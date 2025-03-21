@@ -88,28 +88,28 @@ CREATE TABLE wallet_siacoin_elements (
 CREATE TABLE global_settings (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
     db_version INTEGER NOT NULL, -- used for migrations
-    min_protocol_version BYTEA NOT NULL DEFAULT '\x010000', -- used for host checks
 
     -- chain index of the last scanned block
     scanned_height BIGINT NOT NULL DEFAULT 0 CHECK(scanned_height >= 0),
     scanned_block_id BYTEA NOT NULL DEFAULT '\x0000000000000000000000000000000000000000000000000000000000000000'::bytea CHECK (LENGTH(scanned_block_id) = 32),
 
-    -- contract manager settings
-    contracts_period INTEGER NOT NULL DEFAULT 144 * 7 * 6 CHECK(contracts_period > contracts_renew_window), -- 6 weeks
-    contracts_renew_window INTEGER NOT NULL DEFAULT 144 * 7 * 2 CHECK(contracts_renew_window > 0), -- 2 weeks
+    -- contract settings
+    contract_period INTEGER NOT NULL DEFAULT 144 * 7 * 6 CHECK(contract_period > contract_renew_window), -- 6 weeks
+    contract_renew_window INTEGER NOT NULL DEFAULT 144 * 7 * 2 CHECK(contract_renew_window > 0), -- 2 weeks
 
-    -- price pin settings
+    -- host settings
+    host_min_protocol_version BYTEA NOT NULL DEFAULT '\x010000', -- used for host checks
+    host_min_collateral NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
+    host_max_storage_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
+    host_max_ingress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
+    host_max_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
+
+    -- pinned settings
     pinned_currency VARCHAR(3) NOT NULL DEFAULT '',
     pinned_min_collateral DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (pinned_min_collateral >= 0),
     pinned_max_storage_price DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (pinned_max_storage_price >= 0),
     pinned_max_ingress_price DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (pinned_max_ingress_price >= 0),
-    pinned_max_egress_price DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (pinned_max_egress_price >= 0),
-
-    -- price settings
-    min_collateral NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
-    max_storage_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
-    max_ingress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
-    max_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0 -- hastings / byte
+    pinned_max_egress_price DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (pinned_max_egress_price >= 0)
 );
 
 CREATE TABLE contracts (

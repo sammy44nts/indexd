@@ -26,7 +26,7 @@ import (
 	"go.sia.tech/indexd/explorer"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/persist/postgres"
-	"go.sia.tech/indexd/settings"
+	"go.sia.tech/indexd/pins"
 	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -133,11 +133,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		apiOpts = append(apiOpts, api.WithExplorer(e))
 	}
 
-	settings, err := settings.NewManager(store, e, settings.WithLogger(log.Named("settings")))
+	pm, err := pins.NewManager(e, hm, store, pins.WithLogger(log.Named("pins")))
 	if err != nil {
-		return fmt.Errorf("failed to create settings manager: %w", err)
+		return fmt.Errorf("failed to create pins manager: %w", err)
 	}
-	defer settings.Close()
+	defer pm.Close()
 
 	web := http.Server{
 		Handler: webRouter{
