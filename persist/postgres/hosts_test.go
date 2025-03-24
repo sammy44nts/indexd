@@ -219,7 +219,6 @@ func TestHostChecks(t *testing.T) {
 		} else if f.Kind() != reflect.Bool {
 			t.Fatalf("field '%s' is not a boolean", check)
 		} else if !f.Bool() {
-			t.Log(h.Usability)
 			t.Fatalf("expected field '%s' to be true", check)
 		}
 	}
