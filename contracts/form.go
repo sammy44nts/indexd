@@ -53,7 +53,7 @@ type contractFormer struct {
 // NewContractFormer creates a production ContractFormer that forms contracts by
 // dialing up hosts using the SiaMux protocol and fetching fresh settings right
 // before forming the contract.
-func NewContractFormer(cm *chain.Manager, w rhp.Wallet, renterKey types.PrivateKey) ContractFormer {
+func NewContractFormer(cm *chain.Manager, w rhp.Wallet, renterKey types.PrivateKey) Contractor {
 	return &contractFormer{
 		cm: cm,
 		signer: &formContractSigner{

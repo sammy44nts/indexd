@@ -32,9 +32,9 @@ type (
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
-	// ContractFormer defines the dependencies required to form a contract with
-	// a host.
-	ContractFormer interface {
+	// Contractor defines the dependencies required to form, renew and refresh
+	// contracts.
+	Contractor interface {
 		FormContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
 	}
 
@@ -106,7 +106,7 @@ type (
 		w     Wallet
 		store Store
 
-		cf        ContractFormer
+		cf        Contractor
 		scanner   Scanner
 		renterKey types.PublicKey
 
@@ -130,8 +130,8 @@ func WithLogger(l *zap.Logger) ContractManagerOpt {
 // NewManager creates a new contract manager. It is responsible for forming and
 // renewing contracts as well as any interactions with hosts that require
 // contracts.
-func NewManager(chainManager ChainManager, contractFormer ContractFormer, scanner Scanner, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
-	cm := newContractManager(chainManager, contractFormer, scanner, store, syncer, wallet, opts...)
+func NewManager(renterKey types.PublicKey, chainManager ChainManager, contractor Contractor, scanner Scanner, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
+	cm := newContractManager(renterKey, chainManager, contractor, scanner, store, syncer, wallet, opts...)
 
 	ctx, cancel, err := cm.tg.AddContext(context.Background())
 	if err != nil {
@@ -144,13 +144,14 @@ func NewManager(chainManager ChainManager, contractFormer ContractFormer, scanne
 	return cm, nil
 }
 
-func newContractManager(chainManager ChainManager, contractFormer ContractFormer, scanner Scanner, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
+func newContractManager(renterKey types.PublicKey, chainManager ChainManager, contractor Contractor, scanner Scanner, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
 	cm := &ContractManager{
 		cm: chainManager,
 		s:  syncer,
 		w:  wallet,
 
-		cf: contractFormer,
+		cf:        contractor,
+		renterKey: renterKey,
 
 		scanner: scanner,
 		store:   store,

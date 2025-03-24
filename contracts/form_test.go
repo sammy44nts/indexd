@@ -4,11 +4,14 @@ import (
 	"context"
 	"net"
 	"slices"
+	"strings"
 	"testing"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -25,7 +28,11 @@ type contractFormerMock struct {
 }
 
 func (cf *contractFormerMock) Calls() []formContractCall {
-	return slices.Clone(cf.calls)
+	calls := slices.Clone(cf.calls)
+	slices.SortFunc(calls, func(a, b formContractCall) int {
+		return strings.Compare(a.hk.String(), b.hk.String())
+	})
+	return calls
 }
 
 func (cf *contractFormerMock) FormContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
@@ -78,7 +85,8 @@ func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (proto.H
 }
 
 func TestPerformContractFormation(t *testing.T) {
-	cmMock := &chainManagerMock{}
+	cmMock := newChainManagerMock()
+	blockHeight := cmMock.TipState().Index.Height
 	syncerMock := &syncerMock{}
 
 	goodUsability := hosts.Usability{
@@ -120,6 +128,12 @@ func TestPerformContractFormation(t *testing.T) {
 				Networks: []net.IPNet{
 					{IP: net.IP{127, 0, 0, 1}, Mask: net.CIDRMask(24, 32)},
 				},
+				Addresses: []chain.NetAddress{
+					{
+						Protocol: siamux.Protocol,
+						Address:  "host1.com",
+					},
+				},
 				Settings:  badSettings,
 				Usability: goodUsability,
 			},
@@ -130,17 +144,44 @@ func TestPerformContractFormation(t *testing.T) {
 	scanner.settings[hk1] = goodSettings
 
 	cf := &contractFormerMock{}
-	contracts := newContractManager(cmMock, cf, scanner, store, syncerMock, &walletMock{})
+	renterKey := types.PublicKey{1, 2, 3, 4, 5}
+	wallet := &walletMock{}
+	contracts := newContractManager(renterKey, cmMock, cf, scanner, store, syncerMock, wallet)
+
+	assertFormation := func(hk types.PublicKey, addr string, settings proto.HostSettings, call formContractCall) {
+		t.Helper()
+		if call.hk != hk {
+			t.Fatalf("expected host key %v, got %v", hk, call.hk)
+		} else if call.addr != addr {
+			t.Fatalf("expected address %v, got %v", addr, call.addr)
+		} else if call.settings != settings {
+			t.Fatalf("expected settings %v+, got %v+", settings, call.settings)
+		}
+		// assert params
+		allowance, collateral := initialContractFunding(settings.Prices, period)
+		if !call.params.Allowance.Equals(call.params.Allowance) {
+			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
+		} else if !call.params.Collateral.Equals(collateral) {
+			t.Fatalf("expected collateral %v, got %v", collateral, call.params.Collateral)
+		} else if call.params.ProofHeight != blockHeight+period {
+			t.Fatalf("expected proof height %v, got %v", blockHeight+period, call.params.ProofHeight)
+		} else if call.params.RenterPublicKey != renterKey {
+			t.Fatalf("expected renter key %v, got %v", renterKey, call.params.RenterPublicKey)
+		} else if call.params.RenterAddress != wallet.Address() {
+			t.Fatalf("expected renter address %v, got %v", wallet.Address(), call.params.RenterAddress)
+		}
+	}
 
 	// perform formations
 	if err := contracts.performContractFormation(context.Background(), period, wanted, zap.NewNop()); err != nil {
 		t.Fatal(err)
 	}
 
-	// assert that the we attempted to form contracts with the right hosts,
+	// assert that we attempted to form contracts with the right hosts,
 	// settings and params
 	calls := cf.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %v", len(calls))
 	}
+	assertFormation(hk1, "host1.com", goodSettings, calls[0])
 }

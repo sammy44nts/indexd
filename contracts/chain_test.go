@@ -180,6 +180,19 @@ func (tx *mockUpdateTx) UpdateContractState(contractID types.FileContractID, sta
 type chainManagerMock struct {
 	mu    sync.Mutex
 	tpool []types.V2Transaction
+	state consensus.State
+}
+
+func newChainManagerMock() *chainManagerMock {
+	return &chainManagerMock{
+		state: consensus.State{
+			Index: types.ChainIndex{
+				Height: 100,
+				ID:     types.BlockID{1, 2, 3},
+			},
+			PrevTimestamps: [11]time.Time{time.Now()},
+		},
+	}
 }
 
 func (cm *chainManagerMock) AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error) {
@@ -190,9 +203,7 @@ func (cm *chainManagerMock) AddV2PoolTransactions(basis types.ChainIndex, txns [
 }
 
 func (cm *chainManagerMock) TipState() consensus.State {
-	return consensus.State{
-		PrevTimestamps: [11]time.Time{time.Now()},
-	}
+	return cm.state
 }
 
 func (cm *chainManagerMock) V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error) {
@@ -244,7 +255,7 @@ func (w *walletMock) ReleaseInputs(txns []types.Transaction, v2txns []types.V2Tr
 func (w *walletMock) SignV2Inputs(txn *types.V2Transaction, toSign []int)                  {}
 
 func TestApplyRevertDiff(t *testing.T) {
-	contracts := newContractManager(nil, nil, nil, nil, nil, nil)
+	contracts := newContractManager(types.PublicKey{}, nil, nil, nil, nil, nil, nil)
 
 	// create a contract
 	contractID := types.FileContractID{1, 2, 3}
@@ -384,10 +395,10 @@ func TestUpdateContractElementProofs(t *testing.T) {
 }
 
 func TestProcessActions(t *testing.T) {
-	cmMock := &chainManagerMock{}
+	cmMock := newChainManagerMock()
 	syncerMock := &syncerMock{}
 	store := &storeMock{}
-	contracts := newContractManager(cmMock, nil, nil, store, syncerMock, &walletMock{})
+	contracts := newContractManager(types.PublicKey{}, cmMock, nil, nil, store, syncerMock, &walletMock{})
 
 	contract := types.V2FileContractElement{
 		ID: types.FileContractID{1},
