@@ -78,6 +78,16 @@ type (
 	}
 )
 
+// SiamuxAddr returns a siamux protocol address of the host to use.
+func (h *Host) SiamuxAddr() string {
+	for _, addr := range h.Addresses {
+		if addr.Protocol == siamux.Protocol {
+			return addr.Address
+		}
+	}
+	return ""
+}
+
 // NewManager creates a new host manager.
 func NewManager(store Store, opts ...Option) (*HostManager, error) {
 	m := &HostManager{
@@ -149,13 +159,14 @@ func (m *HostManager) UpdateUsabilitySettings(ctx context.Context, us UsabilityS
 	return m.store.UpdateUsabilitySettings(ctx, us)
 }
 
-// ScanHost scans the host with given host key and returns its settings.
-func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (proto4.HostSettings, error) {
+// ScanHost scans the host with given host key and returns it with updated
+// settings and checks.
+func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (Host, error) {
 	logger := m.log.With(zap.Stringer("hk", hk))
 
 	host, err := m.store.Host(ctx, hk)
 	if err != nil {
-		return proto4.HostSettings{}, fmt.Errorf("failed to get host, %w", err)
+		return Host{}, fmt.Errorf("failed to get host, %w", err)
 	}
 
 	scanCtx, cancel := context.WithTimeout(ctx, scanTimeout)
@@ -163,12 +174,12 @@ func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (proto4.
 
 	addrs, networks, err := resolveHost(scanCtx, m.resolver, host.Addresses, logger)
 	if err != nil {
-		return proto4.HostSettings{}, fmt.Errorf("failed to resolve host, %w", err)
+		return Host{}, fmt.Errorf("failed to resolve host, %w", err)
 	}
 
 	settings, err := fetchSettings(scanCtx, m.scanner, hk, addrs, logger)
 	if err != nil {
-		return proto4.HostSettings{}, fmt.Errorf("failed to fetch settings, %w", err)
+		return Host{}, fmt.Errorf("failed to fetch settings, %w", err)
 	}
 
 	consecutiveFailures := host.ConsecutiveFailedScans
@@ -189,10 +200,10 @@ func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (proto4.
 
 	err = m.store.UpdateHost(ctx, hk, networks, settings, success, nextScan)
 	if err != nil {
-		return proto4.HostSettings{}, fmt.Errorf("failed to update host, %w", err)
+		return Host{}, fmt.Errorf("failed to update host, %w", err)
 	}
 
-	return settings, nil
+	return m.store.Host(ctx, hk)
 }
 
 // UpdateChainState updates the host announcements in the database.

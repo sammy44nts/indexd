@@ -619,7 +619,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// add contract to h2
-	err = db.AddFormedContract(context.Background(), types.FileContractID{1}, h2, 0, 0, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
+	err = db.AddFormedContract(context.Background(), types.FileContractID{1}, h2, 0, 0, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
 	if err != nil {
 		t.Fatal(err)
 	}

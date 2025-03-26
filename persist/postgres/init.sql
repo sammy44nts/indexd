@@ -135,6 +135,7 @@ CREATE TABLE contracts (
   contract_price DECIMAL(50, 0) NOT NULL, -- used to display cost of forming contract
   initial_allowance DECIMAL(50, 0) NOT NULL, -- used when refreshing contract to increase budget
   miner_fee DECIMAL(50, 0) NOT NULL, -- miner fee added when forming/renewing contract
+  total_collateral DECIMAL(50, 0) NOT NULL, -- total collateral (allocated+unallocated)
 
   -- contract state
   good BOOLEAN NOT NULL DEFAULT TRUE,
