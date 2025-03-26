@@ -234,9 +234,14 @@ func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
 
 // blockBadHosts blocks any hosts that we have contracts with that are not
 // usable.
-func (cm *ContractManager) blockBadHosts(ctx context.Context, contracts []Contract) {
+func (cm *ContractManager) blockBadHosts(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
+
+	contracts, err := cm.store.Contracts(ctx, WithRevisable(true))
+	if err != nil {
+		return fmt.Errorf("failed to fetch active contracts: %w", err)
+	}
 
 	log := cm.log.Named("blockhosts")
 
@@ -263,6 +268,7 @@ func (cm *ContractManager) blockBadHosts(ctx context.Context, contracts []Contra
 			}
 		}
 	}
+	return nil
 }
 
 func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *zap.Logger) error {
@@ -274,13 +280,10 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 		return nil
 	}
 
-	activeContracts, err := cm.store.Contracts(ctx, WithRevisable(true))
-	if err != nil {
-		return fmt.Errorf("failed to fetch active contracts: %w", err)
-	}
-
 	// block bad hosts we have contracts with
-	cm.blockBadHosts(ctx, activeContracts)
+	if err := cm.blockBadHosts(ctx); err != nil {
+		return fmt.Errorf("failed to block bad hosts: %w", err)
+	}
 
 	// TODO: Renew any good contracts within their renew window
 
