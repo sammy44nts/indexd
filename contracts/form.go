@@ -178,20 +178,22 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	for i := range hosts {
 		hostLog := formationLog.With(zap.Stringer("hostKey", hosts[i].PublicKey))
 
-		// scan host before forming a contract and fetch it from the database to
-		// get updated settings and checks
+		// filter out bad hosts
+		if !isGood(hosts[i], hostLog) {
+			continue
+		}
+
+		// scan host for valid price settings
 		scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		_, err := cm.scanner.ScanHost(scanCtx, hosts[i].PublicKey)
+		host, err := cm.scanner.ScanHost(scanCtx, hosts[i].PublicKey)
 		cancel()
 		if err != nil {
 			hostLog.Error("failed to scan host", zap.Error(err))
 			continue
 		}
-		host, err := cm.store.Host(ctx, hosts[i].PublicKey)
-		if err != nil {
-			hostLog.Error("failed to fetch host", zap.Error(err))
-			continue
-		} else if !isGood(host, hostLog) {
+
+		// make sure the host is still good
+		if !isGood(host, hostLog) {
 			continue // ignore bad host
 		}
 		hostAddr := host.SiamuxAddr()

@@ -76,13 +76,13 @@ func (s *storeMock) Scanner() *scannerMock {
 
 // ScanHost returns the preconfigured settings for the host or no settings to
 // simulate a failing scan. Upon success, the underlying store is updated.
-func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (proto.HostSettings, error) {
+func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error) {
 	settings, ok := s.settings[hk]
 	if !ok {
-		return proto.HostSettings{}, nil
+		return hosts.Host{}, hosts.ErrNotFound
 	}
 	s.store.UpdateHostSettings(hk, settings)
-	return settings, nil
+	return s.store.Host(ctx, hk)
 }
 
 // TestPerformContractFormationWithoutContracts tests the
@@ -115,7 +115,6 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 	)
 
 	// prepare settings which will cause hosts to either be good for forming contracts or not
-	badSettings := proto.HostSettings{AcceptingContracts: false}
 	goodSettings := proto.HostSettings{
 		AcceptingContracts: true,
 		RemainingStorage:   minRemainingStorage,
@@ -126,7 +125,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 		},
 	}
 
-	// prepare settings that indicate the host is out of storage
+	// prepare bad settings that indicate the host is out of storage
 	oosSettings := goodSettings
 	oosSettings.RemainingStorage-- // just below threshold
 
@@ -143,7 +142,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 					Address:  fmt.Sprintf("host%d.com", i),
 				},
 			},
-			Settings:  badSettings, // default to bad settings are overwritten by scan
+			Settings:  goodSettings, // default to good settings to consider every host
 			Usability: goodUsability,
 		}
 	}
