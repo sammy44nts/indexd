@@ -24,14 +24,14 @@ var (
 )
 
 type (
-	// ContractQueryOpts contains the options for querying contracts.
-	ContractQueryOpts struct {
+	// contractQueryOpts contains the options for querying contracts.
+	contractQueryOpts struct {
 		Revisable *bool
 		Good      *bool
 	}
 
 	// ContractQueryOpt is a functional option for querying contracts.
-	ContractQueryOpt func(*ContractQueryOpts)
+	ContractQueryOpt func(*contractQueryOpts)
 )
 
 var (
@@ -40,7 +40,7 @@ var (
 	// DefaultContractQueryOpts are the default options applied when querying
 	// contracts. By default, only contracts that are revisable will be
 	// returned.
-	DefaultContractQueryOpts = ContractQueryOpts{
+	DefaultContractQueryOpts = contractQueryOpts{
 		Revisable: &optTrue, // return active contracts
 		Good:      nil,      // return both good and bad contracts
 	}
@@ -49,7 +49,7 @@ var (
 // WithRevisable filters contracts by whether they can still be revised. This
 // defaults to 'true'.
 func WithRevisable(revisable bool) ContractQueryOpt {
-	return func(opts *ContractQueryOpts) {
+	return func(opts *contractQueryOpts) {
 		opts.Revisable = &revisable
 	}
 }

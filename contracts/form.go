@@ -159,9 +159,17 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	}
 
 	// fetch all hosts
-	hosts, err := cm.store.Hosts(ctx, 0, -1)
-	if err != nil {
-		return fmt.Errorf("failed to fetch hosts to form contracts with: %w", err)
+	var hosts []hosts.Host
+	const batchSize = 50
+	for offset := 0; ; offset += batchSize {
+		batch, err := cm.store.Hosts(ctx, offset, batchSize)
+		if err != nil {
+			return fmt.Errorf("failed to fetch hosts to form contracts with: %w", err)
+		}
+		hosts = append(hosts, batch...)
+		if len(batch) < batchSize {
+			break
+		}
 	}
 
 	// randomize their order to avoid preferring any host
