@@ -59,14 +59,17 @@ func (s *storeMock) AddFormedContract(ctx context.Context, contractID types.File
 	return nil
 }
 
-func (s *storeMock) BlockHosts(_ context.Context, hostKeys []types.PublicKey) error {
+func (s *storeMock) BlockHosts(_ context.Context, hostKeys []types.PublicKey, reason string) error {
 	for _, hostKey := range hostKeys {
 		host, ok := s.hosts[hostKey]
 		if !ok {
 			return hosts.ErrNotFound
 		}
-		host.Blocked = true
-		s.hosts[hostKey] = host
+		if !host.Blocked {
+			host.Blocked = true
+			host.BlockedReason = reason
+			s.hosts[hostKey] = host
+		}
 
 		for i := range s.contracts {
 			if s.contracts[i].HostKey == hostKey {

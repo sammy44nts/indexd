@@ -79,7 +79,7 @@ func TestHostsAPI(t *testing.T) {
 	}
 
 	// block both hosts
-	if err := indexer.HostsBlocklistAdd(context.Background(), []types.PublicKey{h1.PublicKey(), h2.PublicKey()}); err != nil {
+	if err := indexer.HostsBlocklistAdd(context.Background(), []types.PublicKey{h1.PublicKey(), h2.PublicKey()}, t.Name()); err != nil {
 		t.Fatal(err)
 	} else if blocklist, err := indexer.HostsBlocklist(context.Background()); err != nil {
 		t.Fatal(err)
@@ -89,10 +89,14 @@ func TestHostsAPI(t *testing.T) {
 		t.Fatal(err)
 	} else if !h1.Blocked {
 		t.Fatal("expected host to be blocked", h1.Blocked)
+	} else if h1.BlockedReason != t.Name() {
+		t.Fatalf("expected host to be blocked with reason %s, got %s", t.Name(), h1.BlockedReason)
 	} else if h2, err := indexer.Host(context.Background(), h2.PublicKey()); err != nil {
 		t.Fatal(err)
 	} else if !h2.Blocked {
 		t.Fatal("expected host to be blocked", h2.Blocked)
+	} else if h2.BlockedReason != t.Name() {
+		t.Fatalf("expected host to be blocked with reason %s, got %s", t.Name(), h2.BlockedReason)
 	}
 
 	// unblock h1

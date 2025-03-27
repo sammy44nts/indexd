@@ -106,13 +106,15 @@ func TestBlocklist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertBlocked := func(hk types.PublicKey, blocked bool) {
+	assertBlocked := func(hk types.PublicKey, blocked bool, reason string) {
 		t.Helper()
 		h, err := db.Host(context.Background(), hk)
 		if err != nil {
 			t.Fatal(err)
 		} else if h.Blocked != blocked {
 			t.Fatal("unexpected", h.Blocked)
+		} else if h.Blocked && h.BlockedReason != reason {
+			t.Fatalf("unexpected %v %v", h.BlockedReason, reason)
 		}
 		hks, err := db.BlockedHosts(context.Background(), 0, 10)
 		if err != nil {
@@ -128,9 +130,9 @@ func TestBlocklist(t *testing.T) {
 		}
 	}
 
-	block := func(hks ...types.PublicKey) {
+	block := func(reason string, hks ...types.PublicKey) {
 		t.Helper()
-		if err := db.BlockHosts(context.Background(), hks); err != nil {
+		if err := db.BlockHosts(context.Background(), hks, reason); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -143,33 +145,34 @@ func TestBlocklist(t *testing.T) {
 		}
 	}
 
-	// assert both are returned
-	assertBlocked(hk1, false)
-	assertBlocked(hk2, false)
+	// assert neither host is blocked
+	assertBlocked(hk1, false, "")
+	assertBlocked(hk2, false, "")
 
 	// block h1 and assert noop on duplicate insert
-	block(hk1, hk1)
+	block("block1", hk1, hk1)
+	block("blockX", hk1, hk1)
 
-	// assert only h2 is returned
-	assertBlocked(hk1, true)
-	assertBlocked(hk2, false)
+	// assert only h1 is blocked
+	assertBlocked(hk1, true, "block1")
+	assertBlocked(hk2, false, "")
 
-	// block h2 and assert no hosts are returned
-	block(hk2)
-	assertBlocked(hk1, true)
-	assertBlocked(hk2, true)
+	// assert both hosts are blocked
+	block("block2", hk2)
+	assertBlocked(hk1, true, "block1")
+	assertBlocked(hk2, true, "block2")
 
 	// unblock h2 assert noop on duplicate or remove of unknown key
 	unblock(hk2, hk2, types.GeneratePrivateKey().PublicKey())
 
-	// assert h2 is returned
-	assertBlocked(hk1, true)
-	assertBlocked(hk2, false)
+	// assert only h1 is blocked
+	assertBlocked(hk1, true, "block1")
+	assertBlocked(hk2, false, "")
 
 	// unblock h1 and assert we're back to normal
 	unblock(hk1)
-	assertBlocked(hk1, false)
-	assertBlocked(hk2, false)
+	assertBlocked(hk1, false, "")
+	assertBlocked(hk2, false, "")
 }
 
 func TestHost(t *testing.T) {

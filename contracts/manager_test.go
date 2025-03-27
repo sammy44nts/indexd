@@ -32,7 +32,7 @@ func TestBlockBadHosts(t *testing.T) {
 	goodHost := hosts.Host{PublicKey: types.PublicKey{1}, Usability: goodUsability, Blocked: false}
 	badHost := hosts.Host{PublicKey: types.PublicKey{2}, Usability: hosts.Usability{}, Blocked: false}
 	unusedBadHost := hosts.Host{PublicKey: types.PublicKey{3}, Usability: hosts.Usability{}, Blocked: false}
-	usedBlockedBadHost := hosts.Host{PublicKey: types.PublicKey{4}, Usability: hosts.Usability{}, Blocked: true}
+	usedBlockedBadHost := hosts.Host{PublicKey: types.PublicKey{4}, Usability: hosts.Usability{}, Blocked: true, BlockedReason: "previous"}
 
 	store.hosts = map[types.PublicKey]hosts.Host{
 		goodHost.PublicKey:           goodHost,
@@ -53,7 +53,7 @@ func TestBlockBadHosts(t *testing.T) {
 	contracts.blockBadHosts(context.Background())
 
 	// helper to assert a blocked host has a blocked contract and vice versa
-	assertHostAndContract := func(hk types.PublicKey, blocked bool) {
+	assertHostAndContract := func(hk types.PublicKey, blocked bool, reason string) {
 		t.Helper()
 
 		host, err := store.Host(context.Background(), hk)
@@ -61,6 +61,8 @@ func TestBlockBadHosts(t *testing.T) {
 			t.Fatal(err)
 		} else if host.Blocked != blocked {
 			t.Fatalf("expected host %v to be blocked=%v, got blocked=%v", hk, blocked, host.Blocked)
+		} else if host.Blocked && host.BlockedReason != reason {
+			t.Fatalf("expected host %v to be blocked due to %s, got blocked due to %v", hk, reason, host.BlockedReason)
 		}
 		contract, err := store.Contract(context.Background(), types.FileContractID(hk))
 		if errors.Is(err, ErrNotFound) && hk == unusedBadHost.PublicKey {
@@ -73,16 +75,16 @@ func TestBlockBadHosts(t *testing.T) {
 	}
 
 	// a good host shouldn't be blocked
-	assertHostAndContract(goodHost.PublicKey, false)
+	assertHostAndContract(goodHost.PublicKey, false, "")
 
 	// a bad host and its contract should be blocked
-	assertHostAndContract(badHost.PublicKey, true)
+	assertHostAndContract(badHost.PublicKey, true, blockingReasonUsability)
 
 	// an unused host shouldn't be blocked
-	assertHostAndContract(unusedBadHost.PublicKey, false)
+	assertHostAndContract(unusedBadHost.PublicKey, false, "")
 
 	// a host that was already blocked shouldn't prevent its contract from being blocked
 	// NOTE: this should not happen in practice, but it's good to check for it
 	// anyway
-	assertHostAndContract(usedBlockedBadHost.PublicKey, true)
+	assertHostAndContract(usedBlockedBadHost.PublicKey, true, "previous")
 }

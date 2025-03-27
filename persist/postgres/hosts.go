@@ -70,7 +70,7 @@ WITH globals AS (
 	FROM global_settings
 ), hosts AS (
 	SELECT
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, COALESCE(hb.reason, ''),
 		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime,
 		settings_protocol_version, settings_release, settings_wallet_address,
 		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
@@ -144,7 +144,7 @@ WITH globals AS (
     FROM global_settings
 ), hosts AS (
 	SELECT
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked,
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, COALESCE(hb.reason, ''),
 		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime,
 		settings_protocol_version, settings_release, settings_wallet_address,
 		settings_accepting_contracts, settings_max_collateral, settings_max_contract_duration,
@@ -245,10 +245,12 @@ func (s *Store) BlockedHosts(ctx context.Context, offset, limit int) ([]types.Pu
 
 // BlockHosts adds the given host keys to the blocklist and marks all of its
 // contracts as bad.
-func (s *Store) BlockHosts(ctx context.Context, hks []types.PublicKey) error {
+// If a host is already on the blocklist, the reason remains unchanged to
+// preserve the original reason for blocking.
+func (s *Store) BlockHosts(ctx context.Context, hks []types.PublicKey, reason string) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		for _, hk := range hks {
-			_, err := tx.Exec(ctx, "INSERT INTO hosts_blocklist (public_key) VALUES ($1) ON CONFLICT (public_key) DO NOTHING", sqlPublicKey(hk))
+			_, err := tx.Exec(ctx, "INSERT INTO hosts_blocklist (public_key, reason) VALUES ($1, $2) ON CONFLICT (public_key) DO NOTHING", sqlPublicKey(hk), reason)
 			if err != nil {
 				return fmt.Errorf("failed to add host %q to blocklist: %w", hk, err)
 			}
@@ -507,6 +509,7 @@ func scanHost(s scanner) (dbHost, error) {
 		(*sqlPublicKey)(&host.PublicKey),
 		&host.LastAnnouncement,
 		&host.Blocked,
+		&host.BlockedReason,
 		&lastFailedScan,
 		&lastSuccessfulScan,
 		&host.NextScan,

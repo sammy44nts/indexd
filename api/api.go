@@ -30,7 +30,7 @@ type (
 
 	// A Store is a persistent store for the indexer.
 	Store interface {
-		BlockHosts(ctx context.Context, hks []types.PublicKey) error
+		BlockHosts(ctx context.Context, hks []types.PublicKey, reason string) error
 		BlockedHosts(ctx context.Context, offset, limit int) ([]types.PublicKey, error)
 		Host(ctx context.Context, hk types.PublicKey) (hosts.Host, error)
 		Hosts(ctx context.Context, offset, limit int) ([]hosts.Host, error)

@@ -6,6 +6,12 @@ import (
 )
 
 type (
+	// HostsBlocklistRequest is the request body for the [POST] /hosts/blocklist.
+	HostsBlocklistRequest struct {
+		HostKeys []types.PublicKey `json:"hostKeys"`
+		Reason   string            `json:"reason"`
+	}
+
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
 	WalletResponse struct {
 		wallet.Balance

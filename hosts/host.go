@@ -31,6 +31,7 @@ type (
 		Settings               proto4.HostSettings `json:"settings"`
 		Usability              Usability           `json:"usability"`
 		Blocked                bool                `json:"blocked"`
+		BlockedReason          string              `json:"blockedReason"`
 	}
 
 	// Usability represents a series of host checks that can be used to

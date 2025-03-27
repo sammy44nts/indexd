@@ -160,6 +160,13 @@ CREATE TABLE host_resolved_cidrs (
 
     cidr CIDR NOT NULL
 )
+
+CREATE TABLE hosts_blocklist (
+    public_key BYTEA PRIMARY KEY CHECK (LENGTH(public_key) = 32),
+    added TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    reason TEXT NOT NULL
+);
+CREATE INDEX hosts_blocklist_reason_idx ON hosts_blocklist (reason);
 ```
 
 ### 2.4 Contracts

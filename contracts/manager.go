@@ -18,6 +18,8 @@ import (
 )
 
 const (
+	blockingReasonUsability = "usability"
+
 	dialTimeout         = 10 * time.Second
 	minRemainingStorage = (10 * 1 << 30) / uint64(proto.SectorSize) // 10GB
 	maxContractSize     = 10 * 1 << 40                              // 10TB
@@ -54,7 +56,7 @@ type (
 		Host(ctx context.Context, hostKey types.PublicKey) (hosts.Host, error)
 		Hosts(ctx context.Context, offset, limit int) ([]hosts.Host, error)
 		MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error)
-		BlockHosts(ctx context.Context, hostKeys []types.PublicKey) error
+		BlockHosts(ctx context.Context, hostKeys []types.PublicKey, reason string) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		SetContractBad(ctx context.Context, contractID types.FileContractID) error
@@ -260,7 +262,7 @@ func (cm *ContractManager) blockBadHosts(ctx context.Context) error {
 			// avoid disk io if the host is already blocked and the contract is
 			// already marked as bad
 			if !host.Blocked || c.Good {
-				if err := cm.store.BlockHosts(ctx, []types.PublicKey{host.PublicKey}); err != nil {
+				if err := cm.store.BlockHosts(ctx, []types.PublicKey{host.PublicKey}, blockingReasonUsability); err != nil {
 					contractLog.Error("failed to block host", zap.Error(err))
 					continue
 				}

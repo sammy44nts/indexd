@@ -119,11 +119,14 @@ func (a *api) handleGETHostsBlocklist(jc jape.Context) {
 }
 
 func (a *api) handlePUTHostsBlocklist(jc jape.Context) {
-	var hks []types.PublicKey
-	if jc.Decode(&hks) != nil {
+	var hosts HostsBlocklistRequest
+	if jc.Decode(&hosts) != nil {
+		return
+	} else if len(hosts.Reason) > 50 {
+		jc.Error(errors.New("reason must be 50 characters or less"), http.StatusBadRequest)
 		return
 	}
-	jc.Check("failed to add host keys to blocklist", a.store.BlockHosts(jc.Request.Context(), hks))
+	jc.Check("failed to add host keys to blocklist", a.store.BlockHosts(jc.Request.Context(), hosts.HostKeys, hosts.Reason))
 }
 
 func (a *api) handleDELETEHostsBlocklist(jc jape.Context) {
