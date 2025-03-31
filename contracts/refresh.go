@@ -94,7 +94,11 @@ func (cm *ContractManager) performContractRefreshes(ctx context.Context, log *za
 		if contract.OutOfCollateral() {
 			additionalCollateral = contract.TotalCollateral.Mul64(11).Div64(10) // add 10%
 			if contract.TotalCollateral.Add(additionalCollateral).Cmp(host.Settings.MaxCollateral) > 0 {
-				additionalCollateral = host.Settings.MaxCollateral.Sub(contract.TotalCollateral)
+				var underflow bool
+				additionalCollateral, underflow = host.Settings.MaxCollateral.SubWithUnderflow(contract.TotalCollateral)
+				if underflow {
+					additionalCollateral = types.ZeroCurrency
+				}
 				contractLog.Debug("capping additional collateral since total would exceed max collateral of host",
 					zap.Stringer("additionalCollateral", additionalCollateral))
 			}
