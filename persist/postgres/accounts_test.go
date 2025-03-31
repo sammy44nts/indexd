@@ -62,11 +62,23 @@ func TestAddAccount(t *testing.T) {
 	}
 }
 
-func TestAccountsForFunding(t *testing.T) {
+func TestHostAccountsForFunding(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
+	// define helper to count join table entries
+	numEAs := func() (cnt int64) {
+		t.Helper()
+		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+			err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM account_hosts`).Scan(&cnt)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
 	// add a host
-	hk1 := types.GeneratePrivateKey().PublicKey()
+	hk1 := types.PublicKey{1}
 	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
 		return tx.AddHostAnnouncement(hk1, nil, time.Now())
 	}); err != nil {
@@ -74,7 +86,7 @@ func TestAccountsForFunding(t *testing.T) {
 	}
 
 	// assert there are no accounts to fund
-	accounts, err := store.AccountsForFunding(context.Background(), hk1, 10)
+	accounts, err := store.HostAccountsForFunding(context.Background(), hk1, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -82,13 +94,13 @@ func TestAccountsForFunding(t *testing.T) {
 	}
 
 	// add an account
-	ak1 := types.GeneratePrivateKey().PublicKey()
+	ak1 := types.PublicKey{1, 1}
 	if err := store.AddAccount(context.Background(), ak1); err != nil {
 		t.Fatal(err)
 	}
 
-	// assert there's now one accounts to fund
-	accounts, err = store.AccountsForFunding(context.Background(), hk1, 10)
+	// assert there's now one account to fund
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -103,14 +115,24 @@ func TestAccountsForFunding(t *testing.T) {
 		t.Fatal("unexpected next fund")
 	}
 
+	// assert there's no EAs
+	if n := numEAs(); n != 0 {
+		t.Fatal("expected no account-host entries", n)
+	}
+
 	// update next fund
 	accounts[0].NextFund = time.Now().Add(time.Hour)
-	if err := store.UpdateAccounts(context.Background(), accounts); err != nil {
+	if err := store.UpdateHostAccounts(context.Background(), accounts); err != nil {
 		t.Fatal(err)
 	}
 
+	// assert the update inserted the account
+	if n := numEAs(); n != 1 {
+		t.Fatal("expected one account-host entry", n)
+	}
+
 	// assert there are no accounts to fund
-	accounts, err = store.AccountsForFunding(context.Background(), hk1, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -118,7 +140,7 @@ func TestAccountsForFunding(t *testing.T) {
 	}
 
 	// add another host
-	hk2 := types.GeneratePrivateKey().PublicKey()
+	hk2 := types.PublicKey{2}
 	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
 		return tx.AddHostAnnouncement(hk2, nil, time.Now())
 	}); err != nil {
@@ -126,50 +148,48 @@ func TestAccountsForFunding(t *testing.T) {
 	}
 
 	// add another account
-	ak2 := types.GeneratePrivateKey().PublicKey()
+	ak2 := types.PublicKey{2, 2}
 	if err := store.AddAccount(context.Background(), ak2); err != nil {
 		t.Fatal(err)
 	}
 
 	// assert h1 has one account to fund
-	accounts, err = store.AccountsForFunding(context.Background(), hk1, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
 		t.Fatal("expected one account")
 	} else if accounts[0].AccountKey != proto.Account(ak2) {
 		t.Fatal("unexpected account key")
+	} else if err := store.UpdateHostAccounts(context.Background(), accounts); err != nil {
+		t.Fatal(err)
 	}
 
 	// assert h2 has two accounts to fund
-	accounts, err = store.AccountsForFunding(context.Background(), hk2, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 2 {
 		t.Fatal("expected two accounts")
+	} else if err := store.UpdateHostAccounts(context.Background(), accounts); err != nil {
+		t.Fatal(err)
 	}
 
 	// assert limit is applied
-	accounts, err = store.AccountsForFunding(context.Background(), hk2, 1)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
 		t.Fatal("expected one accounts")
 	}
 
-	// assert host x account entries
-	var cnt int64
-	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-		err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM account_hosts`).Scan(&cnt)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	} else if cnt != 4 {
-		t.Fatal("unexpected account_hosts count", cnt)
+	// assert the updates inserted all accounts
+	if n := numEAs(); n != 4 {
+		t.Fatal("expected 4 account-host entries, got", n)
 	}
 }
 
-func TestUpdateAccounts(t *testing.T) {
+func TestUpdateHostAccounts(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	// add a host
@@ -187,7 +207,7 @@ func TestUpdateAccounts(t *testing.T) {
 	}
 
 	// fetch accounts for funding to ensure host accounts are created
-	accounts, err := store.AccountsForFunding(context.Background(), hk, 10)
+	accounts, err := store.HostAccountsForFunding(context.Background(), hk, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -197,7 +217,7 @@ func TestUpdateAccounts(t *testing.T) {
 	accounts[0].NextFund = time.Now().Add(time.Duration(frand.Uint64n(1e6))).Round(time.Microsecond)
 
 	// update the account
-	err = store.UpdateAccounts(context.Background(), accounts)
+	err = store.UpdateHostAccounts(context.Background(), accounts)
 	if err != nil {
 		t.Fatal(err)
 	}

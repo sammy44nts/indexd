@@ -15,8 +15,8 @@ var (
 )
 
 type (
-	// Account represents an ephemeral account on a host.
-	Account struct {
+	// HostAccount represents an ephemeral account on a host.
+	HostAccount struct {
 		AccountKey             proto.Account
 		HostKey                types.PublicKey
 		ConsecutiveFailedFunds int
