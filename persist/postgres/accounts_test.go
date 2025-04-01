@@ -86,7 +86,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert there are no accounts to fund
-	accounts, err := store.HostAccountsForFunding(context.Background(), hk1, 10)
+	accounts, err := store.HostAccountsForFunding(context.Background(), hk1, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -100,7 +100,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert there's now one account to fund
-	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -132,7 +132,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert there are no accounts to fund
-	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -154,7 +154,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert h1 has one account to fund
-	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk1, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -166,7 +166,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert h2 has two accounts to fund
-	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 10)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 2 {
@@ -176,7 +176,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 	}
 
 	// assert limit is applied
-	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 1)
+	accounts, err = store.HostAccountsForFunding(context.Background(), hk2, 1, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -207,7 +207,7 @@ func TestUpdateHostAccounts(t *testing.T) {
 	}
 
 	// fetch accounts for funding to ensure host accounts are created
-	accounts, err := store.HostAccountsForFunding(context.Background(), hk, 10)
+	accounts, err := store.HostAccountsForFunding(context.Background(), hk, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
