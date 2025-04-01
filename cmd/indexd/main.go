@@ -26,15 +26,16 @@ import (
 )
 
 const (
-	configFileEnvVar = "INDEXD_CONFIG_FILE"
-	dataDirEnvVar    = "INDEXD_DATA_DIR"
+	indexdAdminPasswordEnvVar = "INDEXD_ADMIN_PASSWORD"
+	configFileEnvVar          = "INDEXD_CONFIG_FILE"
+	dataDirEnvVar             = "INDEXD_DATA_DIR"
 )
 
 var cfg = config.Config{
 	Directory: os.Getenv(dataDirEnvVar), // default to env variable
 	AdminAPI: config.AdminAPI{
 		Address:  "127.0.0.1:9980",
-		Password: "",
+		Password: os.Getenv(indexdAdminPasswordEnvVar),
 	},
 	ApplicationAPI: config.ApplicationAPI{
 		Address: ":9982",
@@ -203,8 +204,8 @@ func main() {
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, ``)
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store indexd metadata in")
-	rootCmd.StringVar(&cfg.AdminAPI.Address, "adminAPI", cfg.AdminAPI.Address, "address to serve admin API on")
-	rootCmd.StringVar(&cfg.ApplicationAPI.Address, "applicationAPI", cfg.ApplicationAPI.Address, "address to serve application API on")
+	rootCmd.StringVar(&cfg.AdminAPI.Address, "api.admin", cfg.AdminAPI.Address, "address to serve admin API on")
+	rootCmd.StringVar(&cfg.ApplicationAPI.Address, "api.app", cfg.ApplicationAPI.Address, "address to serve application API on")
 	rootCmd.StringVar(&logLevelOverride, "log", "", "overrides the log level for all enabled loggers (debug, info, warn, error)")
 
 	versionCmd := flagg.New("version", ``)
@@ -263,7 +264,8 @@ func main() {
 		}
 
 		if cfg.AdminAPI.Password == "" {
-			setAPIPassword()
+			os.Stderr.WriteString(fmt.Sprintf("missing admin password - needs to be set either via config file or '%s' env var", indexdAdminPasswordEnvVar))
+			os.Exit(1)
 		}
 
 		var seed [32]byte
