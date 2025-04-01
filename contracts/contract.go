@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -123,15 +124,19 @@ type (
 )
 
 // GoodForUpload indicates whether a contract should be uploaded to
-func (c Contract) GoodForUpload(maxCollateral types.Currency) bool {
-	if !c.Good {
-		return false
-	} else if c.Size >= maxContractSize {
-		return false
-	} else if c.TotalCollateral.Cmp(maxCollateral) >= 0 {
-		return false
-	}
-	return true
+func (c Contract) GoodForUpload(prices proto.HostPrices, maxCollateral types.Currency, period uint64) bool {
+	appendUsage := prices.RPCAppendSectorsCost(1, period)
+	sectorAppendCost, sectorAppendCollateral := appendUsage.RenterCost(), appendUsage.HostRiskedCollateral()
+	return c.Good &&
+		c.Size < maxContractSize &&
+		c.UsedCollateral.Cmp(maxCollateral) < 0 &&
+		c.RemainingAllowance.Cmp(sectorAppendCost) > 0 &&
+		c.UsedCollateral.Add(sectorAppendCollateral).Cmp(c.TotalCollateral) < 0
+}
+
+// NeedsRefresh indicates that a contract should be refreshed.
+func (c Contract) NeedsRefresh() bool {
+	return c.Good && (c.OutOfFunds() || c.OutOfCollateral())
 }
 
 // OutOfFunds indicates that a contract is running low on funds and should be

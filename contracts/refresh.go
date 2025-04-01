@@ -49,10 +49,8 @@ func (cm *ContractManager) performContractRefreshes(ctx context.Context, log *za
 	}
 
 	for _, contract := range contracts {
-		if !contract.Good {
-			continue // contract is bad
-		} else if !contract.OutOfFunds() && !contract.OutOfCollateral() {
-			continue // nothing to do
+		if !contract.NeedsRefresh() {
+			continue
 		}
 		contractLog := renewalLog.With(zap.Stringer("hostKey", contract.HostKey),
 			zap.Stringer("contractID", contract.ID),

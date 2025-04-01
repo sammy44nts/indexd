@@ -145,7 +145,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		}
 
 		// contract is good if we can upload to it
-		if !contract.GoodForUpload(host.Settings.MaxCollateral) {
+		if !contract.GoodForUpload(host.Settings.Prices, host.Settings.MaxCollateral, period) {
 			log.Debug("skipping contract since it's not good for uploading",
 				zap.Bool("good", contract.Good),
 				zap.Bool("maxSizeReached", contract.Size >= maxContractSize),

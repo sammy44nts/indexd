@@ -298,10 +298,14 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	}
 
 	// refresh any good contracts that are either out of collateral or funds
-	cm.performContractRefreshes(ctx, log)
+	if err := cm.performContractRefreshes(ctx, log); err != nil {
+		return fmt.Errorf("failed to perform contract refreshes: %w", err)
+	}
 
 	// mark any contracts too close to their expiration height as bad
-	cm.store.MarkUnrenewableContractsBad(ctx, blockHeight+settings.RenewWindow/2)
+	if err := cm.store.MarkUnrenewableContractsBad(ctx, blockHeight+settings.RenewWindow/2); err != nil {
+		return fmt.Errorf("failed to mark unrenewable contracts bad: %w", err)
+	}
 
 	// form new contracts until there are enough good contracts to use
 	if err := cm.performContractFormation(ctx, settings.Period, settings.WantedContracts, log); err != nil {
