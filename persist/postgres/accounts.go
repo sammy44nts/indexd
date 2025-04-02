@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -101,22 +102,44 @@ func (s *Store) HostAccountsForFunding(ctx context.Context, hk types.PublicKey, 
 
 // UpdateHostAccounts updates the given host accounts in the database.
 func (s *Store) UpdateHostAccounts(ctx context.Context, accounts []accounts.HostAccount) error {
+	if len(accounts) == 0 {
+		return nil
+	} else if len(accounts) > 1000 {
+		return errors.New("too many accounts to update") // should never happen, we call this using the max batch size of RPC replenish
+	}
+
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		for _, account := range accounts {
-			_, err := tx.Exec(ctx, `
+		return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+			vals := make([]string, 0, len(accounts))
+			args := make([]any, 0, len(accounts)*4)
+			for i, account := range accounts {
+				ii := i * 4
+				vals = append(vals, fmt.Sprintf(`($%d::bytea, $%d::bytea, $%d::int, $%d::timestamptz)`, ii+1, ii+2, ii+3, ii+4))
+				args = append(args,
+					sqlPublicKey(account.AccountKey),
+					sqlPublicKey(account.HostKey),
+					account.ConsecutiveFailedFunds,
+					account.NextFund,
+				)
+			}
+
+			query := fmt.Sprintf(`
 INSERT INTO account_hosts (account_id, host_id, consecutive_failed_funds, next_fund)
-SELECT a.id, h.id, $1, $2
-FROM accounts a, hosts h
-WHERE a.public_key = $3 AND h.public_key = $4
+SELECT
+	a.id AS account_id,
+	h.id AS host_id,
+	vals.consecutive_failed_funds,
+	vals.next_fund
+FROM (VALUES %s) AS vals(account_pubkey, host_pubkey, consecutive_failed_funds, next_fund)
+INNER JOIN accounts a ON a.public_key = vals.account_pubkey
+INNER JOIN hosts h ON h.public_key = vals.host_pubkey
 ON CONFLICT (account_id, host_id)
 DO UPDATE SET
 	consecutive_failed_funds = EXCLUDED.consecutive_failed_funds,
-    next_fund = EXCLUDED.next_fund;`, account.ConsecutiveFailedFunds, account.NextFund, sqlPublicKey(account.AccountKey), sqlPublicKey(account.HostKey))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+	next_fund = EXCLUDED.next_fund;`, strings.Join(vals, ", "))
+			_, err := tx.Exec(ctx, query, args...)
+			return err
+		})
 	})
 }
 

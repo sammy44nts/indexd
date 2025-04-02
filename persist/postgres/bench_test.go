@@ -140,7 +140,7 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 // UpdateAccounts, every iteration performs the worst case update where every
 // account gets inserted.
 //
-// M1 Max | 1k accounts | 1 ms/op
+// M1 Max | 1k accounts | 14 ms/op
 func BenchmarkUpdateHostAccounts(b *testing.B) {
 	// define parameters
 	const (
