@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -19,8 +18,8 @@ import (
 // funding, the first one only includes accounts for which there's no account
 // host entry yet, the second one selects from the account_hosts table.
 //
-// M1 Max | 10k accounts  | 1k hosts | 5ms/op
-// M1 Max | 100k accounts | 1k hosts | 15ms/op
+// M1 Max | 10k accounts  | 1k hosts | 4ms/op
+// M1 Max | 100k accounts | 1k hosts | 12ms/op
 // M1 Max | 1M accounts   | 1k hosts | 16ms/op
 func BenchmarkHostAccountsForFunding(b *testing.B) {
 	// define parameters
@@ -32,135 +31,100 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 	// initialize database
 	store := initPostgres(b, zap.NewNop())
 
-	// prepare helpers
-	assertCount := func(table string, expected int) {
+	// prune is a helper function to delete all rows from a table
+	prune := func(table string) {
 		b.Helper()
-		var got int
-		if err := store.pool.QueryRow(context.Background(), fmt.Sprintf(`SELECT COUNT(*) FROM %s;`, table)).Scan(&got); err != nil {
+		if _, err := store.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s;`, table)); err != nil {
 			b.Fatal(err)
-		} else if got != expected {
-			b.Fatalf("expected %d %s, got %d", expected, table, got)
 		}
 	}
-	prune := func(tables ...string) {
-		b.Helper()
-		for _, table := range tables {
-			if _, err := store.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s;`, table)); err != nil {
-				b.Fatal(err)
+
+	// insert hosts
+	hosts := make([]types.PublicKey, 0, numHosts)
+	hostIDs := make(map[types.PublicKey]int64, numHosts)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
 			}
+			hosts = append(hosts, hk)
+			hostIDs[hk] = hostID
 		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
 	}
 
 	// run benchmark for different number of accounts
 	for _, numAccounts := range []int{10_000, 100_000, 1_000_000} {
-		var once sync.Once
-		var hosts []types.PublicKey
+		b.Logf("preparing database")
+
+		// prepare accounts
+		prune("accounts")
+		aks := make([]any, numAccounts)
+		for i := range aks {
+			aks[i] = sqlPublicKey(types.GeneratePrivateKey().PublicKey())
+		}
+		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+			for len(aks) > 0 {
+				batchSize := min(len(aks), 5000)
+				batch := aks[:batchSize]
+				aks = aks[batchSize:]
+
+				var values []string
+				for i := range batch {
+					values = append(values, fmt.Sprintf("($%d)", i+1))
+				}
+
+				_, err := tx.Exec(ctx, fmt.Sprintf("INSERT INTO accounts (public_key) VALUES %s", strings.Join(values, ",")), batch...)
+				if err != nil {
+					return fmt.Errorf("failed to insert accounts: %w", err)
+				}
+			}
+			return nil
+		}); err != nil {
+			b.Fatal(err)
+		}
+
+		// prepare account hosts, ensure we have one batch per host
+		prune("account_hosts")
+		for _, hk := range hosts {
+			var accs []accounts.HostAccount
+			if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) (err error) {
+				accs, err = store.newHostAccountsForFunding(context.Background(), tx, hk, hostIDs[hk], batchSize)
+				return
+			}); err != nil {
+				b.Fatal(err)
+			} else if err := store.UpdateHostAccounts(context.Background(), accs); err != nil {
+				b.Fatal(err)
+			}
+		}
 
 		b.Run(fmt.Sprintf("%d_accounts", numAccounts), func(b *testing.B) {
-			// prepare the database once, this ensures that we don't have to
-			// recreate the setup for different values of b.N
-			once.Do(func() {
-				b.Logf("preparing database")
-				prune("accounts", "hosts", "account_hosts")
+			for i := 0; i < b.N; i++ {
+				hk := hosts[i%numHosts]
+				hostID := hostIDs[hk]
 
-				accounts := make([]any, numAccounts)
-				for i := range accounts {
-					accounts[i] = sqlPublicKey(types.GeneratePrivateKey().PublicKey())
-				}
-
-				// next prepares the next batch of accounts for insertion
-				next := func() (string, []any) {
-					batchSize := min(len(accounts), 5000)
-					batch := accounts[:batchSize]
-					accounts = accounts[batchSize:]
-
-					var values []string
-					for i := range batch {
-						values = append(values, fmt.Sprintf("($%d)", i+1))
-					}
-					return fmt.Sprintf("INSERT INTO accounts (public_key) VALUES %s", strings.Join(values, ",")), batch
-				}
-
-				start := time.Now()
 				if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-					for len(accounts) > 0 {
-						query, args := next()
-						_, err := tx.Exec(ctx, query, args...)
-						if err != nil {
-							return fmt.Errorf("failed to insert accounts: %w", err)
-						} else if time.Since(start) > 10*time.Second {
-							b.Logf("%d accounts remaining", len(accounts))
-							start = time.Now()
-						}
+					// fetch accounts without account_host entry
+					if accounts, err := store.newHostAccountsForFunding(context.Background(), tx, hk, hostID, batchSize); err != nil {
+						return err
+					} else if len(accounts) != batchSize {
+						return fmt.Errorf("expected %d new accounts, got %d", batchSize, len(accounts))
 					}
 
-					start = time.Now()
-					for i := range numHosts {
-						hosts = append(hosts, types.GeneratePrivateKey().PublicKey())
-						_, err := tx.Exec(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW());`, sqlPublicKey(hosts[len(hosts)-1]))
-						if err != nil {
-							return err
-						} else if time.Since(start) > 10*time.Second {
-							b.Logf("%d hosts remaining", numHosts-i)
-							start = time.Now()
-						}
+					// fetch accounts with account_host entry
+					if accounts, err := store.existingHostAccountsForFunding(context.Background(), tx, hk, hostID, batchSize); err != nil {
+						return err
+					} else if len(accounts) != batchSize {
+						return fmt.Errorf("expected %d new accounts, got %d", batchSize, len(accounts))
 					}
-
 					return nil
 				}); err != nil {
 					b.Fatal(err)
-				}
-
-				// update one batch of host accounts to ensure we have one batch
-				// of account_host entries per host, this'll allow us to fetch
-				// accounts for funding in a way that we cover both parts of the
-				// query
-				start = time.Now()
-				for i, hk := range hosts {
-					accounts, err := store.HostAccountsForFunding(context.Background(), hk, batchSize, true)
-					if err != nil {
-						b.Fatal(err)
-					}
-					for i := range accounts {
-						accounts[i].NextFund = time.Now().Add(-time.Minute)
-					}
-					if err := store.UpdateHostAccounts(context.Background(), accounts); err != nil {
-						b.Fatal(err)
-					} else if time.Since(start) > 10*time.Second {
-						b.Logf("%d host account batches remaining", numHosts-i)
-						start = time.Now()
-					}
-				}
-
-				b.Logf("database is ready")
-			})
-
-			// perform sanity checks
-			assertCount("accounts", numAccounts)
-			assertCount("hosts", numHosts)
-
-			start := time.Now()
-			b.Logf("b.N=%d", b.N)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if i%100 == 0 && i > 0 {
-					b.Logf("%d iterations in %s", i, time.Since(start))
-				}
-
-				// fetch accounts without account_host entry
-				accounts, err := store.HostAccountsForFunding(context.Background(), hosts[i%numHosts], batchSize, true)
-				if err != nil {
-					b.Fatal(err)
-				} else if len(accounts) != batchSize {
-					b.Fatalf("expected %d accounts, got %d", batchSize, len(accounts))
-				}
-
-				// fetch accounts with account_host entry
-				accounts, err = store.HostAccountsForFunding(context.Background(), hosts[i%numHosts], batchSize, false)
-				if err != nil {
-					b.Fatal(err)
-				} else if len(accounts) != batchSize {
-					b.Fatalf("expected %d accounts, got %d", batchSize, len(accounts))
 				}
 			}
 		})
@@ -200,7 +164,7 @@ func BenchmarkUpdateHostAccounts(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		accounts, err := store.HostAccountsForFunding(context.Background(), hosts[i%numHosts], batchSize, true)
+		accounts, err := store.HostAccountsForFunding(context.Background(), hosts[i%numHosts], batchSize)
 		if err != nil {
 			b.Fatal(err)
 		}

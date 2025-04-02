@@ -58,10 +58,8 @@ func (s *Store) AddAccount(ctx context.Context, ak types.PublicKey) error {
 }
 
 // HostAccountsForFunding returns up to limit accounts for the given host key
-// that are due for funding. If allowNew is true, it will first return accounts
-// for which there are currently no account host entries, this is currently only
-// used in benchmarking and should always be true in production.
-func (s *Store) HostAccountsForFunding(ctx context.Context, hk types.PublicKey, limit int, allowNew bool) ([]accounts.HostAccount, error) {
+// that are due for funding.
+func (s *Store) HostAccountsForFunding(ctx context.Context, hk types.PublicKey, limit int) ([]accounts.HostAccount, error) {
 	if limit < 0 {
 		return nil, errors.New("limit can not be negative")
 	} else if limit == 0 {
@@ -78,43 +76,22 @@ func (s *Store) HostAccountsForFunding(ctx context.Context, hk types.PublicKey, 
 			return err
 		}
 
-		if allowNew {
-			rows, err := tx.Query(ctx, `SELECT a.public_key FROM accounts a LEFT JOIN account_hosts ah ON a.id = ah.account_id AND ah.host_id = $1 WHERE ah.account_id IS NULL LIMIT $2;`, hostID, limit)
-			if err != nil {
-				return fmt.Errorf("failed to query new accounts for funding: %w", err)
-			}
-			for rows.Next() {
-				acc := accounts.HostAccount{HostKey: hk, NextFund: time.Now()}
-				if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey)); err != nil {
-					rows.Close()
-					return fmt.Errorf("failed to scan account key: %w", err)
-				}
-				accs = append(accs, acc)
-			}
-			rows.Close()
-
-			if rows.Err() != nil {
-				return rows.Err()
-			} else if len(accs) == limit {
-				return nil
-			}
+		newAccs, err := s.newHostAccountsForFunding(ctx, tx, hk, hostID, limit)
+		if err != nil {
+			return fmt.Errorf("failed to query new accounts for funding: %w", err)
+		} else if len(newAccs) >= limit {
+			return nil
 		}
 
-		limit -= len(accs)
-		rows, err := tx.Query(ctx, `SELECT public_key, consecutive_failed_funds, next_fund FROM account_hosts ha INNER JOIN accounts a ON a.id = ha.account_id WHERE ha.host_id = $1 AND ha.next_fund <= NOW() ORDER BY next_fund ASC LIMIT $2`, hostID, limit)
+		limit -= len(newAccs)
+		existingAccs, err := s.existingHostAccountsForFunding(ctx, tx, hk, hostID, limit)
 		if err != nil {
 			return fmt.Errorf("failed to query existing accounts for funding: %w", err)
 		}
-		for rows.Next() {
-			acc := accounts.HostAccount{HostKey: hk}
-			if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey), &acc.ConsecutiveFailedFunds, &acc.NextFund); err != nil {
-				rows.Close()
-				return err
-			}
-			accs = append(accs, acc)
-		}
-		rows.Close()
-		return rows.Err()
+
+		accs = append(accs, newAccs...)
+		accs = append(accs, existingAccs...)
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -164,4 +141,50 @@ DO UPDATE SET consecutive_failed_funds = EXCLUDED.consecutive_failed_funds, next
 		_, err := tx.Exec(ctx, query, args...)
 		return err
 	})
+}
+
+func (s *Store) newHostAccountsForFunding(ctx context.Context, tx *txn, hk types.PublicKey, hostID int64, limit int) ([]accounts.HostAccount, error) {
+	accs := make([]accounts.HostAccount, 0, limit)
+
+	rows, err := tx.Query(ctx, `SELECT a.public_key FROM accounts a LEFT JOIN account_hosts ah ON a.id = ah.account_id AND ah.host_id = $1 WHERE ah.account_id IS NULL LIMIT $2;`, hostID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		acc := accounts.HostAccount{HostKey: hk, NextFund: time.Now()}
+		if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey)); err != nil {
+			return nil, fmt.Errorf("failed to scan account key: %w", err)
+		}
+		accs = append(accs, acc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return accs, nil
+}
+
+func (s *Store) existingHostAccountsForFunding(ctx context.Context, tx *txn, hk types.PublicKey, hostID int64, limit int) ([]accounts.HostAccount, error) {
+	accs := make([]accounts.HostAccount, 0, limit)
+
+	rows, err := tx.Query(ctx, `SELECT public_key, consecutive_failed_funds, next_fund FROM account_hosts ha INNER JOIN accounts a ON a.id = ha.account_id WHERE ha.host_id = $1 AND ha.next_fund <= NOW() ORDER BY next_fund ASC LIMIT $2`, hostID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		acc := accounts.HostAccount{HostKey: hk}
+		if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey), &acc.ConsecutiveFailedFunds, &acc.NextFund); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accs = append(accs, acc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return accs, nil
 }
