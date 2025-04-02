@@ -206,7 +206,7 @@ func TestUpdateHostAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// fetch accounts for funding to ensure host accounts are created
+	// fetch accounts for funding
 	accounts, err := store.HostAccountsForFunding(context.Background(), hk, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestUpdateHostAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// assert the account was updated
+	// assert the account was upserted
 	var updatedFailures int
 	var updatedNextFund time.Time
 	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {

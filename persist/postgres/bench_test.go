@@ -104,6 +104,11 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 		}
 
 		b.Run(fmt.Sprintf("%d_accounts", numAccounts), func(b *testing.B) {
+			// sanity check b.N is never greater than the amount of hosts,
+			// because in that case the benchmark results would be skewed
+			if b.N > numHosts {
+				b.Fatalf("too many iterations, %d > %d", b.N, numHosts)
+			}
 			for i := 0; i < b.N; i++ {
 				hk := hosts[i%numHosts]
 				hostID := hostIDs[hk]
@@ -135,7 +140,7 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 // UpdateAccounts, every iteration performs the worst case update where every
 // account gets inserted.
 //
-// M1 Max | 1k accounts | 14 ms/op
+// M1 Max | 1k accounts | 1 ms/op
 func BenchmarkUpdateHostAccounts(b *testing.B) {
 	// define parameters
 	const (
