@@ -82,6 +82,14 @@ type (
 		SectorRoots  types.Currency `json:"sectorRoots"`
 	}
 
+	ContractSyncParams struct {
+		Capacity           uint64
+		RemainingAllowance types.Currency
+		RevisionNumber     uint64
+		Size               uint64
+		UsedCollateral     types.Currency
+	}
+
 	// Contract is a contract formed with a host
 	Contract struct {
 		ID      types.FileContractID `json:"id"`

@@ -86,6 +86,17 @@ func (c *contractor) FormContract(ctx context.Context, hk types.PublicKey, addr 
 	return res, nil
 }
 
+func (cf *contractor) LatestRevision(ctx context.Context, hk types.PublicKey, addr string, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	t, err := siamux.Dial(dialCtx, addr, hk)
+	if err != nil {
+		return proto.RPCLatestRevisionResponse{}, fmt.Errorf("failed to dial host: %w", err)
+	}
+	defer t.Close()
+	return rhp.RPCLatestRevision(ctx, t, contractID)
+}
+
 // performContractFormation makes sure that we have at least 'wanted' good
 // contracts with good hosts in unique CIDRs.
 func (cm *ContractManager) performContractFormation(ctx context.Context, period uint64, wanted uint64, log *zap.Logger) error {
