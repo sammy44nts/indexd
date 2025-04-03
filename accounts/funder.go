@@ -77,6 +77,12 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 	}
 	defer t.Close()
 
+	// prepare account keys
+	accountKeys := make([]proto.Account, len(accounts))
+	for i, account := range accounts {
+		accountKeys[i] = account.AccountKey
+	}
+
 	// iterate over contracts
 	var fundedIdx int
 	for _, fcid := range contractIDs {
@@ -97,27 +103,18 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 			contractLog.Debug("contract has insufficient funds")
 			continue
 		}
-		balance := rev.Contract.RenterOutput.Value
 
-		// prepare accounts batch
-		var batch []proto.Account
-		for i := fundedIdx; i < len(accounts); i++ {
-			var underflow bool
-			balance, underflow = balance.SubWithUnderflow(f.target)
-			if underflow {
-				break
-			}
-
-			batch = append(batch, accounts[i].AccountKey)
-		}
-		if len(batch) == 0 {
+		// prepare batch
+		batchSize := int(min(rev.Contract.RenterOutput.Value.Div(f.target).Big().Uint64(), proto.MaxAccountBatchSize))
+		batchEndIdx := min(batchSize+fundedIdx, len(accounts))
+		if fundedIdx == batchEndIdx {
 			continue
 		}
 
 		// prepare replenish RPC params
 		revision := rhp.ContractRevision{ID: fcid, Revision: rev.Contract}
 		params := rhp.RPCReplenishAccountsParams{
-			Accounts: batch,
+			Accounts: accountKeys[fundedIdx:batchEndIdx],
 			Target:   f.target,
 			Contract: revision,
 		}
@@ -130,7 +127,10 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 		}
 
 		// update funded ix
-		fundedIdx += len(batch)
+		fundedIdx = batchEndIdx
+		if fundedIdx == len(accounts) {
+			break
+		}
 	}
 
 	return fundedIdx, nil
