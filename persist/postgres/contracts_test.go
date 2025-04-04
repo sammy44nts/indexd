@@ -222,10 +222,11 @@ func TestFormRenewContract(t *testing.T) {
 		ExpirationHeight: 200,
 		State:            contracts.ContractStatePending,
 
-		ContractPrice:    types.Siacoins(1),
-		InitialAllowance: types.Siacoins(2),
-		MinerFee:         types.Siacoins(3),
-		TotalCollateral:  types.Siacoins(4),
+		ContractPrice:      types.Siacoins(1),
+		InitialAllowance:   types.Siacoins(2),
+		RemainingAllowance: types.Siacoins(2),
+		MinerFee:           types.Siacoins(3),
+		TotalCollateral:    types.Siacoins(4),
 
 		Good: true,
 	}
@@ -270,22 +271,34 @@ func TestFormRenewContract(t *testing.T) {
 
 	// refresh the contract
 	expectedRefreshed := contracts.Contract{
-		ID:               types.FileContractID{4, 5, 6},
-		Capacity:         expectedFormed.Capacity,         // same capacity after refresh
-		Size:             expectedFormed.Size,             // same size after refresh
-		HostKey:          expectedFormed.HostKey,          // same host
-		ProofHeight:      expectedFormed.ProofHeight,      // same proof height for refresh
-		ExpirationHeight: expectedFormed.ExpirationHeight, // same expiration height for refresh
-		State:            contracts.ContractStatePending,  // refresh resets state
-		ContractPrice:    types.Siacoins(2),               // new contract price
-		InitialAllowance: types.Siacoins(3),               // new initial allowance
-		MinerFee:         types.Siacoins(4),               // new miner fee
-		Good:             true,                            // refreshed contract is good
-		RenewedFrom:      expectedFormed.ID,               // refreshed from formed contract
-		Spending:         contracts.ContractSpending{},    // spending is reset
-		TotalCollateral:  types.Siacoins(5),
+		ID:                 types.FileContractID{4, 5, 6},
+		Capacity:           expectedFormed.Capacity,         // same capacity after refresh
+		Size:               expectedFormed.Size,             // same size after refresh
+		HostKey:            expectedFormed.HostKey,          // same host
+		ProofHeight:        expectedFormed.ProofHeight,      // same proof height for refresh
+		ExpirationHeight:   expectedFormed.ExpirationHeight, // same expiration height for refresh
+		State:              contracts.ContractStatePending,  // refresh resets state
+		ContractPrice:      types.Siacoins(2),               // new contract price
+		InitialAllowance:   types.Siacoins(3),               // new initial allowance
+		RemainingAllowance: types.Siacoins(3),               // matches initial allowance
+		MinerFee:           types.Siacoins(4),               // new miner fee
+		Good:               true,                            // refreshed contract is good
+		RenewedFrom:        expectedFormed.ID,               // refreshed from formed contract
+		Spending:           contracts.ContractSpending{},    // spending is reset
+		UsedCollateral:     types.Siacoins(4),
+		TotalCollateral:    types.Siacoins(5),
 	}
-	err = store.AddRenewedContract(context.Background(), expectedRefreshed.RenewedFrom, expectedRefreshed.ID, expectedRefreshed.ProofHeight, expectedRefreshed.ExpirationHeight, expectedRefreshed.ContractPrice, expectedRefreshed.InitialAllowance, expectedRefreshed.MinerFee, expectedRefreshed.TotalCollateral)
+	err = store.AddRenewedContract(context.Background(), contracts.AddRenewedContractParams{
+		RenewedFrom:      expectedRefreshed.RenewedFrom,
+		RenewedTo:        expectedRefreshed.ID,
+		ProofHeight:      expectedRefreshed.ProofHeight,
+		ExpirationHeight: expectedRefreshed.ExpirationHeight,
+		ContractPrice:    expectedRefreshed.ContractPrice,
+		Allowance:        expectedRefreshed.InitialAllowance,
+		MinerFee:         expectedRefreshed.MinerFee,
+		UsedCollateral:   expectedRefreshed.UsedCollateral,
+		TotalCollateral:  expectedRefreshed.TotalCollateral,
+	})
 	if err != nil {
 		t.Fatal("failed to add refreshed contract", err)
 	}
@@ -309,21 +322,34 @@ func TestFormRenewContract(t *testing.T) {
 
 	// renew the refreshed contract
 	expectedRenewed := contracts.Contract{
-		ID:               types.FileContractID{7, 8, 9},
-		Capacity:         expectedRefreshed.Size,                 // capacity shrinks to size upon renewal
-		Size:             expectedRefreshed.Size,                 // same size after renewal
-		HostKey:          expectedRefreshed.HostKey,              // same host
-		ProofHeight:      expectedRefreshed.ProofHeight * 2,      // higher proof height for renew
-		ExpirationHeight: expectedRefreshed.ExpirationHeight * 2, // higher expiration height for renew
-		State:            contracts.ContractStatePending,         // renewal resets state
-		ContractPrice:    types.Siacoins(5),                      // new contract price
-		InitialAllowance: types.Siacoins(6),                      // new initial allowance
-		MinerFee:         types.Siacoins(7),                      // new miner fee
-		Good:             true,                                   // renewed contract is good
-		RenewedFrom:      expectedRefreshed.ID,                   // renewed from refreshed contract
-		Spending:         contracts.ContractSpending{},           // spending is reset
+		ID:                 types.FileContractID{7, 8, 9},
+		Capacity:           expectedRefreshed.Size,                 // capacity shrinks to size upon renewal
+		Size:               expectedRefreshed.Size,                 // same size after renewal
+		HostKey:            expectedRefreshed.HostKey,              // same host
+		ProofHeight:        expectedRefreshed.ProofHeight * 2,      // higher proof height for renew
+		ExpirationHeight:   expectedRefreshed.ExpirationHeight * 2, // higher expiration height for renew
+		State:              contracts.ContractStatePending,         // renewal resets state
+		ContractPrice:      types.Siacoins(5),                      // new contract price
+		InitialAllowance:   types.Siacoins(6),                      // new initial allowance
+		RemainingAllowance: types.Siacoins(6),                      // matches initial allowance
+		MinerFee:           types.Siacoins(7),                      // new miner fee
+		Good:               true,                                   // renewed contract is good
+		RenewedFrom:        expectedRefreshed.ID,                   // renewed from refreshed contract
+		Spending:           contracts.ContractSpending{},           // spending is reset
+		UsedCollateral:     types.Siacoins(4),
+		TotalCollateral:    types.Siacoins(5),
 	}
-	err = store.AddRenewedContract(context.Background(), expectedRenewed.RenewedFrom, expectedRenewed.ID, expectedRenewed.ProofHeight, expectedRenewed.ExpirationHeight, expectedRenewed.ContractPrice, expectedRenewed.InitialAllowance, expectedRenewed.MinerFee, expectedRenewed.TotalCollateral)
+	err = store.AddRenewedContract(context.Background(), contracts.AddRenewedContractParams{
+		RenewedFrom:      expectedRenewed.RenewedFrom,
+		RenewedTo:        expectedRenewed.ID,
+		ProofHeight:      expectedRenewed.ProofHeight,
+		ExpirationHeight: expectedRenewed.ExpirationHeight,
+		ContractPrice:    expectedRenewed.ContractPrice,
+		Allowance:        expectedRenewed.InitialAllowance,
+		MinerFee:         expectedRenewed.MinerFee,
+		UsedCollateral:   expectedRenewed.UsedCollateral,
+		TotalCollateral:  expectedRenewed.TotalCollateral,
+	})
 	if err != nil {
 		t.Fatal("failed to add refreshed contract", err)
 	}
