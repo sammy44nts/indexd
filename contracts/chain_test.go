@@ -59,11 +59,11 @@ func (s *storeMock) AddFormedContract(ctx context.Context, contractID types.File
 	return nil
 }
 
-func (s *storeMock) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, proofHeight, expirationHeight uint64, contractPrice, allowance, minerFee, totalCollateral types.Currency) error {
+func (s *storeMock) AddRenewedContract(ctx context.Context, params AddRenewedContractParams) error {
 	var source *Contract
 	for i := range s.contracts {
-		if s.contracts[i].ID == renewedFrom {
-			s.contracts[i].RenewedTo = renewedTo
+		if s.contracts[i].ID == params.RenewedFrom {
+			s.contracts[i].RenewedTo = params.RenewedTo
 			source = &s.contracts[i]
 			break
 		}
@@ -72,7 +72,7 @@ func (s *storeMock) AddRenewedContract(ctx context.Context, renewedFrom, renewed
 		return ErrNotFound
 	}
 	s.contracts = append(s.contracts, Contract{
-		ID:      renewedTo,
+		ID:      params.RenewedTo,
 		HostKey: source.HostKey,
 
 		Capacity:    source.Size,
@@ -80,16 +80,17 @@ func (s *storeMock) AddRenewedContract(ctx context.Context, renewedFrom, renewed
 		RenewedFrom: source.ID,
 
 		Formation:        time.Now(),
-		ProofHeight:      proofHeight,
-		ExpirationHeight: expirationHeight,
+		ProofHeight:      params.ProofHeight,
+		ExpirationHeight: params.ExpirationHeight,
 		State:            ContractStatePending,
 
-		RemainingAllowance: allowance,
-		TotalCollateral:    totalCollateral,
+		RemainingAllowance: params.Allowance,
+		UsedCollateral:     params.UsedCollateral,
+		TotalCollateral:    params.TotalCollateral,
 
-		ContractPrice:    contractPrice,
-		InitialAllowance: allowance,
-		MinerFee:         minerFee,
+		ContractPrice:    params.ContractPrice,
+		InitialAllowance: params.Allowance,
+		MinerFee:         params.MinerFee,
 
 		Good: true,
 	})
@@ -143,13 +144,35 @@ func (s *storeMock) Host(ctx context.Context, hostKey types.PublicKey) (hosts.Ho
 	return host, nil
 }
 
-func (s *storeMock) Hosts(ctx context.Context, offset, limit int) ([]hosts.Host, error) {
+func (s *storeMock) Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error) {
 	copied := slices.Collect(maps.Values(s.hosts))
 	slices.SortFunc(copied, func(a, b hosts.Host) int {
 		// sort by public key to make order in testing deterministic
 		return strings.Compare(a.PublicKey.String(), b.PublicKey.String())
 	})
-	return copied, nil
+	opts := hosts.DefaultHostsQueryOpts
+	for _, opt := range queryOpts {
+		opt(&opts)
+	}
+	filter := copied[:0]
+	for _, h := range copied {
+		keep := true
+		if opts.Good != nil {
+			keep = h.Usability.Usable() == *opts.Good
+		}
+		if opts.Blocked != nil {
+			keep = keep && h.Blocked == *opts.Blocked
+		}
+		if opts.ActiveContracts != nil {
+			keep = keep && *opts.ActiveContracts == slices.ContainsFunc(s.contracts, func(contract Contract) bool {
+				return contract.HostKey == h.PublicKey
+			})
+		}
+		if keep {
+			filter = append(filter, h)
+		}
+	}
+	return filter, nil
 }
 
 func (s *storeMock) MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error) {
@@ -238,7 +261,7 @@ func (tx *mockUpdateTx) IsKnownContract(contractID types.FileContractID) (bool, 
 
 func (tx *mockUpdateTx) UpdateContractElements(fces ...types.V2FileContractElement) error {
 	for _, fce := range fces {
-		tx.contracts[fce.ID] = fce
+		tx.contracts[fce.ID] = fce.Copy()
 	}
 	return nil
 }

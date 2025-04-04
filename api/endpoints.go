@@ -99,7 +99,31 @@ func (a *api) handleGETHosts(jc jape.Context) {
 	if !ok {
 		return
 	}
-	hosts, err := a.store.Hosts(jc.Request.Context(), offset, limit)
+
+	var opts []hosts.HostQueryOpt
+	if jc.Request.FormValue("usable") != "" {
+		var usable bool
+		if jc.DecodeForm("usable", &usable) != nil {
+			return
+		}
+		opts = append(opts, hosts.WithUsable(usable))
+	}
+	if jc.Request.FormValue("blocked") != "" {
+		var blocked bool
+		if jc.DecodeForm("blocked", &blocked) != nil {
+			return
+		}
+		opts = append(opts, hosts.WithBlocked(blocked))
+	}
+	if jc.Request.FormValue("activecontracts") != "" {
+		var activeContracts bool
+		if jc.DecodeForm("activecontracts", &activeContracts) != nil {
+			return
+		}
+		opts = append(opts, hosts.WithActiveContracts(activeContracts))
+	}
+
+	hosts, err := a.store.Hosts(jc.Request.Context(), offset, limit, opts...)
 	if jc.Check("failed to get hosts", err) != nil {
 		return
 	}
@@ -121,9 +145,6 @@ func (a *api) handleGETHostsBlocklist(jc jape.Context) {
 func (a *api) handlePUTHostsBlocklist(jc jape.Context) {
 	var hosts HostsBlocklistRequest
 	if jc.Decode(&hosts) != nil {
-		return
-	} else if len(hosts.Reason) > 50 {
-		jc.Error(errors.New("reason must be 50 characters or less"), http.StatusBadRequest)
 		return
 	}
 	jc.Check("failed to add host keys to blocklist", a.store.BlockHosts(jc.Request.Context(), hosts.HostKeys, hosts.Reason))
