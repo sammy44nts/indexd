@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -439,88 +438,6 @@ func TestRejectContracts(t *testing.T) {
 	assertContractState(activeID, contracts.ContractStateActive)
 }
 
-func TestSetContractGood(t *testing.T) {
-	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
-
-	// add a host
-	hk := types.PublicKey{1, 1, 1}
-	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// helpers
-	assertContractGood := func(id int64, good bool) {
-		t.Helper()
-		err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-			var got bool
-			if err := tx.QueryRow(ctx, `SELECT good FROM contracts WHERE id = $1`, id).Scan(&got); err != nil {
-				t.Fatal(err)
-			} else if got != good {
-				t.Fatalf("expected good=%v, got %v", good, got)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	setContractGood := func(id int64, good bool) {
-		t.Helper()
-		if !good {
-			if err := store.SetContractBad(context.Background(), types.FileContractID{byte(id)}); err != nil {
-				t.Fatal("failed to set contract.'good'", err)
-			}
-		} else {
-			if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-				_, err := tx.Exec(ctx, `UPDATE contracts SET good = TRUE WHERE contract_id = $1`, sqlHash256{byte(id)})
-				if err != nil {
-					return fmt.Errorf("failed to update contract.'good': %w", err)
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-
-	// form contracts
-	for i := range 3 {
-		expectedFormed := contracts.Contract{
-			ID:      types.FileContractID{byte(i + 1)},
-			HostKey: hk,
-		}
-		err = store.AddFormedContract(context.Background(), expectedFormed.ID, expectedFormed.HostKey, expectedFormed.ProofHeight, expectedFormed.ExpirationHeight, expectedFormed.ContractPrice, expectedFormed.InitialAllowance, expectedFormed.MinerFee, expectedFormed.TotalCollateral)
-		if err != nil {
-			t.Fatal("failed to add formed contract", err)
-		}
-		assertContractGood(int64(i+1), true) // good by default
-		setContractGood(int64(i+1), false)   // set bad
-	}
-
-	// all bad
-	assertContractGood(1, false)
-	assertContractGood(2, false)
-	assertContractGood(3, false)
-
-	// 1 and 3 good
-	setContractGood(1, true)
-	setContractGood(3, true)
-	assertContractGood(1, true)
-	assertContractGood(2, false)
-	assertContractGood(3, true)
-
-	// 2 good
-	setContractGood(1, false)
-	setContractGood(2, true)
-	setContractGood(3, false)
-	assertContractGood(1, false)
-	assertContractGood(2, true)
-	assertContractGood(3, false)
-}
-
 func TestUpdateContractElement(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
@@ -671,4 +588,58 @@ func TestUpdateContractState(t *testing.T) {
 	assertState(contracts.ContractStatePending) // fresh contract state
 	updateState(contracts.ContractStateActive)  // set to active
 	assertState(contracts.ContractStateActive)  // assert active
+}
+
+func TestMarkUnrenewableContractsBad(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	const proofHeight = 100
+
+	// prepare 2 contracts, one for testing and another one that remains good
+	// for the duration of the test to serve as a canary
+	hk := types.PublicKey{1, 1, 1}
+	fcid := types.FileContractID{1}
+	goodFCID := types.FileContractID{2}
+
+	// helper to assert state of contracts
+	assertContractGood := func(good bool) {
+		t.Helper()
+
+		// check test contract
+		contract, err := store.Contract(context.Background(), fcid)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Good != good {
+			t.Fatalf("expected good=%v, got %v", good, contract.Good)
+		}
+
+		// check canary
+		contract, err = store.Contract(context.Background(), goodFCID)
+		if err != nil {
+			t.Fatal(err)
+		} else if !contract.Good {
+			t.Fatal("canary should be good")
+		}
+	}
+
+	// add a host and the contracts
+	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddFormedContract(context.Background(), fcid, hk, proofHeight, 9999, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3), types.Siacoins(4)); err != nil {
+		t.Fatal(err)
+	} else if err := store.AddFormedContract(context.Background(), goodFCID, hk, 8888, 9999, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3), types.Siacoins(4)); err != nil {
+		t.Fatal(err)
+	}
+
+	assertContractGood(true)
+	store.MarkUnrenewableContractsBad(context.Background(), proofHeight-1)
+	assertContractGood(true)
+	store.MarkUnrenewableContractsBad(context.Background(), proofHeight)
+	assertContractGood(false)
+	store.MarkUnrenewableContractsBad(context.Background(), proofHeight+1)
+	assertContractGood(false)
 }

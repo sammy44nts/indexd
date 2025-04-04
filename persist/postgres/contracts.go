@@ -176,17 +176,6 @@ WHERE fces.contract_id = contracts.id AND current_height.scanned_height >= contr
 	})
 }
 
-// SetContractBad marks a contract as bad.
-func (s *Store) SetContractBad(ctx context.Context, contractID types.FileContractID) error {
-	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		_, err := tx.Exec(ctx, `UPDATE contracts SET good = FALSE WHERE contract_id = $1`, sqlHash256(contractID))
-		if err != nil {
-			return fmt.Errorf("failed to update contract.'good': %w", err)
-		}
-		return nil
-	})
-}
-
 func (tx *updateTx) ContractElements() ([]types.V2FileContractElement, error) {
 	rows, err := tx.tx.Query(tx.ctx, `
 SELECT c.contract_id, fces.contract, fces.leaf_index, fces.merkle_proof
@@ -215,6 +204,15 @@ func (tx *updateTx) IsKnownContract(contractID types.FileContractID) (bool, erro
 		return false, fmt.Errorf("failed to check if contract is known: %w", err)
 	}
 	return exists, nil
+}
+
+// MarkUnrenewableContractsBad marks all contracts as bad that have a proof
+// height <= minProofHeight bad.
+func (s *Store) MarkUnrenewableContractsBad(ctx context.Context, minProofHeight uint64) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `UPDATE contracts SET good = FALSE WHERE proof_height <= $1`, minProofHeight)
+		return err
+	})
 }
 
 // RejectPendingContracts marks all contracts as rejected that are currently

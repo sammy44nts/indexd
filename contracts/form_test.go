@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -38,26 +39,35 @@ type formContractCall struct {
 	params   proto.RPCFormContractParams
 }
 
-type contractFormerMock struct {
-	calls []formContractCall
+type contractorMock struct {
+	formCalls  []formContractCall
+	renewCalls []renewContractCall
 }
 
-func (cf *contractFormerMock) Calls() []formContractCall {
-	calls := slices.Clone(cf.calls)
+func (c *contractorMock) Calls() []formContractCall {
+	calls := slices.Clone(c.formCalls)
 	slices.SortFunc(calls, func(a, b formContractCall) int {
 		return strings.Compare(a.hk.String(), b.hk.String())
 	})
 	return calls
 }
 
-func (cf *contractFormerMock) FormContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
-	cf.calls = append(cf.calls, formContractCall{
+func (c *contractorMock) FormContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
+	c.formCalls = append(c.formCalls, formContractCall{
 		hk:       hk,
 		addr:     addr,
 		settings: settings,
 		params:   params,
 	})
 	return rhp.RPCFormContractResult{
+		Contract: rhp.ContractRevision{
+			ID: frand.Entropy256(),
+			Revision: types.V2FileContract{
+				ExpirationHeight: params.ProofHeight + proto.ProofWindow,
+				ProofHeight:      params.ProofHeight,
+				TotalCollateral:  params.Collateral,
+			},
+		},
 		FormationSet: rhp.TransactionSet{
 			Transactions: []types.V2Transaction{
 				{
@@ -94,8 +104,9 @@ func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (hosts.H
 	settings, ok := s.settings[hk]
 	if !ok {
 		return hosts.Host{}, hosts.ErrNotFound
+	} else if err := s.store.UpdateHostSettings(hk, settings); err != nil {
+		return hosts.Host{}, err
 	}
-	s.store.UpdateHostSettings(hk, settings)
 	return s.store.Host(ctx, hk)
 }
 
@@ -192,10 +203,10 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 		good3.PublicKey: good3,
 	}
 
-	cf := &contractFormerMock{}
+	contractor := &contractorMock{}
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
 	wallet := &walletMock{}
-	contracts := newContractManager(renterKey, cmMock, cf, scanner, store, syncerMock, wallet)
+	contracts := newContractManager(renterKey, cmMock, contractor, scanner, store, syncerMock, wallet)
 
 	// disable randomizing hosts to make test deterministic
 	contracts.shuffle = func(int, func(i, j int)) {}
@@ -231,13 +242,38 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 
 	// assert that we attempted to form contracts with the right hosts,
 	// settings and params
-	calls := cf.Calls()
+	calls := contractor.Calls()
 	if len(calls) != wanted {
 		t.Fatalf("expected %v calls, got %v", wanted, len(calls))
 	}
 	assertFormation(good1, calls[0])
 	assertFormation(good2, calls[1])
 	assertFormation(good3, calls[2])
+
+	// assert formations made it into the store
+	if len(store.contracts) != wanted {
+		t.Fatalf("expected %v contracts, got %v", wanted, len(store.contracts))
+	}
+
+	for _, contract := range store.contracts {
+		if contract.ID == (types.FileContractID{}) {
+			t.Fatalf("expected contract ID to be set")
+		} else if contract.HostKey == (types.PublicKey{}) {
+			t.Fatalf("expected host key to be set")
+		} else if contract.ProofHeight != blockHeight+period {
+			t.Fatalf("expected proof height %v, got %v", blockHeight+period, contract.ProofHeight)
+		} else if contract.ExpirationHeight != contract.ProofHeight+proto.ProofWindow {
+			t.Fatalf("expected expiration height %v, got %v", contract.ProofHeight+proto.ProofWindow, contract.ExpirationHeight)
+		} else if contract.ContractPrice != goodSettings.Prices.ContractPrice {
+			t.Fatalf("expected contract price %v, got %v", goodSettings.Prices.ContractPrice, contract.ContractPrice)
+		} else if contract.InitialAllowance.IsZero() {
+			t.Fatalf("expected initial allowance to be set")
+		} else if !contract.MinerFee.Equals(types.Siacoins(1)) {
+			t.Fatalf("expected miner fee to be 1SC")
+		} else if contract.TotalCollateral.IsZero() {
+			t.Fatalf("expected total collateral to be set")
+		}
+	}
 }
 
 // TestPerformContractFormationWithContracts is a unit test for
@@ -331,7 +367,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 		good5.PublicKey: good5,
 	}
 
-	cf := &contractFormerMock{}
+	cf := &contractorMock{}
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
 	wallet := &walletMock{}
 	contracts := newContractManager(renterKey, cmMock, cf, scanner, store, syncerMock, wallet)
