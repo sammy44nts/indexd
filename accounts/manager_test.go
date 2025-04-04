@@ -126,16 +126,16 @@ type mockFunder struct {
 	fail  bool
 }
 
-func (f *mockFunder) FundAccounts(ctx context.Context, host hosts.Host, accounts []HostAccount, contractIDs []types.FileContractID, log *zap.Logger) (int, error) {
+func (f *mockFunder) FundAccounts(ctx context.Context, host hosts.Host, accounts []HostAccount, contractIDs []types.FileContractID, log *zap.Logger) (int, int, error) {
 	f.calls = append(f.calls, fundAccountCall{
 		host:        host,
 		accounts:    accounts,
 		contractIDs: contractIDs,
 	})
 	if f.fail {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return len(accounts), nil
+	return len(accounts), 1, nil
 }
 
 // TestAccountManager is a unit test that covers the functionality of the
@@ -220,6 +220,7 @@ func TestAccountManager(t *testing.T) {
 	}
 
 	// fund accounts
+	contractIDs = append(contractIDs, types.FileContractID{2})
 	err = am.FundAccounts(context.Background(), host, contractIDs, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
@@ -232,6 +233,10 @@ func TestAccountManager(t *testing.T) {
 		t.Fatal("expected first call to fund 1000 accounts")
 	} else if len(f.calls[1].accounts) != 2 {
 		t.Fatal("expected second call to fund 2 accounts")
+	} else if len(f.calls[0].contractIDs) != 2 {
+		t.Fatal("expected first call to have two contract IDs")
+	} else if len(f.calls[1].contractIDs) != 1 {
+		t.Fatal("expected second call to have one contract ID")
 	}
 
 	// assert all accounts next fund was updated and consecutive failed funds was reset

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -64,16 +65,25 @@ func NewFunder(cm ChainManager, signer rhp.ContractSigner, target types.Currency
 }
 
 // FundAccounts tops up the provided accounts to the target balance using the
-// specified contracts in order. The number returned is the amount of accounts
-// that got funded, the accounts are funded in order.
-func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []HostAccount, contractIDs []types.FileContractID, log *zap.Logger) (int, error) {
+// specified contracts in order. The given accounts should not exceed the batch
+// size used in the replenish RPC. This method returns two numbers, the first
+// one indicates the number of accounts that were funded, the second indicates
+// the number of contracts that were drained. Consecutive calls for the same
+// host should take this into account and adjust the contract IDs that are being
+// passed in.
+func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []HostAccount, contractIDs []types.FileContractID, log *zap.Logger) (funded int, drained int, _ error) {
+	// sanity check
+	if len(accounts) > proto.MaxAccountBatchSize {
+		return 0, 0, errors.New("too many accounts") // developer error
+	}
+
 	// dial host
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	t, err := f.host.Dial(dialCtx, host.SiamuxAddr(), host.PublicKey)
 	cancel()
 	if err != nil {
 		log.Debug("failed to dial host", zap.Error(err))
-		return 0, nil
+		return 0, 0, nil
 	}
 	defer t.Close()
 
@@ -84,7 +94,6 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 	}
 
 	// iterate over contracts
-	var fundedIdx int
 	for _, fcid := range contractIDs {
 		contractLog := log.With(zap.Stringer("contractID", fcid))
 
@@ -96,9 +105,6 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 		} else if !rev.Revisable {
 			contractLog.Debug("contract is not revisable") // sanity check
 			continue
-		} else if rev.Contract.RenterOutput.Value.IsZero() {
-			contractLog.Debug("contract is out of funds")
-			continue
 		} else if rev.Contract.RenterOutput.Value.Cmp(f.target) < 0 {
 			contractLog.Debug("contract has insufficient funds")
 			continue
@@ -106,32 +112,32 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, accounts []H
 
 		// prepare batch
 		batchSize := int(min(rev.Contract.RenterOutput.Value.Div(f.target).Big().Uint64(), proto.MaxAccountBatchSize))
-		batchEndIdx := min(batchSize+fundedIdx, len(accounts))
-		if fundedIdx == batchEndIdx {
-			continue
-		}
+		batchEndIdx := min(batchSize+funded, len(accounts))
 
 		// prepare replenish RPC params
 		revision := rhp.ContractRevision{ID: fcid, Revision: rev.Contract}
 		params := rhp.RPCReplenishAccountsParams{
-			Accounts: accountKeys[fundedIdx:batchEndIdx],
+			Accounts: accountKeys[funded:batchEndIdx],
 			Target:   f.target,
 			Contract: revision,
 		}
 
 		// execute replenish RPC
-		_, err = f.host.RPCReplenishAccounts(ctx, t, params, f.cm.TipState(), f.signer)
+		res, err := f.host.RPCReplenishAccounts(ctx, t, params, f.cm.TipState(), f.signer)
 		if err != nil {
-			log.Debug("failed to replenish accounts", zap.Error(err))
+			contractLog.Debug("failed to replenish accounts", zap.Error(err))
 			continue
+		} else if res.Revision.RenterOutput.Value.Cmp(f.target) < 0 {
+			contractLog.Debug("contract was drained by replenish RPC")
+			drained++
 		}
 
 		// update funded ix
-		fundedIdx = batchEndIdx
-		if fundedIdx == len(accounts) {
+		funded = batchEndIdx
+		if funded == len(accounts) {
 			break
 		}
 	}
 
-	return fundedIdx, nil
+	return funded, drained, nil
 }

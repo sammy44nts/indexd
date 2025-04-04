@@ -17,6 +17,8 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+var badContractId = types.FileContractID{1, 1, 1}
+
 type tcMock struct{}
 
 func (tcMock) DialStream() (net.Conn, error) { return nil, nil }
@@ -45,11 +47,22 @@ func (h *hostMock) RPCLatestRevision(ctx context.Context, t rhp.TransportClient,
 }
 
 func (h *hostMock) RPCReplenishAccounts(_ context.Context, _ rhp.TransportClient, params rhp.RPCReplenishAccountsParams, _ consensus.State, _ rhp.ContractSigner) (rhp.RPCReplenishAccountsResult, error) {
-	if params.Contract.ID == (types.FileContractID{5}) {
+	if params.Contract.ID == badContractId {
 		return rhp.RPCReplenishAccountsResult{}, errors.New("failed to replenish")
+	} else if _, ok := h.revisions[params.Contract.ID]; !ok {
+		return rhp.RPCReplenishAccountsResult{}, errors.New("unknown contract")
 	}
+
 	h.calls = append(h.calls, params)
-	return rhp.RPCReplenishAccountsResult{}, nil
+
+	var underflow bool
+	rev := params.Contract.Revision
+	rev.RenterOutput.Value, underflow = rev.RenterOutput.Value.SubWithUnderflow(params.Target.Mul64(uint64(len(params.Accounts))))
+	if underflow {
+		return rhp.RPCReplenishAccountsResult{}, errors.New("insufficient funds")
+	}
+
+	return rhp.RPCReplenishAccountsResult{Revision: rev}, nil
 }
 
 // TestFunder is a unit test that checks the various edge cases in FundAccounts
@@ -58,8 +71,7 @@ func TestFunder(t *testing.T) {
 	target := types.Siacoins(1)
 	h := &hostMock{revisions: map[types.FileContractID]proto.RPCLatestRevisionResponse{
 		{1}: {Revisable: false},                                                                                                              // not revisable
-		{2}: {Revisable: true, Contract: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: types.ZeroCurrency}}},                 // out of funds
-		{3}: {Revisable: true, Contract: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Sub(types.NewCurrency64(1))}}}, // insufficient funds
+		{2}: {Revisable: true, Contract: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Sub(types.NewCurrency64(1))}}}, // insufficient funds
 	}}
 
 	// prepare funder
@@ -68,51 +80,53 @@ func TestFunder(t *testing.T) {
 
 	// assert contract checks
 	core, logs := observer.New(zapcore.DebugLevel)
-	contractIDs := []types.FileContractID{{}, {1}, {2}, {3}}
-	n, err := f.FundAccounts(context.Background(), hosts.Host{}, nil, contractIDs, zap.New(core))
+	contractIDs := []types.FileContractID{{}, {1}, {2}}
+	funded, drained, err := f.FundAccounts(context.Background(), hosts.Host{}, nil, contractIDs, zap.New(core))
 	if err != nil {
 		t.Fatal("unexpected", err)
-	} else if n != 0 {
-		t.Fatal("expected 0 accounts funded, got", n)
-	} else if entries := logs.TakeAll(); len(entries) != 4 {
-		t.Fatal("expected 4 log entries, got", len(entries))
+	} else if funded != 0 {
+		t.Fatal("expected 0 accounts funded, got", funded)
+	} else if drained != 0 {
+		t.Fatal("expected 0 contracts drained, got", drained)
+	} else if entries := logs.TakeAll(); len(entries) != 3 {
+		t.Fatal("expected 3 log entries, got", len(entries))
 	} else if !strings.Contains(entries[0].Message, "latest revision") {
 		t.Fatalf("expected 'latest revision', got %q", entries[0].Message)
 	} else if !strings.Contains(entries[1].Message, "not revisable") {
 		t.Fatalf("expected 'not revisable', got %q", entries[1].Message)
-	} else if !strings.Contains(entries[2].Message, "out of funds") {
-		t.Fatalf("expected 'out of funds', got %q", entries[2].Message)
-	} else if !strings.Contains(entries[3].Message, "insufficient funds") {
-		t.Fatalf("expected 'insufficient funds', got %q", entries[3].Message)
+	} else if !strings.Contains(entries[2].Message, "insufficient funds") {
+		t.Fatalf("expected 'insufficient funds', got %q", entries[2].Message)
 	}
 
 	// add a good contract, capable of funding two accounts
-	h.revisions[types.FileContractID{4}] = proto.RPCLatestRevisionResponse{
+	h.revisions[types.FileContractID{3}] = proto.RPCLatestRevisionResponse{
 		Revisable: true,
 		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Mul64(2)}},
 	}
-	contractIDs = append(contractIDs, types.FileContractID{4})
+	contractIDs = append(contractIDs, types.FileContractID{3})
 
 	// add a bad contract, that fails RPC replenish (to assert we don't increment fundIdx)
-	h.revisions[types.FileContractID{5}] = proto.RPCLatestRevisionResponse{
+	h.revisions[badContractId] = proto.RPCLatestRevisionResponse{
 		Revisable: true,
 		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target}},
 	}
-	contractIDs = append(contractIDs, types.FileContractID{5})
+	contractIDs = append(contractIDs, badContractId)
 
-	// add a good contract, capable of funding one account
-	h.revisions[types.FileContractID{6}] = proto.RPCLatestRevisionResponse{
+	// add a good contract, capable of funding 1 account
+	h.revisions[types.FileContractID{4}] = proto.RPCLatestRevisionResponse{
 		Revisable: true,
-		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target}},
+		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Mul64(1)}},
 	}
-	contractIDs = append(contractIDs, types.FileContractID{6})
+	contractIDs = append(contractIDs, types.FileContractID{4})
 
 	accounts := []HostAccount{{AccountKey: proto.Account{1}}, {AccountKey: proto.Account{2}}, {AccountKey: proto.Account{3}}, {AccountKey: proto.Account{4}}}
-	n, err = f.FundAccounts(context.Background(), hosts.Host{}, accounts, contractIDs, zap.NewNop())
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, accounts, contractIDs, zap.NewNop())
 	if err != nil {
 		t.Fatal("unexpected", err)
-	} else if n != 3 {
-		t.Fatal("expected 3 accounts funded, got", n)
+	} else if funded != 3 {
+		t.Fatal("expected 3 accounts funded, got", funded)
+	} else if drained != 2 {
+		t.Fatal("expected 2 contracts drained, got", drained)
 	} else if len(h.calls) != 2 {
 		t.Fatal("expected 2 replenish calls, got", len(h.calls))
 	} else if len(h.calls[0].Accounts) != 2 {
