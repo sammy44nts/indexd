@@ -40,8 +40,9 @@ type formContractCall struct {
 }
 
 type contractorMock struct {
-	formCalls  []formContractCall
-	renewCalls []renewContractCall
+	formCalls    []formContractCall
+	refreshCalls []refreshContractCall
+	renewCalls   []renewContractCall
 }
 
 func (c *contractorMock) Calls() []formContractCall {

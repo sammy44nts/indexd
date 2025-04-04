@@ -41,6 +41,7 @@ type (
 	// contracts.
 	Contractor interface {
 		FormContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
+		RefreshContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
 		RenewContract(ctx context.Context, hk types.PublicKey, addr string, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error)
 	}
 
@@ -290,10 +291,15 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 		return fmt.Errorf("failed to renew contracts: %w", err)
 	}
 
-	// TODO: Refresh any good contracts that are either out of collateral or funds
+	// refresh any good contracts that are either out of collateral or funds
+	if err := cm.performContractRefreshes(ctx, log); err != nil {
+		return fmt.Errorf("failed to perform contract refreshes: %w", err)
+	}
 
 	// mark any contracts too close to their expiration height as bad
-	cm.store.MarkUnrenewableContractsBad(ctx, blockHeight+settings.RenewWindow/2)
+	if err := cm.store.MarkUnrenewableContractsBad(ctx, blockHeight+settings.RenewWindow/2); err != nil {
+		return fmt.Errorf("failed to mark unrenewable contracts bad: %w", err)
+	}
 
 	// form new contracts until there are enough good contracts to use
 	if err := cm.performContractFormation(ctx, settings.Period, settings.WantedContracts, log); err != nil {
