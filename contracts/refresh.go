@@ -128,7 +128,7 @@ func (cm *ContractManager) performContractRefreshes(ctx context.Context, log *za
 			ContractPrice:    host.Settings.Prices.ContractPrice,
 			Allowance:        renewed.Revision.RenterOutput.Value,
 			MinerFee:         minerFee,
-			UsedCollateral:   types.ZeroCurrency,
+			UsedCollateral:   res.Contract.Revision.MissedHostValue,
 			TotalCollateral:  renewed.Revision.TotalCollateral,
 		})
 		if err != nil {

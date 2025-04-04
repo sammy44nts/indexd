@@ -56,15 +56,6 @@ func TestPerformContractRenewals(t *testing.T) {
 	)
 	cmMock.state.Index.Height = 50
 
-	goodSettings := proto.HostSettings{
-		AcceptingContracts: true,
-		RemainingStorage:   minRemainingStorage,
-		Prices: proto.HostPrices{
-			ContractPrice: types.Siacoins(1),
-			Collateral:    types.NewCurrency64(1),
-			StoragePrice:  types.NewCurrency64(1),
-		},
-	}
 	badSettings := proto.HostSettings{}
 
 	// helper to create a good host

@@ -29,7 +29,8 @@ var (
 			Collateral:    types.NewCurrency64(1),
 			StoragePrice:  types.NewCurrency64(1),
 		},
-		MaxCollateral: types.Siacoins(1000),
+		MaxContractDuration: 90 * 144,
+		MaxCollateral:       types.Siacoins(1000),
 	}
 )
 
@@ -139,17 +140,6 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 		period = 100
 		wanted = 3
 	)
-
-	// prepare settings which will cause hosts to either be good for forming contracts or not
-	goodSettings := proto.HostSettings{
-		AcceptingContracts: true,
-		RemainingStorage:   minRemainingStorage,
-		Prices: proto.HostPrices{
-			ContractPrice: types.Siacoins(1),
-			Collateral:    types.NewCurrency64(1),
-			StoragePrice:  types.NewCurrency64(1),
-		},
-	}
 
 	// prepare bad settings that indicate the host is out of storage
 	oosSettings := goodSettings

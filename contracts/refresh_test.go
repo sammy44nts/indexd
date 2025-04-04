@@ -60,17 +60,6 @@ func TestPerformContractRefreshes(t *testing.T) {
 	cmMock := newChainManagerMock()
 	syncerMock := &syncerMock{}
 
-	goodSettings := proto.HostSettings{
-		AcceptingContracts: true,
-		RemainingStorage:   minRemainingStorage,
-		Prices: proto.HostPrices{
-			ContractPrice: types.Siacoins(1),
-			Collateral:    types.NewCurrency64(1),
-			StoragePrice:  types.NewCurrency64(1),
-		},
-	}
-	goodSettings.MaxCollateral = types.Siacoins(1000)
-
 	// helper to create a good host
 	goodHost := func(i int) hosts.Host {
 		return hosts.Host{
