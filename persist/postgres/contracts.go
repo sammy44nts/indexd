@@ -21,7 +21,7 @@ func (s *Store) AddFormedContract(ctx context.Context, contractID types.FileCont
 		} else if err != nil {
 			return fmt.Errorf("failed to fetch host: %w", err)
 		}
-		resp, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		resp, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, remaining_allowance, miner_fee, total_collateral) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`,
 			hostID, sqlHash256(contractID), proofHeight, expirationHeight, sqlCurrency(contractPrice), sqlCurrency(allowance), sqlCurrency(minerFee), sqlCurrency(totalCollateral))
 		if err != nil {
 			return fmt.Errorf("failed to add formed contract to database: %w", err)
@@ -55,8 +55,8 @@ func (s *Store) AddRenewedContract(ctx context.Context, params contracts.AddRene
 		// duplicate it and make sure the new row renews to the existing row
 		var newID int64
 		if err := tx.QueryRow(ctx, `
-INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, renewed_from, renewed_to, state, capacity, size, contract_price, initial_allowance, miner_fee, used_collateral, total_collateral, good, append_sector_spending, free_sector_spending, fund_account_spending, sector_roots_spending) (
-	SELECT host_id, contract_id, proof_height, expiration_height, renewed_from, $1, state, capacity, size, contract_price, initial_allowance, miner_fee, used_collateral, total_collateral, good, append_sector_spending, free_sector_spending, fund_account_spending, sector_roots_spending
+INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, renewed_from, renewed_to, state, capacity, size, contract_price, initial_allowance, remaining_allowance, miner_fee, used_collateral, total_collateral, good, append_sector_spending, free_sector_spending, fund_account_spending, sector_roots_spending) (
+	SELECT host_id, contract_id, proof_height, expiration_height, renewed_from, $1, state, capacity, size, contract_price, initial_allowance, remaining_allowance, miner_fee, used_collateral, total_collateral, good, append_sector_spending, free_sector_spending, fund_account_spending, sector_roots_spending
 	FROM contracts
 	WHERE contracts.id = $1
 ) RETURNING id
@@ -72,7 +72,7 @@ INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, re
 
 		// update the existing row to match the new contract
 		resp, err := tx.Exec(ctx, `
-UPDATE contracts SET contract_id = $1, formation = NOW(), proof_height = $2, expiration_height = $3, renewed_from = $4, renewed_to = NULL, state = 0, capacity = CASE WHEN $2 = contracts.proof_height THEN contracts.capacity ELSE contracts.size END, contract_price = $5, initial_allowance = $6, miner_fee = $7, used_collateral = $8, total_collateral = $9, good = TRUE, append_sector_spending = 0, free_sector_spending = 0, fund_account_spending = 0, sector_roots_spending = 0
+UPDATE contracts SET contract_id = $1, formation = NOW(), proof_height = $2, expiration_height = $3, renewed_from = $4, renewed_to = NULL, state = 0, capacity = CASE WHEN $2 = contracts.proof_height THEN contracts.capacity ELSE contracts.size END, contract_price = $5, initial_allowance = $6, remaining_allowance = $6, miner_fee = $7, used_collateral = $8, total_collateral = $9, good = TRUE, append_sector_spending = 0, free_sector_spending = 0, fund_account_spending = 0, sector_roots_spending = 0
 WHERE id = $10`, sqlHash256(params.RenewedTo), params.ProofHeight, params.ExpirationHeight, newID, sqlCurrency(params.ContractPrice), sqlCurrency(params.Allowance), sqlCurrency(params.MinerFee), sqlCurrency(params.UsedCollateral), sqlCurrency(params.TotalCollateral), existingID)
 		if err != nil {
 			return fmt.Errorf("failed to init renewed contract: %w", err)
@@ -91,7 +91,7 @@ func (s *Store) Contract(ctx context.Context, contractID types.FileContractID) (
 	var contract contracts.Contract
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		contract, err = scanContract(tx.QueryRow(ctx, `
-SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c_from.contract_id, c_to.contract_id, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending
+SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c_from.contract_id, c_to.contract_id, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending
 FROM contracts c
 INNER JOIN hosts h ON c.host_id = h.id
 LEFT JOIN contracts c_from ON c.renewed_from = c_from.id
@@ -265,6 +265,7 @@ func scanContract(row scanner) (contracts.Contract, error) {
 		&c.Size,
 		(*sqlCurrency)(&c.ContractPrice),
 		(*sqlCurrency)(&c.InitialAllowance),
+		(*sqlCurrency)(&c.RemainingAllowance),
 		(*sqlCurrency)(&c.MinerFee),
 		(*sqlCurrency)(&c.UsedCollateral),
 		(*sqlCurrency)(&c.TotalCollateral),
