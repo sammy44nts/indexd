@@ -328,10 +328,11 @@ func (cm *ContractManager) syncRevisionState(ctx context.Context) error {
 	defer close(sema)
 
 	var wg sync.WaitGroup
+LOOP:
 	for _, contract := range contracts {
 		select {
 		case <-ctx.Done():
-			break
+			break LOOP
 		case sema <- struct{}{}:
 		}
 		wg.Add(1)
