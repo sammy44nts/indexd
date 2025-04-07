@@ -310,19 +310,9 @@ func (cm *ContractManager) performAccountFunding(ctx context.Context, log *zap.L
 			return ctx.Err()
 		case sema <- struct{}{}:
 		}
-		hostLogger := log.With(zap.Stringer("hostKey", hk))
-
-		host, err := cm.store.Host(ctx, hk)
-		if err != nil {
-			hostLogger.Debug("failed to fetch host", zap.Error(err))
-			continue
-		} else if host.Blocked || !host.Usability.Usable() {
-			hostLogger.Error("skipping host", zap.Bool("blocked", host.Blocked), zap.Bool("usable", host.Usability.Usable())) // sanity check, should have been filtered out
-			continue
-		}
 
 		wg.Add(1)
-		go func(ctx context.Context, host hosts.Host, contractIDs []types.FileContractID, log *zap.Logger) {
+		go func(ctx context.Context, hk types.PublicKey, contractIDs []types.FileContractID, log *zap.Logger) {
 			ctx, cancel := context.WithTimeout(ctx, fundTimeout)
 			defer func() {
 				wg.Done()
@@ -330,11 +320,20 @@ func (cm *ContractManager) performAccountFunding(ctx context.Context, log *zap.L
 				<-sema
 			}()
 
+			host, err := cm.store.Host(ctx, hk)
+			if err != nil {
+				log.Error("failed to fetch host", zap.Error(err))
+				return
+			} else if host.Blocked || !host.Usability.Usable() {
+				log.Error("skipping host", zap.Bool("blocked", host.Blocked), zap.Bool("usable", host.Usability.Usable())) // sanity check, should have been filtered out
+				return
+			}
+
 			err = cm.am.FundAccounts(ctx, host, contractIDs, log)
 			if err != nil {
 				log.Debug("failed to fund accounts", zap.Error(err))
 			}
-		}(ctx, host, contractIDs, hostLogger)
+		}(ctx, hk, contractIDs, log.With(zap.Stringer("hostKey", hk)))
 	}
 	wg.Wait()
 
