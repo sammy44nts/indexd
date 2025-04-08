@@ -2,7 +2,6 @@ package contracts
 
 import (
 	"context"
-	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -32,15 +31,20 @@ func (am *accountsManagerMock) FundAccounts(ctx context.Context, host hosts.Host
 	return nil
 }
 
-func (s *storeMock) ContractsForFunding(context.Context) (map[types.PublicKey][]types.FileContractID, error) {
-	copied := slices.Clone(s.contracts)
-	sort.Slice(copied, func(i, j int) bool {
-		return copied[i].RemainingAllowance.Cmp(copied[j].RemainingAllowance) > 0
+func (s *storeMock) ContractsForFunding(_ context.Context, hk types.PublicKey) ([]types.FileContractID, error) {
+	var contracts []Contract
+	for _, c := range s.contracts {
+		if c.HostKey == hk {
+			contracts = append(contracts, c)
+		}
+	}
+	sort.Slice(contracts, func(i, j int) bool {
+		return contracts[i].RemainingAllowance.Cmp(contracts[j].RemainingAllowance) > 0
 	})
 
-	out := make(map[types.PublicKey][]types.FileContractID)
-	for _, c := range copied {
-		out[c.HostKey] = append(out[c.HostKey], c.ID)
+	out := make([]types.FileContractID, len(contracts))
+	for i, c := range contracts {
+		out[i] = c.ID
 	}
 	return out, nil
 }
