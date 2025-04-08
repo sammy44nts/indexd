@@ -3,14 +3,131 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/accounts"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
+
+// BenchmarkHosts is a set of benchmarks that verify the performance of the host
+// methods in the store that use common table expressions.
+//
+// M1 Max | Host       | 3 ms/op
+// M1 Max | Hosts_10   | 21 ms/op
+// M1 Max | Hosts_100  | 150 ms/op
+// M1 Max | Hosts_1000 | 1.5 s/op
+// M1 Max | UpdateHost | 2 ms/op
+func BenchmarkHosts(b *testing.B) {
+	// define parameters
+	const (
+		numHosts     = 10_000
+		numBlocklist = 1000
+	)
+
+	// prepare test variables
+	networks := []net.IPNet{
+		{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)},
+		{IP: net.IPv4(2, 3, 4, 5), Mask: net.CIDRMask(32, 32)},
+	}
+
+	// prepare database
+	hosts := make([]types.PublicKey, numHosts)
+	store := initPostgres(b, zap.NewNop())
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for i := range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+			hosts[i] = hk
+
+			_, err = tx.Exec(ctx, `INSERT INTO host_resolved_cidrs (host_id, cidr) VALUES ($1, $2), ($1, $3)`, hostID, networks[0].String(), networks[1].String())
+			if err != nil {
+				return err
+			}
+		}
+
+		// we LEFT JOIN the blocklist so we populate it with random entries
+		for range numBlocklist {
+			_, err := tx.Exec(ctx, "INSERT INTO hosts_blocklist (public_key, reason) VALUES ($1, 'none') ON CONFLICT (public_key) DO NOTHING", sqlPublicKey(types.GeneratePrivateKey().PublicKey()))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("Host", func(b *testing.B) {
+		var i int
+		for b.Loop() {
+			_, err := store.Host(context.Background(), hosts[i%numHosts])
+			if err != nil {
+				b.Fatal(err)
+			}
+			i++
+		}
+	})
+
+	for _, limit := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("Hosts_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				offset := frand.Intn(numHosts - limit)
+				hosts, err := store.Hosts(context.Background(), offset, limit)
+				if err != nil {
+					b.Fatal(err)
+				} else if len(hosts) != limit {
+					b.Fatalf("expected %d hosts, got %d", limit, len(hosts)) // sanity check
+				}
+			}
+		})
+	}
+
+	b.Run("UpdateHost", func(b *testing.B) {
+		ts := time.Now()
+		hs := proto.HostSettings{
+			ProtocolVersion:     [3]uint8{1, 2, 3},
+			Release:             b.Name(),
+			WalletAddress:       types.Address{1},
+			AcceptingContracts:  true,
+			MaxCollateral:       types.NewCurrency64(frand.Uint64n(1e6)),
+			MaxContractDuration: frand.Uint64n(1e6),
+			RemainingStorage:    frand.Uint64n(1e6),
+			TotalStorage:        frand.Uint64n(1e6),
+			Prices: proto.HostPrices{
+				ContractPrice:   types.NewCurrency64(frand.Uint64n(1e6)),
+				Collateral:      types.NewCurrency64(frand.Uint64n(1e6)),
+				StoragePrice:    types.NewCurrency64(frand.Uint64n(1e6)),
+				IngressPrice:    types.NewCurrency64(frand.Uint64n(1e6)),
+				EgressPrice:     types.NewCurrency64(frand.Uint64n(1e6)),
+				FreeSectorPrice: types.NewCurrency64(frand.Uint64n(1e6)),
+				TipHeight:       frand.Uint64n(1e6),
+				ValidUntil:      ts,
+			},
+		}
+
+		var i int
+		for b.Loop() {
+			hk := hosts[i%numHosts]
+			succeeded := frand.Intn(2) == 0
+			err := store.UpdateHost(context.Background(), hk, networks, hs, succeeded, ts)
+			if err != nil {
+				b.Fatal(err)
+			}
+			i++
+		}
+	})
+}
 
 // BenchmarkHostAccountsForFunding is a benchmark to ensure the performance of
 // HostAccountsForFunding, we prepare the database with a (fixed) number of
