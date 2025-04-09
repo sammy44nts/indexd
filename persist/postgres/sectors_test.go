@@ -135,9 +135,9 @@ func TestPinSlabs(t *testing.T) {
 
 // BenchmarkPinSlabs benchmarks PinSlabs in various batch sizes
 // Hardware | BatchSize |  ms/op  | Throughput    |
-// M2 Pro   |  40MiB    |   4.1ms | 10213.82 MB/s |
-// M2 Pro   | 400MiB    |  45.2ms |   927.61 MB/s |
-// M2 Pro   |   4GiB    | 460.8ms |    91.01 MB/s |
+// M2 Pro   |  40MiB    |   1.1ms | 36115.26 MB/s |
+// M2 Pro   | 400MiB    |   7.8ms |  5363.69 MB/s |
+// M2 Pro   |   4GiB    |  79.8ms |   528.11 MB/s |
 func BenchmarkPinSlabs(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}

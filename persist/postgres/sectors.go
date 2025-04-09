@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -186,16 +187,22 @@ func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, slab Slab
 		return SlabID{}, err
 	}
 
-	// insert sectors, overwriting existing ones
+	// insert sectors in a single batch
+	var placeholders []string
+	var args []any
 	for i, sector := range slab.Sectors {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO sectors (sector_root, host_id, slab_id, slab_index)
-			VALUES ($1, (SELECT id FROM hosts WHERE public_key = $2), $3, $4)
-			RETURNING id
-		`, sqlHash256(sector.Root), sqlPublicKey(sector.HostKey), slabID, i)
-		if err != nil {
-			return SlabID{}, fmt.Errorf("failed to insert sector %d: %w", i+1, err)
-		}
+		placeholders = append(placeholders, fmt.Sprintf("($%d, (SELECT id FROM hosts WHERE public_key = $%d), $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4))
+		args = append(args, sqlHash256(sector.Root), sqlPublicKey(sector.HostKey), slabID, i)
+	}
+	values := strings.Join(placeholders, ",")
+
+	// insert sectors, overwriting existing ones
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO sectors (sector_root, host_id, slab_id, slab_index)
+		VALUES %s
+	`, values), args...)
+	if err != nil {
+		return SlabID{}, fmt.Errorf("failed to insert sectors: %w", err)
 	}
 
 	return digest, nil
