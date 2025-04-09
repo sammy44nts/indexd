@@ -120,6 +120,12 @@ func TestPinSlabs(t *testing.T) {
 	assertSlab(slab1ID, slab1, fetched[0])
 	assertSlab(slab2ID, slab2, fetched[1])
 
+	// again but for wrong account
+	_, err = store.Slabs(context.Background(), account2, slabIDs)
+	if !errors.Is(err, ErrSlabNotFound) {
+		t.Fatal(err)
+	}
+
 	// pin same slabs again which should return an error
 	slabIDs, err = store.PinSlabs(context.Background(), proto.Account{1}, slabs)
 	if !errors.Is(err, ErrSlabExists) {

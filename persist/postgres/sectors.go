@@ -104,10 +104,11 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []Sl
 			var sid int64
 			slab := Slab{ID: slabID}
 			err := tx.QueryRow(ctx, `
-				SELECT id, encryption_key, min_shards
+				SELECT slabs.id, encryption_key, min_shards
 				FROM slabs
-				WHERE digest = $1
-			`, sqlHash256(slabID)).Scan(&sid, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
+				INNER JOIN accounts a ON a.id = slabs.account_id
+				WHERE digest = $1 AND a.public_key = $2
+			`, sqlHash256(slabID), sqlPublicKey(accountID)).Scan(&sid, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("%w: %v", ErrSlabNotFound, slabID)
 			} else if err != nil {
