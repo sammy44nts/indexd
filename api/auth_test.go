@@ -13,7 +13,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/jape"
-	"lukechampine.com/frand"
 )
 
 type mockStore struct{ tokens map[types.PublicKey]struct{} }
@@ -39,14 +38,14 @@ func TestAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	doRequest := func(authFn func(req *http.Request)) (int, string) {
+	doRequest := func(params url.Values) (int, string) {
 		t.Helper()
 		req, err := http.NewRequest("GET", server.URL+"/foo", http.NoBody)
 		if err != nil {
 			t.Fatal(err)
 		}
+		req.URL.RawQuery = params.Encode()
 
-		authFn(req)
 		resp, err := server.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -64,20 +63,25 @@ func TestAuth(t *testing.T) {
 		return resp.StatusCode, string(bytes)
 	}
 
+	validUntil := time.Now().Add(time.Hour)
+	goodParams := func() url.Values {
+		val := url.Values{}
+		val.Set(queryParamValidUntil, fmt.Sprint(validUntil.Unix()))
+		val.Set(queryParamCredential, sk.PublicKey().String())
+		val.Set(queryParamSignature, sk.SignHash(requestHash(hostname, validUntil)).String())
+		return val
+	}
+
 	// assert unauthorized if no auth was set
-	status, _ := doRequest(func(req *http.Request) {})
+	status, _ := doRequest(url.Values{})
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
 	}
 
 	// assert unauthorized if 'SiaIdx-ValidUntil' is invalid
-	status, errorMsg := doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, "notatimestamp")
-		val.Set(queryParamCredential, "1")
-		val.Set(queryParamSignature, "1")
-		req.URL.RawQuery = val.Encode()
-	})
+	params := goodParams()
+	params.Set(queryParamValidUntil, "invalid")
+	status, errorMsg := doRequest(params)
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
 	} else if !strings.Contains(errorMsg, "must be a unix timestamp") {
@@ -85,16 +89,9 @@ func TestAuth(t *testing.T) {
 	}
 
 	// assert unauthorized if 'SiaIdx-Credential' is invalid
-	cred := sk.PublicKey().String()
-	validUntil := time.Now().Add(time.Hour)
-	validUntilTs := fmt.Sprint(validUntil.Unix())
-	status, errorMsg = doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, validUntilTs)
-		val.Set(queryParamCredential, cred+"a")
-		val.Set(queryParamSignature, "1")
-		req.URL.RawQuery = val.Encode()
-	})
+	params = goodParams()
+	params.Set(queryParamCredential, "invalid")
+	status, errorMsg = doRequest(params)
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
 	} else if !strings.Contains(errorMsg, "must be a valid public key") {
@@ -102,15 +99,9 @@ func TestAuth(t *testing.T) {
 	}
 
 	// assert unauthorized if 'SiaIdx-Signature' is invalid
-	var sig types.Signature
-	frand.Read(sig[:])
-	status, errorMsg = doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, validUntilTs)
-		val.Set(queryParamCredential, cred)
-		val.Set(queryParamSignature, sig.String()+"a")
-		req.URL.RawQuery = val.Encode()
-	})
+	params = goodParams()
+	params.Set(queryParamSignature, "invalid")
+	status, errorMsg = doRequest(params)
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
 	} else if !strings.Contains(errorMsg, "must be a 64-byte hex string") {
@@ -118,45 +109,27 @@ func TestAuth(t *testing.T) {
 	}
 
 	// assert authorized if everything is valid
-	sig = sk.SignHash(requestHash(hostname, validUntil))
-	status, errorMsg = doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, validUntilTs)
-		val.Set(queryParamCredential, cred)
-		val.Set(queryParamSignature, sig.String())
-		req.URL.RawQuery = val.Encode()
-	})
+	status, errorMsg = doRequest(goodParams())
 	if status != http.StatusOK {
 		t.Fatal("unexpected", status, errorMsg)
 	}
 
 	// assert unauthorized if the timestamp is in the past
-	status, errorMsg = doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, fmt.Sprint(time.Now().Unix()-1)) // still invalid
-		val.Set(queryParamCredential, cred)
-		val.Set(queryParamSignature, sig.String())
-		req.URL.RawQuery = val.Encode()
-	})
+	params = goodParams()
+	params.Set(queryParamValidUntil, fmt.Sprint(time.Now().Unix()-1))
+	status, errorMsg = doRequest(params)
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
-	} else if !strings.Contains(errorMsg, ErrUnauthorized.Error()) {
+	} else if !strings.Contains(errorMsg, ErrSignatureExpired.Error()) {
 		t.Fatal("unexpected", errorMsg)
 	}
 
 	// assert unauthorized if the account is unknown
 	s.tokens = map[types.PublicKey]struct{}{}
-	status, errorMsg = doRequest(func(req *http.Request) {
-		val := url.Values{}
-		val.Set(queryParamValidUntil, validUntilTs)
-		val.Set(queryParamCredential, cred)
-		val.Set(queryParamSignature, sig.String())
-		req.URL.RawQuery = val.Encode()
-	})
+	status, errorMsg = doRequest(goodParams())
 	if status != http.StatusUnauthorized {
 		t.Fatal("unexpected", status)
-	} else if !strings.Contains(errorMsg, ErrUnauthorized.Error()) {
+	} else if !strings.Contains(errorMsg, ErrUnknownAccount.Error()) {
 		t.Fatal("unexpected", errorMsg)
 	}
-	s.tokens[sk.PublicKey()] = struct{}{}
 }

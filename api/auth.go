@@ -16,13 +16,21 @@ import (
 type authedHandler func(jape.Context, types.PublicKey)
 
 var (
-	// ErrInternalError indicates that an unexpected issue (such as a database
-	// failure) prevented successful processing of a signed URL.
+	// ErrInternalError is returned when a signed URL can not be authenticated
+	// because of an unexpected issue.
 	ErrInternalError = errors.New("internal error")
 
-	// ErrUnauthorized indicates a request that cannot be authorized, even
-	// though its structure is valid.
-	ErrUnauthorized = errors.New("unauthorized")
+	// ErrSignatureExpired is returned when a signed URL can not be
+	// authenticated because the valid until timestamp is in the past.
+	ErrSignatureExpired = errors.New("signature expired")
+
+	// ErrSignatureInvalid is returned when a signed URL can not be
+	// authenticated because the signature was invalid.
+	ErrSignatureInvalid = errors.New("invalid signature")
+
+	// ErrUnknownAccount is returned when a signed URL can not be authenticated
+	// because the account does not exist in the account store.
+	ErrUnknownAccount = errors.New("unknown account")
 )
 
 const (
@@ -70,10 +78,10 @@ func checkSignedURLAuth(jc jape.Context, hostname string, store AccountStore) (t
 
 	// check for expiration and verify the signature
 	if ts.Before(time.Now().UTC()) {
-		jc.Error(ErrUnauthorized, http.StatusUnauthorized)
+		jc.Error(ErrSignatureExpired, http.StatusUnauthorized)
 		return types.PublicKey{}, false
 	} else if !pk.VerifyHash(requestHash(hostname, ts), sig) {
-		jc.Error(ErrUnauthorized, http.StatusUnauthorized)
+		jc.Error(ErrSignatureInvalid, http.StatusUnauthorized)
 		return types.PublicKey{}, false
 	}
 
@@ -83,7 +91,7 @@ func checkSignedURLAuth(jc jape.Context, hostname string, store AccountStore) (t
 		jc.Error(ErrInternalError, http.StatusInternalServerError)
 		return types.PublicKey{}, false
 	} else if !known {
-		jc.Error(ErrUnauthorized, http.StatusUnauthorized)
+		jc.Error(ErrUnknownAccount, http.StatusUnauthorized)
 		return types.PublicKey{}, false
 	}
 	return pk, true
