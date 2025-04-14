@@ -3,6 +3,7 @@ package slabs
 import (
 	"context"
 	"errors"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -64,7 +65,7 @@ func (s SlabID) String() string {
 
 // PinSlabs pins the given slabs and associates them with the given account.
 func (m *SlabManager) PinSlabs(ctx context.Context, account proto.Account, slabs []SlabPinParams) ([]SlabID, error) {
-	return m.store.PinSlabs(ctx, account, slabs)
+	return m.store.PinSlabs(ctx, account, time.Now().Add(m.integrityCheckInterval), slabs)
 }
 
 // Slabs returns the slabs with the given IDs from the database.

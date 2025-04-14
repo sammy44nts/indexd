@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -13,9 +14,36 @@ import (
 	"go.sia.tech/indexd/slabs"
 )
 
+func (s *Store) SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error) {
+	var sectors []types.Hash256
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		rows, err := tx.Query(ctx, `
+			SELECT sector_root
+			FROM sectors
+			INNER JOIN hosts ON hosts.id = sectors.host_id
+			WHERE hosts.public_key = $1 AND next_integrity_check <= NOW()
+			ORDER BY next_integrity_check ASC
+			LIMIT $2
+		`, sqlPublicKey(hostKey), limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var root types.Hash256
+			if err := rows.Scan((*sqlHash256)(&root)); err != nil {
+				return err
+			}
+			sectors = append(sectors, root)
+		}
+		return rows.Err()
+	})
+	return sectors, err
+}
+
 // PinSlabs adds slabs to the database for pinning. The slabs are associated
 // with the provided account.
-func (s *Store) PinSlabs(ctx context.Context, account proto.Account, toPin []slabs.SlabPinParams) ([]slabs.SlabID, error) {
+func (s *Store) PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin []slabs.SlabPinParams) ([]slabs.SlabID, error) {
 	if len(toPin) == 0 {
 		return nil, nil
 	}
@@ -27,7 +55,7 @@ func (s *Store) PinSlabs(ctx context.Context, account proto.Account, toPin []sla
 			return fmt.Errorf("%w: %v", accounts.ErrNotFound, account)
 		}
 		for i, slab := range toPin {
-			slabID, err := s.pinSlab(ctx, tx, accountID, slab)
+			slabID, err := s.pinSlab(ctx, tx, accountID, nextIntegrityCheck, slab)
 			if err != nil {
 				return fmt.Errorf("failed to pin slab %d: %w", i+1, err)
 			}
@@ -104,7 +132,7 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []sl
 	return result, err
 }
 
-func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, slab slabs.SlabPinParams) (slabs.SlabID, error) {
+func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error) {
 	hasher := types.NewHasher()
 	for _, sector := range slab.Sectors {
 		// create slab id from sector roots
@@ -139,13 +167,13 @@ func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, slab slab
 	var placeholders []string
 	var args []any
 	for i, sector := range slab.Sectors {
-		placeholders = append(placeholders, fmt.Sprintf("($%d, (SELECT id FROM hosts WHERE public_key = $%d), $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4))
-		args = append(args, sqlHash256(sector.Root), sqlPublicKey(sector.HostKey), slabID, i)
+		placeholders = append(placeholders, fmt.Sprintf("($%d, (SELECT id FROM hosts WHERE public_key = $%d), $%d, $%d, $%d)", i*5+1, i*5+2, i*5+3, i*5+4, i*5+5))
+		args = append(args, sqlHash256(sector.Root), sqlPublicKey(sector.HostKey), slabID, i, nextIntegrityCheck)
 	}
 	values := strings.Join(placeholders, ",")
 
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO sectors (sector_root, host_id, slab_id, slab_index)
+		INSERT INTO sectors (sector_root, host_id, slab_id, slab_index, next_integrity_check)
 		VALUES %s
 	`, values), args...)
 	if err != nil {
