@@ -23,8 +23,8 @@ type (
 		log   *zap.Logger
 	}
 
-	// Store defines an interface to fetch hosts that need to be scanned and
-	// persist the scan results in the database.
+	// Store defines an interface to store and update slab related information
+	// in the database.
 	Store interface {
 		PinSlabs(ctx context.Context, account proto.Account, slabs []SlabPinParams) ([]SlabID, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
@@ -41,7 +41,7 @@ func WithLogger(l *zap.Logger) Option {
 	}
 }
 
-// NewManager creates a new host manager.
+// NewManager creates a new slab manager.
 func NewManager(store Store, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		store: store,
