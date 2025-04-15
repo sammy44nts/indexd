@@ -66,6 +66,23 @@ func (s SlabID) String() string {
 	return types.Hash256(s).String()
 }
 
+// Digest creates a unique digest for the slab to be pinned by SlabPinParams. It
+// is important, that the same params always result in the same hash since we
+// deduplicate slabs using it. So if one user makes the mistake of pinning a
+// slab with a different encryption key, this shouldn't prevent other users from
+// pinning the same slab with the correct key.
+func (s SlabPinParams) Digest() (SlabID, error) {
+	hasher := types.NewHasher()
+	hasher.E.WriteUint64(uint64(s.MinShards))
+	hasher.E.Write(s.EncryptionKey[:])
+	for _, sector := range s.Sectors {
+		if _, err := hasher.E.Write(sector.Root[:]); err != nil {
+			return SlabID{}, fmt.Errorf("failed to write sector root to hasher: %w", err)
+		}
+	}
+	return SlabID(hasher.Sum()), nil
+}
+
 // PinSlabs adds slabs to the database for pinning. The slabs are associated
 // with the provided account.
 func (s *Store) PinSlabs(ctx context.Context, account proto.Account, slabs []SlabPinParams) ([]SlabID, error) {
@@ -106,7 +123,8 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []Sl
 			err := tx.QueryRow(ctx, `
 				SELECT slabs.id, encryption_key, min_shards
 				FROM slabs
-				INNER JOIN accounts a ON a.id = slabs.account_id
+				INNER JOIN account_slabs ON slabs.id = account_slabs.slab_id
+				INNER JOIN accounts a ON a.id = account_slabs.account_id
 				WHERE digest = $1 AND a.public_key = $2
 			`, sqlHash256(slabID), sqlPublicKey(accountID)).Scan(&sid, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -158,34 +176,41 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []Sl
 }
 
 func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, slab SlabPinParams) (SlabID, error) {
-	hasher := types.NewHasher()
-	for _, sector := range slab.Sectors {
-		// create slab id from sector roots
-		if _, err := hasher.E.Write(sector.Root[:]); err != nil {
-			return SlabID{}, fmt.Errorf("failed to write sector root to hasher: %w", err)
-		}
-	}
-	digest := SlabID(hasher.Sum())
-
-	// check if slab already exists
-	var exists bool
-	err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM slabs WHERE account_id = $1 AND digest = $2)", accountID, sqlHash256(digest)).
-		Scan(&exists)
+	digest, err := slab.Digest()
 	if err != nil {
-		return SlabID{}, fmt.Errorf("failed to check if slab exists: %w", err)
-	} else if exists {
-		return SlabID{}, ErrSlabExists
+		return SlabID{}, err
 	}
 
 	// insert slab
 	var slabID int64
+	var existingSlab bool
 	err = tx.QueryRow(ctx, `
-		INSERT INTO slabs (account_id, digest, encryption_key, min_shards)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO slabs (digest, encryption_key, min_shards)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (digest) DO NOTHING
 		RETURNING id
-		`, accountID, sqlHash256(digest), sqlHash256(slab.EncryptionKey), slab.MinShards).Scan(&slabID)
+		`, sqlHash256(digest), sqlHash256(slab.EncryptionKey), slab.MinShards).Scan(&slabID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// slab already exists, fetch it's slab id
+		existingSlab = true
+		err = tx.QueryRow(ctx, `SELECT id FROM slabs WHERE digest = $1`, sqlHash256(digest)).Scan(&slabID)
+	}
 	if err != nil {
 		return SlabID{}, err
+	}
+
+	// insert slab into join table
+	_, err = tx.Exec(ctx, `
+		INSERT INTO account_slabs (account_id, slab_id) VALUES ($1, $2)
+		ON CONFLICT (account_id, slab_id) DO NOTHING
+	`, accountID, slabID)
+	if err != nil {
+		return SlabID{}, fmt.Errorf("failed to insert slab into account_slabs: %w", err)
+	}
+
+	// if the slab already existed, we don't need to insert the sectors
+	if existingSlab {
+		return digest, nil
 	}
 
 	// insert slab's sectors in a single batch
