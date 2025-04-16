@@ -253,7 +253,7 @@ CREATE INDEX slabs_digest_idx ON slabs(digest);
 CREATE TABLE account_slabs (
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
     slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
-    CONSTRAINT account_slabs_pk PRIMARY KEY (account_id, slab_id)
+    PRIMARY KEY (account_id, slab_id)
 );
 
 CREATE TABLE sectors (
