@@ -163,13 +163,11 @@ func TestPinSlabs(t *testing.T) {
 				},
 			},
 		}
-		hasher := types.NewHasher()
-		hasher.E.WriteUint64(uint64(slab.MinShards))
-		hasher.E.Write(slab.EncryptionKey[:])
-		for _, sector := range slab.Sectors {
-			hasher.E.Write(sector.Root[:])
+		slabID, err := slab.Digest()
+		if err != nil {
+			t.Fatal(err)
 		}
-		return slabs.SlabID(hasher.Sum()), slab
+		return slabID, slab
 	}
 
 	// pin slabs
@@ -398,7 +396,7 @@ func BenchmarkSlabs(b *testing.B) {
 //
 //	CPU  | BatchSize |	  Count  |     Time/op     |   Throughput
 //
-// M2 Pro |    10 	  |   2857   |    0.380024 ms  |  110369.50 MB/s
+// M2 Pro |    10     |   2857   |    0.380024 ms  |  110369.50 MB/s
 // M2 Pro |   100     |   2780   |    0.428167 ms  |  979595.01 MB/s
 // M2 Pro |  1000     |   1497   |    0.790556 ms  | 5305513.99 MB/s
 func BenchmarkSectorsForIntegrityCheck(b *testing.B) {

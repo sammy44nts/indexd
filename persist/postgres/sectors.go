@@ -155,7 +155,7 @@ func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, nextInteg
 		RETURNING id
 		`, sqlHash256(digest), sqlHash256(slab.EncryptionKey), slab.MinShards).Scan(&slabID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// slab already exists, fetch it's slab id
+		// slab already exists, fetch its slab id
 		existingSlab = true
 		err = tx.QueryRow(ctx, `SELECT id FROM slabs WHERE digest = $1`, sqlHash256(digest)).Scan(&slabID)
 	}
