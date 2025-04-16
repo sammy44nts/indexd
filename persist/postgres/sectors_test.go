@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -260,6 +261,116 @@ func TestPinSlabs(t *testing.T) {
 	assertCount("account_slabs", 4) // 2 slabs for each account
 	assertCount("slabs", 2)         // 2 slabs
 	assertCount("sectors", 4)       // 2 sectors per slab
+}
+
+func TestPinSectors(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// create account and host
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+	hk := types.PublicKey{1}
+	ha := chain.NetAddress{Protocol: quic.Protocol, Address: "[::]:4848"}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{ha}, time.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// create 2 contracts
+	contractID1, contractID2 := types.FileContractID{1}, types.FileContractID{2}
+	if err := store.AddFormedContract(context.Background(), contractID1, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
+		t.Fatal(err)
+	} else if err := store.AddFormedContract(context.Background(), contractID2, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
+		t.Fatal(err)
+	}
+
+	// create 4 sectors
+	_, err := store.PinSlabs(context.Background(), account, time.Time{}, []slabs.SlabPinParams{
+		{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     10,
+			Sectors: []slabs.SectorPinParams{
+				{
+					HostKey: hk,
+					Root:    types.Hash256{1},
+				},
+				{
+					HostKey: hk,
+					Root:    types.Hash256{2},
+				},
+				{
+					HostKey: hk,
+					Root:    types.Hash256{3},
+				},
+				{
+					HostKey: hk,
+					Root:    types.Hash256{4},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// set the sectors' host IDs to NULL to make sure PinSectors also sets
+	// those
+	res, err := store.pool.Exec(context.Background(), "UPDATE sectors SET host_id = NULL")
+	if err != nil {
+		t.Fatal(err)
+	} else if res.RowsAffected() != 4 {
+		t.Fatalf("expected 4 rows affected, got %d", res.RowsAffected())
+	}
+
+	// helper to assert sector is pinned
+	assertPinned := func(sid int64, contractID *int64) {
+		t.Helper()
+		var selectedContractID, selectedHostID sql.NullInt64
+		err := store.pool.QueryRow(context.Background(), "SELECT contract_id, host_id FROM sectors WHERE id = $1", sid).
+			Scan(&selectedContractID, &selectedHostID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contractID != nil && !selectedContractID.Valid {
+			t.Fatalf("expected contract ID %v, got nil", contractID)
+		} else if contractID == nil && selectedContractID.Valid {
+			t.Fatalf("expected nil contract ID, got %v", selectedContractID)
+		} else if contractID != nil && selectedContractID.Int64 != *contractID {
+			t.Fatalf("expected contract ID %v, got %v", *contractID, selectedContractID.Int64)
+		} else if contractID != nil && (!selectedHostID.Valid || selectedHostID.Int64 != 1) {
+			t.Fatal("expected host ID to be set to 1 if sector is pinned", selectedHostID.Int64)
+		}
+	}
+
+	// none are pinned
+	assertPinned(1, nil)
+	assertPinned(2, nil)
+	assertPinned(3, nil)
+	assertPinned(4, nil)
+
+	// pin sectors 1 and 3 to contract 1
+	err = store.PinSectors(context.Background(), contractID1, []types.Hash256{types.Hash256{1}, types.Hash256{3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	assertPinned(1, &one)
+	assertPinned(2, nil)
+	assertPinned(3, &one)
+	assertPinned(4, nil)
+
+	// pin sectors 2 and 4 to contract 2
+	err = store.PinSectors(context.Background(), contractID2, []types.Hash256{types.Hash256{2}, types.Hash256{4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := int64(2)
+	assertPinned(1, &one)
+	assertPinned(2, &two)
+	assertPinned(3, &one)
+	assertPinned(4, &two)
 }
 
 func TestUnpinnedSectors(t *testing.T) {
@@ -536,21 +647,6 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 		}
 	}
 
-	// helper to pin sector
-	pinSectors := func(roots []types.Hash256) {
-		b.Helper()
-		sqlRoots := make([]sqlHash256, len(roots))
-		for i, root := range roots {
-			sqlRoots[i] = sqlHash256(root)
-		}
-		res, err := store.pool.Exec(context.Background(), `UPDATE sectors SET contract_id = 1 WHERE sector_root = ANY($1)`, sqlRoots)
-		if err != nil {
-			b.Fatal(err)
-		} else if res.RowsAffected() != int64(len(roots)) {
-			b.Fatalf("expected %d rows updated, got %d", len(roots), res.RowsAffected())
-		}
-	}
-
 	// helper to unpin all sectors
 	unpinSectors := func() {
 		b.Helper()
@@ -588,7 +684,10 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 					unpinnedSectors = nSectors
 				} else {
 					// pin fetched sectors to fetch different ones next
-					pinSectors(unpinned)
+					err := store.PinSectors(context.Background(), types.FileContractID(hk), unpinned)
+					if err != nil {
+						b.Fatal(err)
+					}
 				}
 				b.StartTimer()
 			}

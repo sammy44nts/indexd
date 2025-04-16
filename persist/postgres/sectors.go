@@ -139,6 +139,31 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []sl
 	return result, err
 }
 
+// PinSectors pins a batch of sector roots to a given contract. This also
+// updates the host the sector is associated with to the host that we have the
+// contract with. That way, we can avoid a race where the host changes in the
+// meantime and the contract then no longer matches the host.
+func (s *Store) PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error {
+	sqlRoots := make([]sqlHash256, len(roots))
+	for i, root := range roots {
+		sqlRoots[i] = sqlHash256(root)
+	}
+
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE sectors
+			SET (host_id, contract_id) = (
+				SELECT hosts.id, contracts.id
+				FROM contracts
+				INNER JOIN hosts ON contracts.host_id = hosts.id
+				WHERE contracts.contract_id = $1
+			)
+			WHERE sector_root = ANY($2)
+		`, sqlHash256(contractID), sqlRoots)
+		return err
+	})
+}
+
 // UnpinnedSectors returns up to 'limit' sectors which have been uploaded to a host but
 // not pinned to a contract yet.
 func (s *Store) UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error) {

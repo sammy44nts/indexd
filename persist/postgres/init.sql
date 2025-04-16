@@ -226,3 +226,6 @@ CREATE INDEX sectors_contract_id_idx ON sectors(contract_id);
 -- speed up integrity check query
 CREATE INDEX sectors_next_integrity_check_idx ON sectors(next_integrity_check ASC);
 CREATE INDEX sectors_host_id_next_integrity_check_idx ON sectors(host_id, next_integrity_check ASC);
+
+-- speed up lookup of sectors by root
+CREATE INDEX sectors_sector_root_idx ON sectors(sector_root);
