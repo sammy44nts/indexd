@@ -1,9 +1,12 @@
 package slabs
 
 import (
+	"context"
 	"errors"
+
 	"fmt"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -76,4 +79,14 @@ func (s SlabPinParams) Digest() (SlabID, error) {
 // String implements the Stringer interface for SlabID.
 func (s SlabID) String() string {
 	return types.Hash256(s).String()
+}
+
+// PinSlab pins the given slab and associates it with the given account.
+func (m *SlabManager) PinSlab(ctx context.Context, account proto.Account, slab SlabPinParams) ([]SlabID, error) {
+	return m.store.PinSlabs(ctx, account, []SlabPinParams{slab})
+}
+
+// Slabs returns the slabs with the given IDs from the database.
+func (m *SlabManager) Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error) {
+	return m.store.Slabs(ctx, accountID, slabIDs)
 }

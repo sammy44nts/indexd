@@ -223,7 +223,9 @@ CREATE TABLE contract_elements (
 ```postgresql
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
-    public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32)
+    public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
+    max_metadata_size BIGINT NOT NULL DEFAULT 1000000000 CHECK (metadata_size <= max_metadata_size), -- 1GB of metadata
+    metadata_size BIGINT NOT NULL DEFAULT 0 -- sum of size of stored metadata (updated on insert and delete)
 );
 
 CREATE TABLE account_hosts (
@@ -281,4 +283,16 @@ CREATE UNIQUE INDEX sectors_slab_id_slab_index ON sectors(slab_id, slab_index AS
 
 -- speed up lookup of unpinned sectors
 CREATE INDEX sectors_host_id_uploaded_at ON sectors(host_id, uploaded_at ASC) WHERE contract_id IS NULL;
+```
+
+### 2.7 Metadata
+
+```postgresql
+CREATE TABLE metadata (
+    id BIGSERIAL PRIMARY KEY,
+
+    account_id INTEGER REFERENCES accounts(id) NOT NULL,
+    key BYTEA NOT NULL
+);
+CREATE UNIQUE INDEX metadata_account_id_key_idx ON metadata(account_id, key)
 ```

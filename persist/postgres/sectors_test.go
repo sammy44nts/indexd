@@ -69,13 +69,11 @@ func TestPinSlabs(t *testing.T) {
 				},
 			},
 		}
-		hasher := types.NewHasher()
-		hasher.E.WriteUint64(uint64(slab.MinShards))
-		hasher.E.Write(slab.EncryptionKey[:])
-		for _, sector := range slab.Sectors {
-			hasher.E.Write(sector.Root[:])
+		slabID, err := slab.Digest()
+		if err != nil {
+			t.Fatal(err)
 		}
-		return slabs.SlabID(hasher.Sum()), slab
+		return slabID, slab
 	}
 
 	// pin slabs
