@@ -351,7 +351,7 @@ func TestPinSectors(t *testing.T) {
 	assertPinned(4, nil)
 
 	// pin sectors 1 and 3 to contract 1
-	err = store.PinSectors(context.Background(), contractID1, []types.Hash256{types.Hash256{1}, types.Hash256{3}})
+	err = store.PinSectors(context.Background(), contractID1, []types.Hash256{{1}, {3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +362,7 @@ func TestPinSectors(t *testing.T) {
 	assertPinned(4, nil)
 
 	// pin sectors 2 and 4 to contract 2
-	err = store.PinSectors(context.Background(), contractID2, []types.Hash256{types.Hash256{2}, types.Hash256{4}})
+	err = store.PinSectors(context.Background(), contractID2, []types.Hash256{{2}, {4}})
 	if err != nil {
 		t.Fatal(err)
 	}
