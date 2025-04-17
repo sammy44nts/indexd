@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/subscriber"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -790,4 +791,59 @@ func TestSyncContract(t *testing.T) {
 		Size:               1900,
 		UsedCollateral:     types.Siacoins(20),
 	})
+}
+
+// BenchmarkContractsForFunding is a benchmark to ensure the performance of
+// ContractsForFunding, we prepare the database with a certain number of
+// contracts per host, with a random state, remaining allowance and good status.
+//
+// M1 Max | 100k contracts | 1.3ms/op
+func BenchmarkContractsForFunding(b *testing.B) {
+	const (
+		numContractsPerHost = 100
+		numHosts            = 1000
+	)
+
+	// prepare database
+	store := initPostgres(b, zap.NewNop())
+	hosts := make([]types.PublicKey, 0, numHosts)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+
+			for range numContractsPerHost {
+				var id types.FileContractID
+				frand.Read(id[:])
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9)`,
+					hostID,
+					sqlHash256(id),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.NewCurrency64(frand.Uint64n(5))), // random remaining allowance
+					sqlContractState(uint8(frand.Uint64n(5))),          // random state
+					frand.Uint64n(2) == 0,                              // random good
+				); err != nil {
+					return err
+				}
+			}
+
+			hosts = append(hosts, hk)
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	for b.Loop() {
+		if _, err := store.ContractsForFunding(context.Background(), hosts[b.N%numHosts], 50); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

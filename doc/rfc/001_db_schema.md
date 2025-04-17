@@ -153,6 +153,7 @@ CREATE TABLE host_addresses (
     net_address TEXT NOT NULL,
     protocol SMALLINT NOT NULL
 )
+CREATE INDEX host_addresses_host_id_idx ON host_addresses (host_id);
 
 CREATE TABLE host_resolved_cidrs (
     id SERIAL PRIMARY KEY,
@@ -160,6 +161,7 @@ CREATE TABLE host_resolved_cidrs (
 
     cidr CIDR NOT NULL
 )
+CREATE INDEX host_resolved_cidrs_host_id_idx ON host_resolved_cidrs (host_id);
 
 CREATE TABLE hosts_blocklist (
     public_key BYTEA PRIMARY KEY CHECK (LENGTH(public_key) = 32),
@@ -229,12 +231,6 @@ CREATE TABLE accounts (
     metadata_size BIGINT NOT NULL DEFAULT 0 -- sum of size of stored metadata (updated on insert and delete)
 );
 
-CREATE TABLE account_slabs (
-    account_id INTEGER REFERENCES accounts(id) NOT NULL,
-    slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
-    CONSTRAINT account_slabs_pk PRIMARY KEY (account_id, slab_id)
-);
-
 CREATE TABLE account_hosts (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
@@ -251,35 +247,50 @@ CREATE INDEX account_hosts_host_id_next_fund_idx ON account_hosts (host_id, next
 CREATE TABLE slabs (
     id BIGSERIAL PRIMARY KEY, -- internal db id
 
-    digest BYTEA UNIQUE NOT NULL, -- unique identifier for the slab derived from sector roots
+    digest BYTEA UNIQUE NOT NULL CHECK(LENGTH(digest) = 32), -- unique identifier for the slab derived from sector roots
+
     encryption_key BYTEA NOT NULL,
     last_repair_attempt TIMESTAMP WITH TIME ZONE,
     min_shards SMALLINT NOT NULL CHECK(min_shards > 0)
-)
+);
+CREATE INDEX slabs_digest_idx ON slabs(digest);
+
+CREATE TABLE account_slabs (
+    account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
+    slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
+    PRIMARY KEY (account_id, slab_id)
+);
 
 CREATE TABLE sectors (
     id BIGSERIAL PRIMARY KEY,
-    sector_root BYTEA UNIQUE NOT NULL
+    sector_root BYTEA NOT NULL,
 
     -- uploading
     host_id INTEGER REFERENCES hosts(id), -- host that stores sector
-    contract_id INTEGER REFERENCES contracts(id), -- null if not pinned
-    uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() -- allow sorting by upload time
+    contract_id INTEGER REFERENCES contracts(id) DEFAULT NULL, -- null if not pinned
+    uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by upload time
 
     -- slab
     slab_id BIGINT REFERENCES slabs(id) NOT NULL,
     slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
-    UNIQUE(slab_id, slab_index), -- enforce one sector per index per slab
 
     -- data integrity
-    next_integrity_check TIMESTAMP WITH TIME ZONE,
+    next_integrity_check TIMESTAMP WITH TIME ZONE NOT NULL,
     consecutive_failed_checks SMALLINT NOT NULL DEFAULT 0
-)
+);
 -- quick lookup of sectors to pin prioritized by upload time
-CREATE INDEX sectors_contract_id_uploaded_at_idx ON host_sectors(contract_id, uploaded_at ASC)
+CREATE INDEX sectors_contract_id_uploaded_at_idx ON sectors(contract_id, uploaded_at ASC);
 
--- index over contract_id and next_integrity_check since we only check pinned sectors
-CREATE INDEX sectors_contract_id_next_integrity_check_idx ON host_sectors(contract_id, next_integrity_check ASC)
+-- speed up fetching sectors for slab ordered by their position within the slab
+CREATE UNIQUE INDEX sectors_slab_id_slab_idx ON sectors(slab_id, slab_index ASC);
+
+-- foreign key constraint keys
+CREATE INDEX sectors_host_id_idx ON sectors(host_id);
+CREATE INDEX sectors_contract_id_idx ON sectors(contract_id);
+
+-- speed up integrity check query
+CREATE INDEX sectors_next_integrity_check_idx ON sectors(next_integrity_check ASC);
+CREATE INDEX sectors_host_id_next_integrity_check_idx ON sectors(host_id, next_integrity_check ASC);
 ```
 
 ### 2.7 Metadata
