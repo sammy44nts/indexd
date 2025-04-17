@@ -188,6 +188,9 @@ CREATE TABLE slabs (
 );
 CREATE INDEX slabs_digest_idx ON slabs(digest);
 
+-- speeds up lookup of unhealthy slabs
+CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(id, last_repair_attempt ASC);
+
 CREATE TABLE account_slabs (
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
     slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
@@ -221,6 +224,7 @@ CREATE UNIQUE INDEX sectors_slab_id_slab_idx ON sectors(slab_id, slab_index ASC)
 -- foreign key constraint keys
 CREATE INDEX sectors_host_id_idx ON sectors(host_id);
 CREATE INDEX sectors_contract_id_idx ON sectors(contract_id);
+CREATE INDEX sectors_slab_id_idx ON sectors(slab_id);
 
 -- speed up integrity check query
 CREATE INDEX sectors_next_integrity_check_idx ON sectors(next_integrity_check ASC);

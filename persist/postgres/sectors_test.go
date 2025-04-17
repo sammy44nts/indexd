@@ -592,7 +592,7 @@ func BenchmarkSectorsForIntegrityCheck(b *testing.B) {
 //
 //	CPU   |	  Count  |     Time/op
 //
-// M2 Pro |   1282   |    5.323970 ms
+// M2 Pro |   1282   |    0.618084 ms
 func BenchmarkUnhealthySlab(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}
