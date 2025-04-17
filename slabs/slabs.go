@@ -1,16 +1,16 @@
 package slabs
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
 var (
-	// ErrSlabExists is returned when a slab already exists in the database.
-	ErrSlabExists = errors.New("slab already exists")
-
 	// ErrSlabNotFound is returned when a slab is not found in the database.
 	ErrSlabNotFound = errors.New("slab not found")
 )
@@ -56,6 +56,11 @@ type (
 	}
 )
 
+// String implements the Stringer interface for SlabID.
+func (s SlabID) String() string {
+	return types.Hash256(s).String()
+}
+
 // Digest creates a unique digest for the slab to be pinned by SlabPinParams. It
 // is important, that the same params always result in the same hash since we
 // deduplicate slabs using it. So if one user makes the mistake of pinning a
@@ -73,7 +78,12 @@ func (s SlabPinParams) Digest() (SlabID, error) {
 	return SlabID(hasher.Sum()), nil
 }
 
-// String implements the Stringer interface for SlabID.
-func (s SlabID) String() string {
-	return types.Hash256(s).String()
+// PinSlab pins the given slab and associates it with the given account.
+func (m *SlabManager) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) ([]SlabID, error) {
+	return m.store.PinSlabs(ctx, account, nextIntegrityCheck, []SlabPinParams{slab})
+}
+
+// Slabs returns the slabs with the given IDs from the database.
+func (m *SlabManager) Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error) {
+	return m.store.Slabs(ctx, accountID, slabIDs)
 }
