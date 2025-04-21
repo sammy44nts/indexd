@@ -119,7 +119,7 @@ func TestPinSlabs(t *testing.T) {
 
 	// pin without an account
 	nextCheck := time.Now().Round(time.Microsecond).Add(time.Hour)
-	slabIDs, err := store.PinSlabs(context.Background(), account, nextCheck, []slabs.SlabPinParams{{}})
+	_, err := store.PinSlabs(context.Background(), account, nextCheck, []slabs.SlabPinParams{{}})
 	if !errors.Is(err, accounts.ErrNotFound) {
 		t.Fatal("expected ErrNotFound, got", err)
 	}
@@ -175,7 +175,7 @@ func TestPinSlabs(t *testing.T) {
 	slab2ID, slab2 := newSlab(2)
 	toPin := []slabs.SlabPinParams{slab1, slab2}
 	expectedIDs := []slabs.SlabID{slab1ID, slab2ID}
-	slabIDs, err = store.PinSlabs(context.Background(), proto.Account{1}, nextCheck, toPin)
+	slabIDs, err := store.PinSlabs(context.Background(), proto.Account{1}, nextCheck, toPin)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(slabIDs) != len(toPin) {
@@ -267,13 +267,13 @@ func TestPinSlabs(t *testing.T) {
 // upload/download throughput.
 //
 // Hardware |     Benchmark   |  ms/op  | Throughput   |
-// M2 Pro   | PinSlabs-40MiB  |  1.4ms | 28472.56 MB/s |
-// M2 Pro   | PinSlabs-400MiB |  8.9ms |  4698.53 MB/s |
-// M2 Pro   | PinSlabs-4GiB   | 89.6ms |   467.67 MB/s |
+// M2 Pro   | PinSlabs-40MiB  |  1.2ms | 33885.23 MB/s |
+// M2 Pro   | PinSlabs-400MiB |  8.6ms |  4875.42 MB/s |
+// M2 Pro   | PinSlabs-4GiB   | 86.7ms |   483.63 MB/s |
 //
-// M2 Pro   | Slabs-40MiB  |  0.6ms |    63029.04 MB/s |
-// M2 Pro   | Slabs-400MiB |  3.1ms |    13181.86 MB/s |
-// M2 Pro   | Slabs-4GiB   | 29.8ms |     1404.40 MB/s |
+// M2 Pro   | Slabs-40MiB  |  0.5ms |    70382.04 MB/s |
+// M2 Pro   | Slabs-400MiB |  0.8ms |    52154.24 MB/s |
+// M2 Pro   | Slabs-4GiB   |  3.3ms |    12668.21 MB/s |
 func BenchmarkSlabs(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}
