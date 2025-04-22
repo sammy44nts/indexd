@@ -55,7 +55,7 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 		var accountID int64
 		err := tx.QueryRow(ctx, "SELECT id FROM accounts WHERE public_key = $1", sqlPublicKey(account)).Scan(&accountID)
 		if err != nil {
-			return fmt.Errorf("%w: %v", accounts.ErrNotFound, account)
+			return accounts.ErrNotFound
 		}
 
 		digest, err = slab.Digest()

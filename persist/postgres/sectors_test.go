@@ -265,11 +265,11 @@ func TestPinSlabs(t *testing.T) {
 // upload/download throughput.
 //
 // Hardware |     Benchmark   |  ms/op  | Throughput   |
-// M2 Pro   | PinSlab |  1.4ms | 28472.56 MB/s |
+// M4 Max   | PinSlab |  1.4ms | 28472.56 MB/s |
 //
-// M2 Pro   | Slabs-40MiB  |  0.6ms |    63029.04 MB/s |
-// M2 Pro   | Slabs-400MiB |  3.1ms |    13181.86 MB/s |
-// M2 Pro   | Slabs-4GiB   | 29.8ms |     1404.40 MB/s |
+// M4 Max   | Slabs-40MiB  |  0.6ms |    63029.04 MB/s |
+// M4 Max   | Slabs-400MiB |  3.1ms |    13181.86 MB/s |
+// M4 Max   | Slabs-4GiB   | 29.8ms |     1404.40 MB/s |
 func BenchmarkSlabs(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}
