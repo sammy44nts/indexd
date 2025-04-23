@@ -67,6 +67,7 @@ type (
 	Store interface {
 		AddFormedContract(ctx context.Context, contractID types.FileContractID, hostKey types.PublicKey, proofHeight, expirationHeight uint64, contractPrice, allowance, minerFee, totalCollateral types.Currency) error
 		AddRenewedContract(ctx context.Context, params AddRenewedContractParams) error
+		ContractElement(ctx context.Context, contractID types.FileContractID) (types.V2FileContractElement, error)
 		ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error)
 		Contracts(ctx context.Context, offset, limit int, queryOpts ...ContractQueryOpt) ([]Contract, error)
 		ContractsForFunding(ctx context.Context, hk types.PublicKey, limit int) ([]types.FileContractID, error)
@@ -74,6 +75,7 @@ type (
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error)
 		BlockHosts(ctx context.Context, hostKeys []types.PublicKey, reason string) error
+		MarkSuccessfulBroadcast(ctx context.Context, contractID types.FileContractID) error
 		MarkUnrenewableContractsBad(ctx context.Context, maxProofHeight uint64) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
 		SyncContract(ctx context.Context, contractID types.FileContractID, params ContractSyncParams) error
@@ -145,6 +147,7 @@ type (
 		expiredContractBroadcastBuffer uint64
 		expiredContractPruneBuffer     uint64
 		maintenanceFrequency           time.Duration
+		revisionBroadcastInterval      time.Duration
 	}
 )
 
@@ -195,6 +198,7 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 		expiredContractBroadcastBuffer: 144,           // 144 block after expiration
 		expiredContractPruneBuffer:     144,           // 144 blocks after broadcast
 		maintenanceFrequency:           10 * time.Minute,
+		revisionBroadcastInterval:      7 * 24 * time.Hour, // 1 week,
 	}
 	for _, opt := range opts {
 		opt(cm)
@@ -409,6 +413,11 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	// form new contracts until there are enough good contracts to use
 	if err := cm.performContractFormation(ctx, settings.Period, settings.WantedContracts, log); err != nil {
 		return fmt.Errorf("failed to form contracts: %w", err)
+	}
+
+	// rebroadcast revisions for all good contracts
+	if err := cm.performBroadcastContractRevisions(ctx, log); err != nil {
+		return fmt.Errorf("failed to broadcast contract revisions: %w", err)
 	}
 
 	return nil

@@ -382,6 +382,8 @@ func TestFormRenewContract(t *testing.T) {
 			t.Fatalf("expected formation time to be after start time but not in the future")
 		}
 		contract.Formation = time.Time{}
+		contract.LastSuccessFulBroadcast = time.Time{}
+		contract.LastUpdateOnChain = time.Time{}
 		if !reflect.DeepEqual(contract, expected) {
 			t.Fatalf("mismatch: \n%+v\n%+v", contract, expected)
 		}

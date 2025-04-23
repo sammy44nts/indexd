@@ -127,6 +127,9 @@ type (
 		// considered bad or failing to renew when being too close to its
 		// ProofHeight. This field is set by the contract maintenance code.
 		Good bool `json:"good"`
+
+		LastUpdateOnChain       time.Time `json:"lastUpdateOnChain"`
+		LastSuccessFulBroadcast time.Time `json:"lastSuccessfulBroadcast"`
 	}
 
 	// ContractSettings contains various settings used by the manager for
@@ -146,6 +149,12 @@ func (c Contract) GoodForUpload(prices proto.HostPrices, maxCollateral types.Cur
 		c.UsedCollateral.Cmp(maxCollateral) < 0 &&
 		c.RemainingAllowance.Cmp(sectorAppendCost) > 0 &&
 		c.UsedCollateral.Add(sectorAppendCollateral).Cmp(c.TotalCollateral) < 0
+}
+
+// NeedsBroadcast indicates that a contract should be broadcasted.
+func (c Contract) NeedsBroadcast(interval time.Duration) bool {
+	renewed := c.RenewedTo != (types.FileContractID{})
+	return !renewed && time.Since(c.LastUpdateOnChain) > interval
 }
 
 // NeedsRefresh indicates that a contract should be refreshed.
