@@ -20,6 +20,95 @@ import (
 	"lukechampine.com/frand"
 )
 
+func TestRecordIntegrityCheck(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add account
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+
+	// add host
+	hk := types.PublicKey{1}
+	ha := chain.NetAddress{Protocol: quic.Protocol, Address: "[::]:4848"}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{ha}, time.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// pin a slab to add 2 sectors
+	pinTime := time.Now().Round(time.Microsecond)
+	root1 := frand.Entropy256()
+	root2 := frand.Entropy256()
+	_, err := store.PinSlabs(context.Background(), account, pinTime, []slabs.SlabPinParams{
+		{
+			EncryptionKey: [32]byte{},
+			MinShards:     10,
+			Sectors: []slabs.SectorPinParams{
+				{
+					Root:    root1,
+					HostKey: hk,
+				},
+				{
+					Root:    root2,
+					HostKey: hk,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// helper to assert sector state
+	assertSectors := func(root types.Hash256, expectedNextCheck time.Time, expectedConsecutiveFailures int) {
+		t.Helper()
+		var nextCheck time.Time
+		var consecutiveFailures int
+		err := store.pool.QueryRow(context.Background(), "SELECT next_integrity_check, consecutive_failed_checks FROM sectors WHERE sector_root = $1", sqlHash256(root)).Scan(&nextCheck, &consecutiveFailures)
+		if err != nil {
+			t.Fatal(err)
+		} else if expectedNextCheck != nextCheck {
+			t.Fatalf("expected next check %v, got %v", expectedNextCheck, nextCheck)
+		} else if consecutiveFailures != expectedConsecutiveFailures {
+			t.Fatalf("expected %d consecutive failures, got %d", expectedConsecutiveFailures, consecutiveFailures)
+		}
+	}
+
+	record := func(success bool, nextCheck time.Time, roots []types.Hash256) {
+		t.Helper()
+		err := store.RecordIntegrityCheck(context.Background(), success, nextCheck, hk, roots)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// check initial state - 0 failures
+	assertSectors(root1, pinTime, 0)
+	assertSectors(root2, pinTime, 0)
+
+	// record success for both
+	now := time.Now().Round(time.Microsecond)
+	record(true, now, []types.Hash256{root1, root2})
+	assertSectors(root1, now, 0)
+	assertSectors(root2, now, 0)
+
+	// record failure for both
+	now = now.Add(time.Minute)
+	record(false, now, []types.Hash256{root1, root2})
+	assertSectors(root1, now, 1)
+	assertSectors(root2, now, 1)
+
+	// one more failure for root1 and success for root2
+	now = now.Add(time.Minute)
+	record(false, now, []types.Hash256{root1})
+	record(true, now, []types.Hash256{root2})
+	assertSectors(root1, now, 2)
+	assertSectors(root2, now, 0)
+}
+
 func TestSectorsForIntegrityCheck(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 

@@ -29,14 +29,14 @@ func (s *Store) RecordIntegrityCheck(ctx context.Context, success bool, nextChec
 				SET next_integrity_check = $1, consecutive_failed_checks = 0
 				WHERE host_id = (SELECT id FROM hosts WHERE public_key = $2) AND
 					sector_root = ANY($3)
-			`, nextCheck, sqlPublicKey(hostKey), roots)
+			`, nextCheck, sqlPublicKey(hostKey), sqlRoots)
 		} else {
 			_, err = tx.Exec(ctx, `
 				UPDATE sectors
 				SET next_integrity_check = $1, consecutive_failed_checks = consecutive_failed_checks + 1
 				WHERE host_id = (SELECT id FROM hosts WHERE public_key = $2) AND
 					sector_root = ANY($3)
-			`)
+			`, nextCheck, sqlPublicKey(hostKey), sqlRoots)
 		}
 		return err
 	})
