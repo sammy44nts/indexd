@@ -330,7 +330,7 @@ func TestPinSectors(t *testing.T) {
 	assertPinned := func(sid int64, contractID *int64) {
 		t.Helper()
 		var selectedContractID, selectedHostID sql.NullInt64
-		err := store.pool.QueryRow(context.Background(), "SELECT contract_id, host_id FROM sectors WHERE id = $1", sid).
+		err := store.pool.QueryRow(context.Background(), "SELECT contract_sectors_map_id, host_id FROM sectors WHERE id = $1", sid).
 			Scan(&selectedContractID, &selectedHostID)
 		if err != nil {
 			t.Fatal(err)

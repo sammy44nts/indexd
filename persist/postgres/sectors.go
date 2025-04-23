@@ -109,7 +109,7 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []sl
 
 		sectorsBatch := &pgx.Batch{}
 		for _, slabID := range dbIDs {
-			sectorsBatch.Queue(`SELECT s.sector_root, h.public_key, c.contract_id 
+			sectorsBatch.Queue(`SELECT s.sector_root, h.public_key, c.contract_id
 FROM sectors s
 LEFT JOIN hosts h ON h.id = s.host_id
 LEFT JOIN contract_sectors_map csm ON s.contract_sectors_map_id = csm.id
@@ -159,14 +159,15 @@ func (s *Store) PinSectors(ctx context.Context, contractID types.FileContractID,
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		resp, err := tx.Exec(ctx, `
 			UPDATE sectors
-			SET (host_id, contract_id) = (result.host_id, result.contract_id)
+			SET (host_id, contract_sectors_map_id) = (result.host_id, result.contract_sectors_map_id)
 			FROM (
-				SELECT hosts.id AS host_id, contracts.id AS contract_id
-				FROM contracts
+				SELECT hosts.id AS host_id, contracts.id AS contract_sectors_map_id
+				FROM contract_sectors_map
+				INNER JOIN contracts ON contracts.contract_id = contract_sectors_map.contract_id
 				INNER JOIN hosts ON contracts.host_id = hosts.id
-				WHERE contracts.contract_id = $1
+				WHERE contract_sectors_map.contract_id = $1
 			) AS result
-			WHERE sector_root = ANY($2) AND result.contract_id IS NOT NULL
+			WHERE sector_root = ANY($2) AND result.contract_sectors_map_id IS NOT NULL
 		`, sqlHash256(contractID), sqlRoots)
 		if err != nil {
 			return err
