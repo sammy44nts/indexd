@@ -167,6 +167,7 @@ CREATE TABLE contracts (
   sector_roots_spending DECIMAL(50, 0) NOT NULL DEFAULT 0
 );
 CREATE INDEX contracts_state_formation_idx ON contracts(state, formation); -- for rejecting expired contracts
+CREATE INDEX contracts_host_id_remaining_allowance_idx ON contracts (host_id, remaining_allowance DESC) WHERE good = true AND remaining_allowance > 0 AND state <= 1; -- for fetching contracts for funding
 
 -- foreign key constraint index
 CREATE INDEX contracts_host_id_idx ON contracts(host_id);
@@ -185,10 +186,13 @@ CREATE TABLE slabs (
     digest BYTEA UNIQUE NOT NULL CHECK(LENGTH(digest) = 32), -- unique identifier for the slab derived from sector roots
 
     encryption_key BYTEA NOT NULL,
-    last_repair_attempt TIMESTAMP WITH TIME ZONE,
+    last_repair_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     min_shards SMALLINT NOT NULL CHECK(min_shards > 0)
 );
 CREATE INDEX slabs_digest_idx ON slabs(digest);
+
+-- speeds up lookup of unhealthy slabs
+CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(id, last_repair_attempt ASC);
 
 CREATE TABLE account_slabs (
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
@@ -201,8 +205,9 @@ CREATE TABLE sectors (
     sector_root BYTEA NOT NULL,
 
     -- uploading
+    -- NOTE: contract_id should always be NULL when host_id is NULL
     host_id INTEGER REFERENCES hosts(id), -- host that stores sector
-    contract_id INTEGER REFERENCES contracts(id) DEFAULT NULL, -- null if not pinned
+    contract_id INTEGER REFERENCES contracts(id) DEFAULT NULL CHECK((host_id IS NULL AND contract_id IS NULL) OR host_id IS NOT NULL), -- null if not pinned
     uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by upload time
 
     -- slab
@@ -225,6 +230,7 @@ CREATE INDEX sectors_host_id_uploaded_at_idx ON sectors(host_id, uploaded_at ASC
 -- foreign key constraint keys
 CREATE INDEX sectors_host_id_idx ON sectors(host_id);
 CREATE INDEX sectors_contract_id_idx ON sectors(contract_id);
+CREATE INDEX sectors_slab_id_idx ON sectors(slab_id);
 
 -- speed up integrity check query
 CREATE INDEX sectors_next_integrity_check_idx ON sectors(next_integrity_check ASC);

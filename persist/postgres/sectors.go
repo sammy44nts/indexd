@@ -79,65 +79,70 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []sl
 		return nil, nil
 	}
 
-	result := make([]slabs.Slab, 0, len(slabIDs))
+	results := make([]slabs.Slab, len(slabIDs))
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		for _, slabID := range slabIDs {
-			// query slab
-			var sid int64
-			slab := slabs.Slab{ID: slabID}
-			err := tx.QueryRow(ctx, `
-				SELECT slabs.id, encryption_key, min_shards
-				FROM slabs
-				INNER JOIN account_slabs ON slabs.id = account_slabs.slab_id
-				INNER JOIN accounts a ON a.id = account_slabs.account_id
-				WHERE digest = $1 AND a.public_key = $2
-			`, sqlHash256(slabID), sqlPublicKey(accountID)).Scan(&sid, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("%w: %v", slabs.ErrSlabNotFound, slabID)
-			} else if err != nil {
-				return fmt.Errorf("failed to query slab %s: %w", slabID, err)
-			}
-
-			// query sectors
-			err = func() error {
-				rows, err := tx.Query(ctx, `
-					SELECT sector_root, h.public_key, c.contract_id
-					FROM sectors
-					LEFT JOIN hosts h ON h.id = sectors.host_id
-					LEFT JOIN contracts c ON c.id = sectors.contract_id
-					WHERE slab_id = $1
-					ORDER BY slab_index ASC
-				`, sid)
-				if err != nil {
-					return fmt.Errorf("failed to query sectors for slab %s: %w", slabID, err)
+		dbIDMap := make(map[int64]int)
+		var dbIDs []int64
+		slabBatch := &pgx.Batch{}
+		for i, slabID := range slabIDs {
+			slabBatch.Queue(`SELECT s.id, s.encryption_key, s.min_shards
+				FROM slabs s
+				INNER JOIN account_slabs ac ON s.id = ac.slab_id
+				INNER JOIN accounts a ON a.id = ac.account_id
+				WHERE digest = $1 AND a.public_key = $2`, sqlHash256(slabID), sqlPublicKey(accountID)).QueryRow(func(row pgx.Row) error {
+				results[i].ID = slabID
+				var dbID int64
+				if err := row.Scan(&dbID, (*sqlHash256)(&results[i].EncryptionKey), &results[i].MinShards); err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						err = slabs.ErrSlabNotFound
+					}
+					return fmt.Errorf("failed to get slab %q: %w", slabID, err)
 				}
+				dbIDs = append(dbIDs, dbID)
+				dbIDMap[dbID] = i
+				return nil
+			})
+		}
+		if err := tx.Tx.SendBatch(ctx, slabBatch).Close(); err != nil {
+			return fmt.Errorf("failed to get slabs: %w", err)
+		}
+
+		sectorsBatch := &pgx.Batch{}
+		for _, slabID := range dbIDs {
+			sectorsBatch.Queue(`SELECT s.sector_root, h.public_key, c.contract_id 
+FROM sectors s
+LEFT JOIN hosts h ON h.id = s.host_id
+LEFT JOIN contracts c ON c.id = s.contract_id
+WHERE s.slab_id = $1
+ORDER BY s.slab_index ASC`, slabID).Query(func(rows pgx.Rows) error {
 				defer rows.Close()
 				for rows.Next() {
 					var sector slabs.Sector
 					var hostKey sql.Null[sqlPublicKey]
 					var contractID sql.Null[sqlHash256]
-					err = rows.Scan((*sqlHash256)(&sector.Root), asNullable(&hostKey), &contractID)
-					if err != nil {
+
+					if err := rows.Scan((*sqlHash256)(&sector.Root), &hostKey, &contractID); err != nil {
 						return fmt.Errorf("failed to scan sector: %w", err)
 					}
+
 					if hostKey.Valid {
 						sector.HostKey = (*types.PublicKey)(&hostKey.V)
 					}
 					if contractID.Valid {
 						sector.ContractID = (*types.FileContractID)(&contractID.V)
 					}
-					slab.Sectors = append(slab.Sectors, sector)
+					results[dbIDMap[slabID]].Sectors = append(results[dbIDMap[slabID]].Sectors, sector)
 				}
 				return rows.Err()
-			}()
-			if err != nil {
-				return err
-			}
-			result = append(result, slab)
+			})
 		}
+		if err := tx.Tx.SendBatch(ctx, sectorsBatch).Close(); err != nil {
+			return fmt.Errorf("failed to get slab sectors: %w", err)
+		}
+
 		return nil
 	})
-	return result, err
+	return results, err
 }
 
 // PinSectors pins a batch of sector roots to a given contract. This also
@@ -209,6 +214,48 @@ func (s *Store) UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, li
 		return rows.Err()
 	})
 	return roots, err
+}
+
+// UnhealthySlab returns a slab that has at least one sector that needs to be
+// migrated to a new host and hasn't had a repair attempted since
+// 'maxRepairAttempt'. The condition for such a slab is that it either has:
+// a). a sector that is not stored on a host (host_id == null)
+// b). a sector that is stored in a bad contract (contract_id != null && contract.good = false)
+// When no slab is found, ErrSlabNotFound is returned. If a slab is found, it
+// will have its last_repair_attempt updated to the time of the call. To prevent
+// subsequent or parallel calls from returning the same slab.
+//
+// NOTE: For the sake of scalability, we don't prioritize any slabs and instead
+// simply fetch the first one that we can get.
+func (s *Store) UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (slabs.SlabID, error) {
+	var slabID slabs.SlabID
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		err := tx.QueryRow(ctx, `
+			UPDATE slabs
+			SET last_repair_attempt = NOW()
+			WHERE id = (
+				SELECT slabs.id
+				FROM slabs
+				INNER JOIN sectors ON slabs.id = sectors.slab_id
+				LEFT JOIN contracts ON sectors.contract_id = contracts.id
+				WHERE
+					(
+						-- stored on bad contract
+						(sectors.contract_id IS NOT NULL AND contracts.good = FALSE) OR
+						-- not stored on any host
+						(sectors.host_id IS NULL)
+					)
+					AND (slabs.last_repair_attempt <= $1)
+				LIMIT 1
+			)
+			RETURNING digest
+		`, maxRepairAttempt).Scan((*sqlHash256)(&slabID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return slabs.ErrSlabNotFound
+		}
+		return err
+	})
+	return slabID, err
 }
 
 func (s *Store) pinSlab(ctx context.Context, tx *txn, accountID int64, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error) {
