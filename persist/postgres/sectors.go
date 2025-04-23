@@ -75,6 +75,8 @@ func (s *Store) SectorsForIntegrityCheck(ctx context.Context, hostKey types.Publ
 	return sectors, err
 }
 
+// FailingSectors returns up to `limit` sectors that have failed integrity
+// checks at least 'minChecks' times.
 func (s *Store) FailingSectors(ctx context.Context, hostKey types.PublicKey, minChecks, limit int) ([]types.Hash256, error) {
 	var sectors []types.Hash256
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
