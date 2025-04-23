@@ -265,15 +265,6 @@ func TestPinSlabs(t *testing.T) {
 func TestUnhealthySlabs(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	getMapID := func(fcid types.FileContractID) (mapID int64) {
-		t.Helper()
-		err := store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(fcid)).Scan(&mapID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-
 	// add account
 	account := proto.Account{1}
 	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
@@ -335,7 +326,7 @@ func TestUnhealthySlabs(t *testing.T) {
 	}
 
 	// pin one sector to the contract - we should still not have any unhealthy sectors
-	if _, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = $1 WHERE id = 1", getMapID(types.FileContractID(hk))); err != nil {
+	if _, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = 1 WHERE id = 1"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = store.UnhealthySlab(context.Background(), time.Now().Add(time.Hour))
@@ -407,10 +398,6 @@ func TestUnpinnedSectors(t *testing.T) {
 	if err := store.AddFormedContract(context.Background(), types.FileContractID(hk), hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
 		t.Fatal(err)
 	}
-	var mapID int64
-	if err := store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(types.FileContractID(hk))).Scan(&mapID); err != nil {
-		t.Fatal(err)
-	}
 
 	// create 4 sectors
 	_, err := store.PinSlabs(context.Background(), account, time.Time{}, []slabs.SlabPinParams{
@@ -455,7 +442,7 @@ func TestUnpinnedSectors(t *testing.T) {
 	// prepare sectors
 	one := int64(1)
 	now := time.Now().Round(time.Microsecond)
-	updateSector(1, &one, &mapID, now)              // has host and is pinned to contract
+	updateSector(1, &one, &one, now)                // has host and is pinned to contract
 	updateSector(2, &one, nil, now)                 // has host but is not pinned to contract
 	updateSector(3, nil, nil, now)                  // has neither host nor is it pinned
 	updateSector(4, &one, nil, now.Add(-time.Hour)) // also not pinned but older than 2
@@ -818,15 +805,6 @@ func BenchmarkUnhealthySlab(b *testing.B) {
 		b.Fatal("failed to add account:", err)
 	}
 
-	getMapID := func(fcid types.FileContractID) (mapID int64) {
-		b.Helper()
-		err := store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(fcid)).Scan(&mapID)
-		if err != nil {
-			b.Fatal(err)
-		}
-		return
-	}
-
 	// 30 hosts to simulate default redundancy
 	var hks []types.PublicKey
 	for i := byte(0); i < 30; i++ {
@@ -894,13 +872,13 @@ func BenchmarkUnhealthySlab(b *testing.B) {
 	}
 
 	// default to the good contract for all sectors
-	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET contract_sectors_map_id = $1`, getMapID(types.FileContractID(hks[0])))
+	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET contract_sectors_map_id = 1`)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// 25% of the sectors are stored on a bad contract
-	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET contract_sectors_map_id = $1 WHERE id % 4 = 0`, getMapID(types.FileContractID(hks[1])))
+	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET contract_sectors_map_id = 2 WHERE id % 4 = 0`)
 	if err != nil {
 		b.Fatal(err)
 	}
