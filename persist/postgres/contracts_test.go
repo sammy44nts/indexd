@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -10,9 +12,92 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/subscriber"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
+
+func TestContracts(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add a host
+	hk := types.PublicKey{1}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// add three contracts
+	fcid1 := types.FileContractID{1}
+	fcid2 := types.FileContractID{2}
+	fcid3 := types.FileContractID{3}
+	if err := errors.Join(
+		store.AddFormedContract(context.Background(), fcid1, hk, 0, 0, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency),
+		store.AddFormedContract(context.Background(), fcid2, hk, 0, 0, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency),
+		store.AddFormedContract(context.Background(), fcid3, hk, 0, 0, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// mark the second one resolved so it's considered inactive
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.UpdateContractState(fcid2, contracts.ContractStateResolved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// mark the third as bad so it's considered not good
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `UPDATE contracts SET good = FALSE WHERE contract_id = $1`, sqlHash256(fcid3))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// assert store returns all contracts without filters
+	if css, err := store.Contracts(context.Background(), 0, 10); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 3 {
+		t.Fatal("expected 3 contracts, got", len(css))
+	}
+
+	// assert limit and offset
+	if css, err := store.Contracts(context.Background(), 1, 1); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 1 {
+		t.Fatal("expected 1 contract, got", len(css))
+	} else if css, err := store.Contracts(context.Background(), 3, 1); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 0 {
+		t.Fatal("expected no contracts, got", len(css))
+	}
+
+	// assert WithRevisable(true)
+	if css, err := store.Contracts(context.Background(), 0, 10, contracts.WithRevisable(true)); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 2 {
+		t.Fatal("expected 2 contracts, got", len(css))
+	}
+
+	// assert WithRevisable(false)
+	if css, err := store.Contracts(context.Background(), 0, 10, contracts.WithRevisable(false)); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 1 {
+		t.Fatal("expected 1 contract, got", len(css))
+	} else if css[0].ID != fcid2 {
+		t.Fatalf("expected contract %v, got %v", fcid2, css[0].ID)
+	}
+
+	// assert WithRevisable(true) + WithGood(true)
+	if css, err := store.Contracts(context.Background(), 0, 10, contracts.WithRevisable(true), contracts.WithGood(true)); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 1 {
+		t.Fatal("expected 1 contract, got", len(css))
+	} else if css[0].ID != fcid1 {
+		t.Fatalf("expected contract %v, got %v", fcid1, css[0].ID)
+	}
+}
 
 func TestContractElementsForBroadcast(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
@@ -83,6 +168,94 @@ func TestContractElementsForBroadcast(t *testing.T) {
 		t.Fatalf("expected 1 contract to broadcast, got %d", len(fces))
 	} else if !reflect.DeepEqual(fces[0], fce) {
 		t.Fatalf("mismatch: \n%+v\n%+v", fce, fces[0])
+	}
+}
+
+func TestContractsForFunding(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	var fcidCnt uint8
+	addContract := func(hk types.PublicKey, remaininAllowance types.Currency) types.FileContractID {
+		t.Helper()
+		fcidCnt++
+		fcid := types.FileContractID{byte(fcidCnt)}
+		if err := store.AddFormedContract(context.Background(), fcid, hk, 100, 200, types.ZeroCurrency, remaininAllowance, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+			t.Fatal(err)
+		}
+		return fcid
+	}
+
+	// add two hosts
+	hk1 := types.PublicKey{1}
+	hk2 := types.PublicKey{2}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return errors.Join(
+			tx.AddHostAnnouncement(hk1, chain.V2HostAnnouncement{}, time.Now()),
+			tx.AddHostAnnouncement(hk2, chain.V2HostAnnouncement{}, time.Now()),
+		)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// add four contracts for h1
+	fcid1 := addContract(hk1, types.Siacoins(1))
+	fcid2 := addContract(hk1, types.Siacoins(3))
+	fcid3 := addContract(hk1, types.Siacoins(2))
+	_ = addContract(hk1, types.ZeroCurrency)
+
+	// assert only 3 contracts are returned for h1, in order, the fourth has no
+	// remaining allowance and h2 doesn't have contracts yet
+	if fcids, err := store.ContractsForFunding(context.Background(), hk1, 10); err != nil {
+		t.Fatal("unexpected", err)
+	} else if len(fcids) != 3 {
+		t.Fatalf("expected 3 contract, got %d", len(fcids))
+	} else if fcids[0] != fcid2 {
+		t.Fatalf("expected contract %v, got %v", fcid2, fcids[0])
+	} else if fcids[1] != fcid3 {
+		t.Fatalf("expected contract %v, got %v", fcid3, fcids[1])
+	} else if fcids[2] != fcid1 {
+		t.Fatalf("expected contract %v, got %v", fcid1, fcids[2])
+	} else if fcids, err := store.ContractsForFunding(context.Background(), hk1, 1); err != nil {
+		t.Fatal("unexpected", err)
+	} else if len(fcids) != 1 {
+		t.Fatalf("expected 1 contract, got %d", len(fcids))
+	} else if fcids, err := store.ContractsForFunding(context.Background(), hk2, 10); err != nil {
+		t.Fatal("unexpected", err)
+	} else if len(fcids) != 0 {
+		t.Fatalf("expected no contracts, got %d", len(fcids))
+	}
+
+	// mark first contract as resolved
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.UpdateContractState(fcid1, contracts.ContractStateResolved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// mark second one as bad
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `UPDATE contracts SET good = FALSE WHERE contract_id = $1`, sqlHash256(fcid2))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// add a contract for h2
+	fcid5 := addContract(hk2, types.Siacoins(1))
+
+	// assert we have only one contract for h1 now, and one on h2
+	if fcids, err := store.ContractsForFunding(context.Background(), hk1, 10); err != nil {
+		t.Fatal("unexpected", err)
+	} else if len(fcids) != 1 {
+		t.Fatalf("expected 1 contract, got %d", len(fcids))
+	} else if fcids[0] != fcid3 {
+		t.Fatalf("expected contract %v, got %v", fcid3, fcids[0])
+	} else if fcids, err := store.ContractsForFunding(context.Background(), hk2, 10); err != nil {
+		t.Fatal("unexpected", err)
+	} else if len(fcids) != 1 {
+		t.Fatalf("expected 1 contract, got %d", len(fcids))
+	} else if fcids[0] != fcid5 {
+		t.Fatalf("expected contract %v, got %v", fcid5, fcids[0])
 	}
 }
 
@@ -236,6 +409,13 @@ func TestFormRenewContract(t *testing.T) {
 	}
 	assertContract(expectedFormed.ID, expectedFormed)
 
+	// assert `contract_sectors_map` entry was created when forming a contract
+	var mapID int64
+	err = store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(expectedFormed.ID)).Scan(&mapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// simulate using the contract and marking it not good
 	modifyContract := func(contractID types.FileContractID) {
 		err = store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
@@ -357,6 +537,14 @@ func TestFormRenewContract(t *testing.T) {
 	assertContract(expectedFormed.ID, expectedFormed)
 	assertContract(expectedRefreshed.ID, expectedRefreshed)
 	assertContract(expectedRenewed.ID, expectedRenewed)
+
+	// assert `contract_sectors_map` entry was updated when renewing the contract
+	var currID int64
+	if err := store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(expectedRenewed.ID)).Scan(&mapID); err != nil {
+		t.Fatal(err)
+	} else if currID == mapID {
+		t.Fatalf("expected contract_sectors_map entry to be updated, got %d", mapID)
+	}
 }
 
 func TestRejectContracts(t *testing.T) {
@@ -534,11 +722,7 @@ func TestUpdateContractElement(t *testing.T) {
 func (s *Store) FileContractElement(contractID types.FileContractID) (types.V2FileContractElement, error) {
 	var fce types.V2FileContractElement
 	err := s.transaction(context.Background(), func(ctx context.Context, tx *txn) (err error) {
-		fce, err = scanContractElement(tx.QueryRow(ctx, `
-SELECT c.contract_id, fce.contract, fce.leaf_index, fce.merkle_proof
-FROM contract_elements fce
-INNER JOIN contracts c ON c.id = fce.contract_id
-WHERE c.contract_id = $1`, sqlHash256(contractID)))
+		fce, err = scanContractElement(tx.QueryRow(ctx, `SELECT contract_id, contract, leaf_index, merkle_proof FROM contract_elements WHERE contract_id = $1`, sqlHash256(contractID)))
 		return err
 	})
 	return fce, err
@@ -701,4 +885,158 @@ func TestSyncContract(t *testing.T) {
 		Size:               1900,
 		UsedCollateral:     types.Siacoins(20),
 	})
+}
+
+// BenchmarkContracts is a benchmark to ensure the performance of
+// Contract and Contracts.
+//
+// M1 Max | Contract       |                | 1 ms/op
+// M1 Max | Contracts 100  | None           | 1.9 ms/op
+// M1 Max | Contracts 100  | Revisable      | 2.4 ms/op
+// M1 Max | Contracts 100  | Revisable+Good | 2.2 ms/op
+// M1 Max | Contracts 1000 | None           | 5.1 ms/op
+// M1 Max | Contracts 1000 | Revisable      | 4.8 ms/op
+// M1 Max | Contracts 1000 | Revisable+Good | 5.3 ms/op
+func BenchmarkContracts(b *testing.B) {
+	const (
+		numContractsPerHost = 100
+		numHosts            = 500
+	)
+
+	// prepare database
+	store := initPostgres(b, zap.NewNop())
+	hosts := make([]types.PublicKey, 0, numHosts)
+	contractIDs := make([]types.FileContractID, 0, numHosts*numContractsPerHost)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(ctx, `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+
+			hostContractIDs := make([]types.FileContractID, numContractsPerHost)
+			for i := range numContractsPerHost {
+				frand.Read(hostContractIDs[i][:])
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9);`,
+					hostID,
+					sqlHash256(hostContractIDs[i][:]),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlContractState(uint8(frand.Uint64n(5))), // 40% active
+					frand.Uint64n(2) == 0,                     // 50% good
+				); err != nil {
+					return err
+				}
+			}
+			for i := 1; i < len(hostContractIDs)-1; i++ {
+				if _, err := tx.Exec(ctx, `UPDATE contracts SET renewed_from = $1, renewed_to = $2 WHERE contract_id = $3;`, hostContractIDs[i-1], hostContractIDs[i+1], hostContractIDs[i]); err != nil {
+					return err
+				}
+			}
+			contractIDs = append(contractIDs, hostContractIDs...)
+			hosts = append(hosts, hk)
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("contract", func(b *testing.B) {
+		if b.N > len(contractIDs) {
+			b.Fatalf("too many iterations, %d > %d", b.N, len(contractIDs))
+		}
+		for b.Loop() {
+			_, err := store.Contract(context.Background(), contractIDs[b.N%len(contractIDs)])
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	for _, limit := range []int{100, 1000} {
+		b.Run(fmt.Sprintf("contracts_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("contracts_revisable_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true))
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("contracts_revisable+good_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true), contracts.WithGood(true))
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkContractsForFunding is a benchmark to ensure the performance of
+// ContractsForFunding, we prepare the database with a certain number of
+// contracts per host, with a random state, remaining allowance and good status.
+//
+// M1 Max | 100k contracts | 1.3ms/op
+func BenchmarkContractsForFunding(b *testing.B) {
+	const (
+		numContractsPerHost = 100
+		numHosts            = 1000
+	)
+
+	// prepare database
+	store := initPostgres(b, zap.NewNop())
+	hosts := make([]types.PublicKey, 0, numHosts)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+
+			for range numContractsPerHost {
+				var id types.FileContractID
+				frand.Read(id[:])
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9)`,
+					hostID,
+					sqlHash256(id),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.NewCurrency64(frand.Uint64n(5))), // random remaining allowance
+					sqlContractState(uint8(frand.Uint64n(5))),          // random state
+					frand.Uint64n(2) == 0,                              // random good
+				); err != nil {
+					return err
+				}
+			}
+
+			hosts = append(hosts, hk)
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	for b.Loop() {
+		if _, err := store.ContractsForFunding(context.Background(), hosts[b.N%numHosts], 50); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
