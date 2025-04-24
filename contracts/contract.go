@@ -154,7 +154,9 @@ func (c Contract) GoodForUpload(prices proto.HostPrices, maxCollateral types.Cur
 // NeedsBroadcast indicates that a contract should be broadcasted.
 func (c Contract) NeedsBroadcast(interval time.Duration) bool {
 	renewed := c.RenewedTo != (types.FileContractID{})
-	return !renewed && time.Since(c.LastUpdateOnChain) > interval
+	seenRecently := time.Since(c.LastUpdateOnChain) < interval
+	broadcastedRecently := time.Since(c.LastSuccessFulBroadcast) < interval
+	return !renewed && !seenRecently && !broadcastedRecently
 }
 
 // NeedsRefresh indicates that a contract should be refreshed.

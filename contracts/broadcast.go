@@ -45,8 +45,9 @@ func (cm *ContractManager) performBroadcastContractRevisions(ctx context.Context
 				}
 			}(contract, broadcastLog.With(zap.Stringer("contractID", contract.ID)))
 		}
+		wg.Wait()
 
-		if len(contracts) == batchSize {
+		if len(contracts) < batchSize {
 			break
 		}
 	}
