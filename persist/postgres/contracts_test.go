@@ -117,14 +117,28 @@ func TestContractElement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// add a contract
+	// add a contract and an element
 	if err := store.AddFormedContract(context.Background(), types.FileContractID(hk), hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
+		t.Fatal(err)
+	} else if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.UpdateContractElements(types.V2FileContractElement{
+			ID: types.FileContractID(hk),
+			StateElement: types.StateElement{
+				LeafIndex:   1,
+				MerkleProof: []types.Hash256{{1}},
+			},
+			V2FileContract: types.V2FileContract{
+				ExpirationHeight: 100,
+				HostPublicKey:    hk,
+			},
+		})
+	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// assert contract element is found
 	_, err = store.ContractElement(context.Background(), types.FileContractID(hk))
-	if err == nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
