@@ -287,27 +287,25 @@ func TestPinSectors(t *testing.T) {
 	}
 
 	// create 4 sectors
-	_, err := store.PinSlabs(context.Background(), account, time.Time{}, []slabs.SlabPinParams{
-		{
-			EncryptionKey: frand.Entropy256(),
-			MinShards:     10,
-			Sectors: []slabs.SectorPinParams{
-				{
-					HostKey: hk,
-					Root:    types.Hash256{1},
-				},
-				{
-					HostKey: hk,
-					Root:    types.Hash256{2},
-				},
-				{
-					HostKey: hk,
-					Root:    types.Hash256{3},
-				},
-				{
-					HostKey: hk,
-					Root:    types.Hash256{4},
-				},
+	_, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     10,
+		Sectors: []slabs.SectorPinParams{
+			{
+				HostKey: hk,
+				Root:    types.Hash256{1},
+			},
+			{
+				HostKey: hk,
+				Root:    types.Hash256{2},
+			},
+			{
+				HostKey: hk,
+				Root:    types.Hash256{3},
+			},
+			{
+				HostKey: hk,
+				Root:    types.Hash256{4},
 			},
 		},
 	})
@@ -909,11 +907,11 @@ func BenchmarkPinSectors(b *testing.B) {
 				HostKey: hk,
 			})
 		}
-		slabIDs, err := store.PinSlabs(context.Background(), account, time.Time{}, []slabs.SlabPinParams{{
+		slabIDs, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
 			MinShards:     1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       sectors,
-		}})
+		})
 		if err != nil {
 			b.Fatal(err)
 		} else if len(slabIDs) != 1 {
