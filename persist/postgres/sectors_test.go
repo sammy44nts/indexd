@@ -364,6 +364,20 @@ func TestPinSlabs(t *testing.T) {
 	assertCount("account_slabs", 4) // 2 slabs for each account
 	assertCount("slabs", 2)         // 2 slabs
 	assertCount("sectors", 4)       // 2 sectors per slab
+
+	// swap roots of slab 2 and re-pin on account 2
+	slab2.Sectors[0].Root, slab2.Sectors[1].Root = slab2.Sectors[1].Root, slab2.Sectors[0].Root
+	slabID, err := store.PinSlab(context.Background(), account2, nextCheck, slab2)
+	if err != nil {
+		t.Fatal(err)
+	} else if slabID == expectedIDs[0] || slabID == expectedIDs[1] {
+		t.Fatalf("expected new slab ID, got %v (%v)", slabID, expectedIDs)
+	}
+
+	// assert we still have 3 slabs now, but still only have 4 sectors
+	assertCount("account_slabs", 5) // 2 slabs for each account + the new one
+	assertCount("slabs", 3)         // 3 slabs
+	assertCount("sectors", 4)       // 2 sectors per slab + 0 new ones
 }
 
 func TestPinSectors(t *testing.T) {

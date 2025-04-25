@@ -216,17 +216,13 @@ CREATE TABLE account_slabs (
 
 CREATE TABLE sectors (
     id BIGSERIAL PRIMARY KEY,
-    sector_root BYTEA NOT NULL,
+    sector_root BYTEA UNIQUE NOT NULL,
 
     -- uploading
     -- NOTE: contract_sectors_map_id should always be NULL when host_id is NULL
     host_id INTEGER REFERENCES hosts(id), -- host that stores sector
     contract_sectors_map_id INTEGER REFERENCES contract_sectors_map(id) DEFAULT NULL CHECK((host_id IS NULL AND contract_sectors_map_id IS NULL) OR host_id IS NOT NULL), -- null if not pinned
     uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by upload time
-
-    -- slab
-    slab_id BIGINT REFERENCES slabs(id) NOT NULL,
-    slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
 
     -- data integrity
     next_integrity_check TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -239,16 +235,12 @@ CREATE INDEX sectors_consecutive_failed_checks_idx ON sectors(host_id, consecuti
 -- quick lookup of sectors to pin prioritized by upload time
 CREATE INDEX sectors_contract_sectors_map_id_uploaded_at_idx ON sectors(contract_sectors_map_id, uploaded_at ASC);
 
--- speed up fetching sectors for slab ordered by their position within the slab
-CREATE UNIQUE INDEX sectors_slab_id_slab_idx ON sectors(slab_id, slab_index ASC);
-
 -- speed up lookup of unpinned sectors
 CREATE INDEX sectors_host_id_uploaded_at_idx ON sectors(host_id, uploaded_at ASC) WHERE contract_sectors_map_id IS NULL;
 
 -- foreign key constraint keys
 CREATE INDEX sectors_host_id_idx ON sectors(host_id);
 -- CREATE INDEX sectors_contract_sectors_map_id_idx ON sectors(contract_sectors_map_id); -- covered by sectors_contract_sectors_map_id_uploaded_at_idx
-CREATE INDEX sectors_slab_id_idx ON sectors(slab_id);
 
 -- speed up integrity check query
 CREATE INDEX sectors_next_integrity_check_idx ON sectors(next_integrity_check ASC);
@@ -257,5 +249,12 @@ CREATE INDEX sectors_host_id_next_integrity_check_idx ON sectors(host_id, next_i
 -- speed up querying sectors of a host by root
 CREATE INDEX sectors_host_id_sector_root_idx ON sectors(host_id, sector_root);
 
--- speed up lookup of sectors by root
-CREATE INDEX sectors_sector_root_idx ON sectors(sector_root);
+CREATE TABLE slab_sectors (
+    slab_id BIGINT REFERENCES slabs(id) ON DELETE CASCADE,
+    sector_id BIGINT REFERENCES sectors(id) ON DELETE CASCADE,
+    slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
+    PRIMARY KEY (slab_id, sector_id)
+);
+
+-- speed up fetching sectors for slab ordered by their position within the slab
+CREATE UNIQUE INDEX slab_sectors_slab_id_slab_index_idx ON slab_sectors(slab_id, slab_index ASC);
