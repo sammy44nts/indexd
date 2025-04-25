@@ -64,19 +64,9 @@ func TestBroadcastContractRevisions(t *testing.T) {
 		RenewedTo: types.FileContractID{4},
 	})
 
-	// c4 is not broadcasted because it was seen on chain recently
+	// c4 is not broadcasted because it was broadcasted recently
 	store.contracts = append(store.contracts, Contract{
-		ID:              types.FileContractID{4},
-		HostKey:         hk,
-		Formation:       time.Now(),
-		State:           ContractStateActive,
-		Good:            true,
-		LastChainUpdate: time.Now(),
-	})
-
-	// c5 is not broadcasted because it was broadcasted recently
-	store.contracts = append(store.contracts, Contract{
-		ID:                   types.FileContractID{5},
+		ID:                   types.FileContractID{4},
 		HostKey:              hk,
 		Formation:            time.Now(),
 		State:                ContractStateActive,
@@ -84,9 +74,9 @@ func TestBroadcastContractRevisions(t *testing.T) {
 		LastBroadcastAttempt: time.Now(),
 	})
 
-	// c6 is broadcasted
+	// c5 is broadcasted
 	store.contracts = append(store.contracts, Contract{
-		ID:        types.FileContractID{6},
+		ID:        types.FileContractID{5},
 		HostKey:   hk,
 		Formation: time.Now(),
 		State:     ContractStateActive,
@@ -95,7 +85,7 @@ func TestBroadcastContractRevisions(t *testing.T) {
 
 	// mock a latest revision
 	rev := types.V2FileContract{RevisionNumber: 1}
-	contractor.latestRevisions[types.FileContractID{6}] = proto.RPCLatestRevisionResponse{Contract: rev}
+	contractor.latestRevisions[types.FileContractID{5}] = proto.RPCLatestRevisionResponse{Contract: rev}
 
 	// assert revision was broadcasted and contract was marked as such
 	if err := contracts.performBroadcastContractRevisions(context.Background(), zap.NewNop()); err != nil {
@@ -104,7 +94,7 @@ func TestBroadcastContractRevisions(t *testing.T) {
 		t.Fatal("expected 1 broadcasted contract, got", len(syncerMock.broadcasted))
 	} else if syncerMock.broadcasted[0].FileContractRevisions[0].Revision != rev {
 		t.Fatal("unexpected revision", syncerMock.broadcasted[0].FileContractRevisions[0].Revision)
-	} else if contract, err := store.Contract(context.Background(), types.FileContractID{6}); err != nil {
+	} else if contract, err := store.Contract(context.Background(), types.FileContractID{5}); err != nil {
 		t.Fatal(err)
 	} else if contract.LastBroadcastAttempt.IsZero() {
 		t.Fatal("expected last successful broadcast to be set")

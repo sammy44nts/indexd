@@ -82,7 +82,7 @@ func (s *Store) Contract(ctx context.Context, contractID types.FileContractID) (
 	var contract contracts.Contract
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		contract, err = scanContract(tx.QueryRow(ctx, `
-SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.last_broadcast_attempt, c.last_chain_update
+SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.last_broadcast_attempt
 FROM contracts c
 INNER JOIN hosts h ON c.host_id = h.id
 WHERE c.contract_id = $1`, sqlHash256(contractID)))
@@ -105,7 +105,7 @@ func (s *Store) Contracts(ctx context.Context, offset, limit int, queryOpts ...c
 	var contracts []contracts.Contract
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		rows, err := tx.Query(ctx, `
-SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.last_broadcast_attempt, c.last_chain_update
+SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.last_broadcast_attempt
 FROM contracts c
 INNER JOIN hosts h ON c.host_id = h.id
 WHERE 
@@ -148,8 +148,8 @@ func (s *Store) ContractsForBroadcasting(ctx context.Context, minBroadcast time.
 		rows, err := tx.Query(ctx, `
 SELECT c.contract_id
 FROM contracts c
-WHERE c.renewed_to IS NULL AND c.state = $1 AND (c.last_broadcast_attempt IS NULL OR c.last_broadcast_attempt < $2) AND (c.last_chain_update IS NULL OR c.last_chain_update < $2)
-ORDER BY c.last_broadcast_attempt, c.last_chain_update ASC
+WHERE c.renewed_to IS NULL AND c.state <= $1 AND c.last_broadcast_attempt < $2
+ORDER BY c.last_broadcast_attempt ASC
 LIMIT $3`, sqlContractState(contracts.ContractStateActive), minBroadcast, limit)
 		if err != nil {
 			return fmt.Errorf("failed to fetch contracts for broadcasting: %w", err)
@@ -301,14 +301,10 @@ func (tx *updateTx) IsKnownContract(contractID types.FileContractID) (bool, erro
 	return exists, nil
 }
 
-// MarkBroadcastAttempted marks a broadcast attempt for the given contracts.
-func (s *Store) MarkBroadcastAttempted(ctx context.Context, contractIDs []types.FileContractID) error {
-	var args []sqlHash256
-	for _, id := range contractIDs {
-		args = append(args, sqlHash256(id))
-	}
+// MarkBroadcastAttempt marks a broadcast attempt for the given contract.
+func (s *Store) MarkBroadcastAttempt(ctx context.Context, contractID types.FileContractID) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		_, err := tx.Exec(ctx, `UPDATE contracts SET last_broadcast_attempt = NOW() WHERE contract_id = ANY($1)`, args)
+		_, err := tx.Exec(ctx, `UPDATE contracts SET last_broadcast_attempt = NOW() WHERE contract_id = $1`, sqlHash256(contractID))
 		return err
 	})
 }
@@ -368,17 +364,7 @@ func (tx *updateTx) UpdateContractState(contractID types.FileContractID, state c
 	return nil
 }
 
-// UpdateContractLastChainUpdate sets the last chain update for the given contract to the given block time.
-func (tx *updateTx) UpdateContractLastChainUpdate(contractID types.FileContractID, blockTime time.Time) error {
-	_, err := tx.tx.Exec(tx.ctx, `UPDATE contracts SET last_chain_update = $1 WHERE contract_id = $2`, blockTime, sqlHash256(contractID))
-	if err != nil {
-		return fmt.Errorf("failed to update contract last chain update: %w", err)
-	}
-	return nil
-}
-
 func scanContract(row scanner) (contracts.Contract, error) {
-	var lastBroadcastAttempt, lastChainUpdate sql.NullTime
 	var c contracts.Contract
 	err := row.Scan((*sqlHash256)(&c.ID),
 		&c.Formation,
@@ -401,15 +387,8 @@ func scanContract(row scanner) (contracts.Contract, error) {
 		(*sqlCurrency)(&c.Spending.FreeSector),
 		(*sqlCurrency)(&c.Spending.FundAccount),
 		(*sqlCurrency)(&c.Spending.SectorRoots),
-		&lastBroadcastAttempt,
-		&lastChainUpdate,
+		&c.LastBroadcastAttempt,
 	)
-	if lastBroadcastAttempt.Valid {
-		c.LastBroadcastAttempt = lastBroadcastAttempt.Time
-	}
-	if lastChainUpdate.Valid {
-		c.LastChainUpdate = lastChainUpdate.Time
-	}
 
 	return c, err
 }

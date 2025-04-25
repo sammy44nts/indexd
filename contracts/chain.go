@@ -22,7 +22,6 @@ type (
 		IsKnownContract(contractID types.FileContractID) (bool, error)
 		UpdateContractElements(fces ...types.V2FileContractElement) error
 		UpdateContractState(contractID types.FileContractID, state ContractState) error
-		UpdateContractLastChainUpdate(contractID types.FileContractID, blockTime time.Time) error
 	}
 
 	updateTx struct {
@@ -138,11 +137,6 @@ func (m *ContractManager) applyContractDiff(tx *updateTx, diff consensus.V2FileC
 		return fmt.Errorf("failed to update contract element: %w", err)
 	}
 
-	// update contract chain update
-	if err := tx.UpdateContractLastChainUpdate(fce.ID, blockTime); err != nil {
-		return fmt.Errorf("failed to update contract last chain update: %w", err)
-	}
-
 	return nil
 }
 
@@ -186,11 +180,6 @@ func (m *ContractManager) revertContractDiff(tx *updateTx, diff consensus.V2File
 	}
 	if err := tx.UpdateContractElements(fce); err != nil {
 		return fmt.Errorf("failed to update contract element: %w", err)
-	}
-
-	// update contract chain update
-	if err := tx.UpdateContractLastChainUpdate(fce.ID, blockTime); err != nil {
-		return fmt.Errorf("failed to update contract last chain update: %w", err)
 	}
 
 	return nil

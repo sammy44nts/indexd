@@ -136,7 +136,6 @@ type (
 		Good bool `json:"good"`
 
 		LastBroadcastAttempt time.Time `json:"lastBroadcastAttempt"`
-		LastChainUpdate      time.Time `json:"lastChainUpdate"`
 	}
 
 	// ContractSettings contains various settings used by the manager for

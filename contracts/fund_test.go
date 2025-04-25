@@ -35,15 +35,15 @@ func (am *accountsManagerMock) FundAccounts(ctx context.Context, host hosts.Host
 func (s *storeMock) ContractsForBroadcasting(_ context.Context, minBroadcast time.Time, limit int) ([]types.FileContractID, error) {
 	var contracts []Contract
 	for _, c := range s.contracts {
-		if c.RenewedFrom == (types.FileContractID{}) && c.LastBroadcastAttempt.Before(minBroadcast) && c.LastChainUpdate.Before(minBroadcast) {
+		if c.Good &&
+			c.RenewedTo == (types.FileContractID{}) &&
+			(c.State == ContractStatePending || c.State == ContractStateActive) &&
+			c.LastBroadcastAttempt.Before(minBroadcast) {
 			contracts = append(contracts, c)
 		}
 	}
 	sort.Slice(contracts, func(i, j int) bool {
-		if !contracts[i].LastBroadcastAttempt.Equal(contracts[j].LastBroadcastAttempt) {
-			return contracts[i].LastBroadcastAttempt.Before(contracts[j].LastBroadcastAttempt)
-		}
-		return contracts[i].LastChainUpdate.Before(contracts[j].LastChainUpdate)
+		return contracts[i].LastBroadcastAttempt.Before(contracts[j].LastBroadcastAttempt)
 	})
 
 	out := make([]types.FileContractID, len(contracts))

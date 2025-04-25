@@ -29,17 +29,18 @@ func (cm *ContractManager) performBroadcastContractRevisions(ctx context.Context
 			go func(contractID types.FileContractID, log *zap.Logger) {
 				defer wg.Done()
 
-				if err := cm.broadcastContractRevision(ctx, contractID, log); err != nil {
+				err := cm.broadcastContractRevision(ctx, contractID, log)
+				if err != nil {
 					broadcastLog.Error("failed to broadcast contract revision", zap.Error(err))
+				}
+
+				err = cm.store.MarkBroadcastAttempt(ctx, contractID)
+				if err != nil {
+					broadcastLog.Error("failed to mark broadcast attempt", zap.Error(err))
 				}
 			}(contractID, broadcastLog.With(zap.Stringer("contractID", contractID)))
 		}
 		wg.Wait()
-
-		err = cm.store.MarkBroadcastAttempted(ctx, contracts)
-		if err != nil {
-			broadcastLog.Error("failed to mark broadcast attempts", zap.Error(err))
-		}
 	}
 
 	return nil

@@ -218,9 +218,6 @@ func TestContractElementsForBroadcast(t *testing.T) {
 func TestContractsForBroadcasting(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	now := time.Now().Round(time.Second)
-	minBroadcast := now.Add(-time.Minute)
-
 	// add a host
 	hk := types.PublicKey{1}
 	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
@@ -239,109 +236,56 @@ func TestContractsForBroadcasting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// assert none are returned - contracts are pending
-	res, err := store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(res) != 0 {
-		t.Fatalf("expected 0 contracts, got %d", len(res))
-	}
+	// tweak timestamp to assert order next
+	now := time.Now()
+	store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		_, err1 := tx.Exec(ctx, `UPDATE contracts SET last_broadcast_attempt = $1 WHERE contract_id = $2`, now.Add(-1*time.Minute), sqlHash256(fcid1))
+		_, err2 := tx.Exec(ctx, `UPDATE contracts SET last_broadcast_attempt = $1 WHERE contract_id = $2`, now.Add(-2*time.Minute), sqlHash256(fcid2))
+		return errors.Join(err1, err2)
+	})
 
-	// update chain state
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return errors.Join(
-			tx.UpdateContractState(fcid1, contracts.ContractStateActive),
-			tx.UpdateContractState(fcid2, contracts.ContractStateActive),
-			tx.UpdateContractLastChainUpdate(fcid1, now.Add(-2*time.Minute)),
-			tx.UpdateContractLastChainUpdate(fcid2, now.Add(-5*time.Minute)),
-		)
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert both are returned (in order)
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
+	// assert both are returned
+	res, err := store.ContractsForBroadcasting(context.Background(), now, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 2 {
 		t.Fatalf("expected 2 contracts, got %d", len(res))
-	} else if res[0] != fcid2 {
-		t.Fatalf("expected contract %v, got %v", fcid2, res[0])
-	} else if res[1] != fcid1 {
-		t.Fatalf("expected contract %v, got %v", fcid1, res[1])
+	} else if res[0] != fcid2 || res[1] != fcid1 {
+		t.Fatalf("expected %v, %v, got %v, %v", fcid2, fcid1, res[0], res[1])
 	}
 
 	// assert limit is respected
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 1)
+	res, err = store.ContractsForBroadcasting(context.Background(), now, 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 1 {
 		t.Fatalf("expected 1 contract, got %d", len(res))
 	}
 
-	// simulate contract seen on chain
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.UpdateContractLastChainUpdate(fcid1, now)
-	}); err != nil {
+	// mark broadcast attempt
+	err = store.MarkBroadcastAttempt(context.Background(), res[0])
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	// assert only second contract is returned
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
+	// assert only one gets returned
+	res, err = store.ContractsForBroadcasting(context.Background(), now, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 1 {
-		t.Fatalf("expected 1 contract, got %d", len(res))
-	} else if res[0] != fcid2 {
-		t.Fatalf("expected contract %v, got %v", fcid2, res[0])
+		t.Fatalf("expected 1 contracts, got %d", len(res))
 	}
 
-	// renew second contract
+	// renew the contract
 	if err := store.AddRenewedContract(context.Background(), contracts.AddRenewedContractParams{
-		RenewedFrom: fcid2,
-		RenewedTo:   types.FileContractID{3},
+		RenewedFrom: res[0],
+		RenewedTo:   types.FileContractID{9, 9, 9},
 	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert none are returned - renewed contracts are not broadcasted
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(res) != 0 {
-		t.Fatalf("expected 0 contracts, got %d", len(res))
-	}
-
-	// add another contract
-	fcid4 := types.FileContractID{4}
-	if err := store.AddFormedContract(context.Background(), fcid4, hk, 100, 200, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-
-	// update chain state
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.UpdateContractState(fcid4, contracts.ContractStateActive)
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert it's returned
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(res) != 1 {
-		t.Fatalf("expected 1 contract, got %d", len(res))
-	} else if res[0] != fcid4 {
-		t.Fatalf("expected contract %v, got %v", fcid4, res[0])
-	}
-
-	// mark broadcast attempted
-	if err := store.MarkBroadcastAttempted(context.Background(), res); err != nil {
 		t.Fatal(err)
 	}
 
 	// assert none are returned
-	res, err = store.ContractsForBroadcasting(context.Background(), minBroadcast, 10)
+	res, err = store.ContractsForBroadcasting(context.Background(), now, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 0 {
@@ -561,7 +505,6 @@ func TestFormRenewContract(t *testing.T) {
 		}
 		contract.Formation = time.Time{}
 		contract.LastBroadcastAttempt = time.Time{}
-		contract.LastChainUpdate = time.Time{}
 		if !reflect.DeepEqual(contract, expected) {
 			t.Fatalf("mismatch: \n%+v\n%+v", contract, expected)
 		}
@@ -1019,108 +962,32 @@ func TestMarkBroadcastAttempted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// add three contracts
-	fcid1 := types.FileContractID{1}
-	if err := store.AddFormedContract(context.Background(), fcid1, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
-		t.Fatal(err)
-	}
-	fcid2 := types.FileContractID{2}
-	if err := store.AddFormedContract(context.Background(), fcid2, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
-		t.Fatal(err)
-	}
-	fcid3 := types.FileContractID{3}
-	if err := store.AddFormedContract(context.Background(), fcid3, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert broadcast attempt is zero
-	for i := range 3 {
-		contract, err := store.Contract(context.Background(), types.FileContractID{byte(i + 1)})
-		if err != nil {
-			t.Fatal(err)
-		} else if !contract.LastBroadcastAttempt.IsZero() {
-			t.Fatal("unexpected", contract.LastBroadcastAttempt)
-		}
-	}
-
-	// mark broadcast attempt for the first two
-	err := store.MarkBroadcastAttempted(context.Background(), []types.FileContractID{fcid1, fcid2})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// assert ts is not zero
-	contract, err := store.Contract(context.Background(), fcid1)
-	if err != nil {
-		t.Fatal(err)
-	} else if contract.LastBroadcastAttempt.IsZero() {
-		t.Fatal("unexpected", contract.LastBroadcastAttempt)
-	}
-
-	// assert broadcast attempt is updated for the first two
-	for i := range 3 {
-		contract, err := store.Contract(context.Background(), types.FileContractID{byte(i + 1)})
-		if err != nil {
-			t.Fatal(err)
-		} else if i < 2 && contract.LastBroadcastAttempt.IsZero() {
-			t.Fatal("unexpected", contract.LastBroadcastAttempt)
-		} else if i >= 2 && !contract.LastBroadcastAttempt.IsZero() {
-			t.Fatal("unexpected", contract.LastBroadcastAttempt)
-		}
-	}
-
-	// mark broadcast attempt for the last one
-	err = store.MarkBroadcastAttempted(context.Background(), []types.FileContractID{fcid3})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// assert ts is not zero
-	contract, err = store.Contract(context.Background(), fcid3)
-	if err != nil {
-		t.Fatal(err)
-	} else if contract.LastBroadcastAttempt.IsZero() {
-		t.Fatal("unexpected", contract.LastBroadcastAttempt)
-	}
-}
-
-func TestLastChainUpdate(t *testing.T) {
-	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
-
-	// add a host
-	hk := types.PublicKey{1, 1, 1}
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
-	}); err != nil {
-		t.Fatal(err)
-	}
-
 	// add a contract
-	if err := store.AddFormedContract(context.Background(), types.FileContractID(hk), hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
+	fcid := types.FileContractID{1}
+	if err := store.AddFormedContract(context.Background(), fcid, hk, 100, 200, types.Siacoins(1), types.Siacoins(1), types.Siacoins(1), types.Siacoins(1)); err != nil {
 		t.Fatal(err)
 	}
 
-	// assert ts is zero
-	contract, err := store.Contract(context.Background(), types.FileContractID(hk))
+	// assert broadcast attempt is defaulted
+	contract, err := store.Contract(context.Background(), fcid)
 	if err != nil {
 		t.Fatal(err)
-	} else if !contract.LastChainUpdate.IsZero() {
-		t.Fatal("unexpected", contract.LastChainUpdate)
+	} else if contract.LastBroadcastAttempt.IsZero() {
+		t.Fatal("unexpected", contract.LastBroadcastAttempt)
 	}
 
-	// update last chain update ts
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.UpdateContractLastChainUpdate(types.FileContractID(hk), time.Now())
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert ts is not zero
-	contract, err = store.Contract(context.Background(), types.FileContractID(hk))
+	// mark broadcast attempt
+	err = store.MarkBroadcastAttempt(context.Background(), fcid)
 	if err != nil {
 		t.Fatal(err)
-	} else if contract.LastChainUpdate.IsZero() {
-		t.Fatal("unexpected", contract.LastChainUpdate)
+	}
+
+	// assert timestamp was updated
+	updated, err := store.Contract(context.Background(), fcid)
+	if err != nil {
+		t.Fatal(err)
+	} else if updated.LastBroadcastAttempt.IsZero() || !updated.LastBroadcastAttempt.After(contract.LastBroadcastAttempt) {
+		t.Fatal("unexpected", contract.LastBroadcastAttempt, updated.LastBroadcastAttempt)
 	}
 }
 

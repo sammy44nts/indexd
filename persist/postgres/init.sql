@@ -146,8 +146,7 @@ CREATE TABLE contracts (
   state SMALLINT NOT NULL DEFAULT 0, -- 0 = 'pending', 1 = 'active', 2 = 'resolved', 3 = 'expired', 4 = 'rejected'
 
   -- revision broadcast related columns
-  last_broadcast_attempt TIMESTAMP WITH TIME ZONE,
-  last_chain_update TIMESTAMP WITH TIME ZONE,
+  last_broadcast_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
   -- metrics for visualization (not ACID)
   capacity BIGINT NOT NULL DEFAULT 0 CHECK(capacity >= size),
@@ -171,6 +170,7 @@ CREATE TABLE contracts (
   sector_roots_spending DECIMAL(50, 0) NOT NULL DEFAULT 0
 );
 CREATE INDEX contracts_state_formation_idx ON contracts(state, formation); -- for rejecting expired contracts
+CREATE INDEX contracts_last_broadcast_attempt_ids ON contracts(last_broadcast_attempt ASC); -- for broadcasting revisions
 CREATE INDEX contracts_state_good_idx ON contracts(state) WHERE state <= 1 AND good; -- for filtering contracts
 CREATE INDEX contracts_host_id_remaining_allowance_idx ON contracts (host_id, remaining_allowance DESC) WHERE good = true AND remaining_allowance > 0 AND state <= 1; -- for fetching contracts for funding
 
