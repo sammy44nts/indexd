@@ -22,6 +22,110 @@ import (
 	"lukechampine.com/frand"
 )
 
+func TestRecordIntegrityCheck(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add account
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+
+	// add host
+	hk := types.PublicKey{1}
+	ha := chain.NetAddress{Protocol: quic.Protocol, Address: "[::]:4848"}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{ha}, time.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// pin a slab to add 2 sectors
+	pinTime := time.Now().Round(time.Microsecond)
+	root1 := types.Hash256{1}
+	root2 := types.Hash256{2}
+	_, err := store.PinSlab(context.Background(), account, pinTime, slabs.SlabPinParams{
+		EncryptionKey: [32]byte{},
+		MinShards:     10,
+		Sectors: []slabs.SectorPinParams{
+			{
+				Root:    root1,
+				HostKey: hk,
+			},
+			{
+				Root:    root2,
+				HostKey: hk,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// helper to assert sector state
+	assertSectors := func(root types.Hash256, expectedNextCheck time.Time, expectedConsecutiveFailures int) {
+		t.Helper()
+		var nextCheck time.Time
+		var consecutiveFailures int
+		err := store.pool.QueryRow(context.Background(), "SELECT next_integrity_check, consecutive_failed_checks FROM sectors WHERE sector_root = $1", sqlHash256(root)).Scan(&nextCheck, &consecutiveFailures)
+		if err != nil {
+			t.Fatal(err)
+		} else if expectedNextCheck != nextCheck {
+			t.Fatalf("expected next check %v, got %v", expectedNextCheck, nextCheck)
+		} else if consecutiveFailures != expectedConsecutiveFailures {
+			t.Fatalf("expected %d consecutive failures, got %d", expectedConsecutiveFailures, consecutiveFailures)
+		}
+	}
+
+	assertFailingSectors := func(expectedRoots []types.Hash256, minChecks, limit int) {
+		t.Helper()
+		roots, err := store.FailingSectors(context.Background(), hk, minChecks, limit)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(roots) != len(expectedRoots) {
+			t.Fatalf("expected %d failing sectors, got %d", len(expectedRoots), len(roots))
+		} else if len(roots) > 0 && !reflect.DeepEqual(roots, expectedRoots) {
+			t.Fatalf("expected failing sectors %v, got %v", expectedRoots, roots)
+		}
+	}
+
+	record := func(success bool, nextCheck time.Time, roots []types.Hash256) {
+		t.Helper()
+		err := store.RecordIntegrityCheck(context.Background(), success, nextCheck, hk, roots)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// check initial state - 0 failures
+	assertSectors(root1, pinTime, 0)
+	assertSectors(root2, pinTime, 0)
+	assertFailingSectors([]types.Hash256{}, 1, 10)
+
+	// record success for both
+	now := time.Now().Round(time.Microsecond)
+	record(true, now, []types.Hash256{root1, root2})
+	assertSectors(root1, now, 0)
+	assertSectors(root2, now, 0)
+	assertFailingSectors([]types.Hash256{}, 1, 10)
+
+	// record failure for both
+	now = now.Add(time.Minute)
+	record(false, now, []types.Hash256{root1, root2})
+	assertSectors(root1, now, 1)
+	assertSectors(root2, now, 1)
+	assertFailingSectors([]types.Hash256{root1, root2}, 1, 10)
+	assertFailingSectors([]types.Hash256{root1}, 1, 1)
+
+	// one more failure for root1 and success for root2
+	now = now.Add(time.Minute)
+	record(false, now, []types.Hash256{root1})
+	record(true, now, []types.Hash256{root2})
+	assertSectors(root1, now, 2)
+	assertSectors(root2, now, 0)
+	assertFailingSectors([]types.Hash256{root1}, 1, 10)
+}
+
 func TestSectorsForIntegrityCheck(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
@@ -1077,6 +1181,188 @@ func BenchmarkUnhealthySlab(b *testing.B) {
 			b.Fatal("known slab was returned")
 		}
 		seenSlabs[slabID] = struct{}{}
+	}
+}
+
+// BenchmarkRecordIntegrityChecks benchmarks RecordIntegrityCheck
+//
+//	CPU  | BatchSize |	  Count  |     Time/op     |   Throughput
+//
+// M2 Pro |    10     |    957   |     3.80024 ms  |   19291.60 MB/s
+// M2 Pro |   100     |    280   |    4.057123 ms  |  103381.24 MB/s
+// M2 Pro |  1000     |     37   |   28.196233 ms  |  148754.05 MB/s
+func BenchmarkRecordIntegrityChecks(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+	account := proto.Account{1}
+
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		b.Fatal("failed to add account:", err)
+	}
+
+	// add a host
+	hk := types.PublicKey{1}
+	ha := chain.NetAddress{Protocol: quic.Protocol, Address: "[::]:4848"}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{ha}, time.Now())
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	// prepare base db
+	const (
+		dbBaseSize = 1 << 40 // 1TiB of sectors
+		nSectors   = dbBaseSize / proto.SectorSize
+	)
+
+	// insert sectors in batches
+	sectorRoots := make([]types.Hash256, 0, nSectors)
+	for remainingSectors := nSectors; remainingSectors > 0; {
+		batchSize := min(remainingSectors, 10000)
+		remainingSectors -= batchSize
+		var sectors []slabs.SectorPinParams
+		for range batchSize {
+			root := frand.Entropy256()
+			sectors = append(sectors, slabs.SectorPinParams{
+				Root:    root,
+				HostKey: hk,
+			})
+			sectorRoots = append(sectorRoots, root)
+		}
+		slabIDs, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			MinShards:     1,
+			EncryptionKey: frand.Entropy256(),
+			Sectors:       sectors,
+		})
+		if err != nil {
+			b.Fatal(err)
+		} else if len(slabIDs) != 1 {
+			b.Fatal("expected 1 slab id")
+		}
+	}
+
+	for _, batchSize := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprint(batchSize), func(b *testing.B) {
+			b.SetBytes(int64(batchSize) * proto.SectorSize)
+			b.ResetTimer()
+
+			for b.Loop() {
+				b.StopTimer()
+				frand.Shuffle(len(sectorRoots), func(i, j int) {
+					sectorRoots[i], sectorRoots[j] = sectorRoots[j], sectorRoots[i]
+				})
+				batch := sectorRoots[:batchSize]
+				success := frand.Intn(2) == 0
+				b.StartTimer()
+
+				err := store.RecordIntegrityCheck(context.Background(), success, time.Now(), hk, batch)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkFailingSectors benchmarks FailingSectors.
+//
+//	CPU  | BatchSize |	  Count  |     Time/op     |   Throughput
+//
+// M2 Pro |   100     |    496   |    2.260241 ms  |  185568.92 MB/s
+// M2 Pro |  1000     |    100   |   13.477551 ms  |  311206.68 MB/s
+// M2 Pro | 10000     |     44   |   73.282087 ms  |  572350.51 MB/s
+func BenchmarkFailingSectors(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+	account := proto.Account{1}
+
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		b.Fatal("failed to add account:", err)
+	}
+
+	// add a host
+	hk := types.PublicKey{1}
+	ha := chain.NetAddress{Protocol: quic.Protocol, Address: "[::]:4848"}
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{ha}, time.Now())
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	// prepare base db
+	const (
+		dbBaseSize = 1 << 40 // 1TiB of sectors
+		nSectors   = dbBaseSize / proto.SectorSize
+	)
+
+	// insert sectors in batches
+	sectorRoots := make([]types.Hash256, 0, nSectors)
+	for remainingSectors := nSectors; remainingSectors > 0; {
+		batchSize := min(remainingSectors, 10000)
+		remainingSectors -= batchSize
+		var sectors []slabs.SectorPinParams
+		for range batchSize {
+			root := frand.Entropy256()
+			sectors = append(sectors, slabs.SectorPinParams{
+				Root:    root,
+				HostKey: hk,
+			})
+			sectorRoots = append(sectorRoots, root)
+		}
+		slabIDs, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			MinShards:     1,
+			EncryptionKey: frand.Entropy256(),
+			Sectors:       sectors,
+		})
+		if err != nil {
+			b.Fatal(err)
+		} else if len(slabIDs) != 1 {
+			b.Fatal("expected 1 slab id")
+		}
+	}
+
+	// 50% of the sectors are bad
+	reset := func() {
+		b.Helper()
+		_, err := store.pool.Exec(context.Background(), `UPDATE sectors SET consecutive_failed_checks = 1 WHERE id % 2 = 0`)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	reset()
+	remainingSectors := nSectors / 2
+
+	// run benchmark for various batch sizes
+	for _, batchSize := range []int{100, 1000, 10000} {
+		b.Run(fmt.Sprint(batchSize), func(b *testing.B) {
+			b.SetBytes(int64(batchSize) * proto.SectorSize)
+			b.ResetTimer()
+
+			for b.Loop() {
+				// reset if necessary
+				if remainingSectors < batchSize {
+					b.StopTimer()
+					reset()
+					b.StartTimer()
+					remainingSectors = nSectors / 2
+				}
+
+				// fetch batch
+				batch, err := store.FailingSectors(context.Background(), hk, 1, batchSize)
+				if err != nil {
+					b.Fatal(err)
+				} else if len(batch) != batchSize {
+					b.Fatalf("no full batch was returned: %d", len(batch))
+				}
+				b.StopTimer()
+
+				// mark the batch as good
+				err = store.RecordIntegrityCheck(context.Background(), true, time.Now(), hk, batch)
+				if err != nil {
+					b.Fatal(err)
+				}
+				remainingSectors -= batchSize
+				b.StartTimer()
+			}
+		})
 	}
 }
 

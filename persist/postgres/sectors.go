@@ -49,6 +49,34 @@ func (s *Store) MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, ro
 	return err
 }
 
+// RecordIntegrityCheck records the result of integrity checks for the given
+// sectors stored on the given host.
+func (s *Store) RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		sqlRoots := make([]sqlHash256, len(roots))
+		for i, root := range roots {
+			sqlRoots[i] = sqlHash256(root)
+		}
+		var err error
+		if success {
+			_, err = tx.Exec(ctx, `
+				UPDATE sectors
+				SET next_integrity_check = $1, consecutive_failed_checks = 0
+				WHERE host_id = (SELECT id FROM hosts WHERE public_key = $2) AND
+					sector_root = ANY($3)
+			`, nextCheck, sqlPublicKey(hostKey), sqlRoots)
+		} else {
+			_, err = tx.Exec(ctx, `
+				UPDATE sectors
+				SET next_integrity_check = $1, consecutive_failed_checks = consecutive_failed_checks + 1
+				WHERE host_id = (SELECT id FROM hosts WHERE public_key = $2) AND
+					sector_root = ANY($3)
+			`, nextCheck, sqlPublicKey(hostKey), sqlRoots)
+		}
+		return err
+	})
+}
+
 // SectorsForIntegrityCheck returns up to `limit` sectors that are due for an
 // integrity check.
 func (s *Store) SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error) {
@@ -82,8 +110,37 @@ func (s *Store) SectorsForIntegrityCheck(ctx context.Context, hostKey types.Publ
 	return sectors, err
 }
 
-// PinSlab adds a slab to the database for pinning. The slab is associated
-// with the provided account.
+// FailingSectors returns up to `limit` sectors that have failed integrity
+// checks at least 'minChecks' times.
+func (s *Store) FailingSectors(ctx context.Context, hostKey types.PublicKey, minChecks, limit int) ([]types.Hash256, error) {
+	var sectors []types.Hash256
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		rows, err := tx.Query(ctx, `
+			SELECT sector_root
+			FROM sectors
+			WHERE
+				host_id = (SELECT id FROM hosts WHERE public_key = $1)
+				AND consecutive_failed_checks >= $2
+			LIMIT $3
+		`, sqlPublicKey(hostKey), minChecks, limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var root types.Hash256
+			if err := rows.Scan((*sqlHash256)(&root)); err != nil {
+				return err
+			}
+			sectors = append(sectors, root)
+		}
+		return rows.Err()
+	})
+	return sectors, err
+}
+
+// PinSlab adds a slab to the database for pinning. The slab is associated with
+// the provided account.
 func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error) {
 	digest, err := slab.Digest()
 	if err != nil {
