@@ -263,7 +263,7 @@ func TestContractsForBroadcasting(t *testing.T) {
 	}
 
 	// mark broadcast attempt
-	err = store.MarkBroadcastAttempt(context.Background(), res[0])
+	err = store.MarkBroadcastAttempt(context.Background(), res)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -977,7 +977,7 @@ func TestMarkBroadcastAttempted(t *testing.T) {
 	}
 
 	// mark broadcast attempt
-	err = store.MarkBroadcastAttempt(context.Background(), fcid)
+	err = store.MarkBroadcastAttempt(context.Background(), []types.FileContractID{fcid})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1146,6 +1146,68 @@ func BenchmarkContracts(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// BenchmarkContractsForBroadcasting is a benchmark to ensure the performance of
+// ContractsForBroadcasting, we prepare the database with a certain number of
+// contracts per host, with a random state, last_broadcast_attempt and good
+// status.
+//
+// M1 Max | 100k contracts | 1.4ms/op
+func BenchmarkContractsForBroadcasting(b *testing.B) {
+	const (
+		numContractsPerHost = 100
+		numHosts            = 1000
+	)
+
+	// prepare database
+	store := initPostgres(b, zap.NewNop())
+	hosts := make([]types.PublicKey, 0, numHosts)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+
+			for range numContractsPerHost {
+				var id types.FileContractID
+				frand.Read(id[:])
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, last_broadcast_attempt) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10)`,
+					hostID,
+					sqlHash256(id),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlContractState(uint8(frand.Uint64n(5))), // random state
+					frand.Uint64n(10) != 0,                    // random good
+					time.Now().Add(-time.Duration(frand.Uint64n(60*60))*time.Second), // random last_broadcast_attempt
+				); err != nil {
+					return err
+				}
+			}
+
+			hosts = append(hosts, hk)
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	now := time.Now()
+	for b.Loop() {
+		contracts, err := store.ContractsForBroadcasting(context.Background(), now, 50)
+		if err != nil {
+			b.Fatal(err)
+		} else if len(contracts) < 50 {
+			b.StopTimer()
+			break
+		}
 	}
 }
 

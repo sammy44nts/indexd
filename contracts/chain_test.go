@@ -120,6 +120,20 @@ func (s *storeMock) BlockHosts(_ context.Context, hostKeys []types.PublicKey, re
 }
 
 func (s *storeMock) ContractElement(ctx context.Context, contractID types.FileContractID) (types.V2FileContractElement, error) {
+	for _, c := range s.contracts {
+		if c.ID == contractID {
+			return types.V2FileContractElement{
+				ID: contractID,
+				StateElement: types.StateElement{
+					LeafIndex:   1,
+					MerkleProof: []types.Hash256{{1}},
+				},
+				V2FileContract: types.V2FileContract{
+					HostPublicKey: c.HostKey,
+				},
+			}, nil
+		}
+	}
 	return types.V2FileContractElement{}, nil
 }
 
@@ -222,9 +236,13 @@ func (s *storeMock) MarkUnrenewableContractsBad(ctx context.Context, minProofHei
 	return nil
 }
 
-func (s *storeMock) MarkBroadcastAttempt(ctx context.Context, contractID types.FileContractID) error {
+func (s *storeMock) MarkBroadcastAttempt(ctx context.Context, contractIDs []types.FileContractID) error {
+	lookup := make(map[types.FileContractID]struct{}, len(contractIDs))
+	for _, id := range contractIDs {
+		lookup[id] = struct{}{}
+	}
 	for i := range s.contracts {
-		if s.contracts[i].ID == contractID {
+		if _, ok := lookup[s.contracts[i].ID]; ok {
 			s.contracts[i].LastBroadcastAttempt = time.Now()
 		}
 	}
