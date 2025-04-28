@@ -971,10 +971,10 @@ func BenchmarkSectorsForIntegrityCheck(b *testing.B) {
 
 // BenchmarkPinSectors benchmarks PinSectors in various batch sizes.
 //
-// CPU    | BatchSize |	 Count  |    Time/op    |    Throughput
-// M2 Pro |     10   |   1578  |  0.737270 ms  |   56889.68 MB/s
-// M2 Pro |    100   |    570  |  1.968935 ms  |  213023.95 MB/s
-// M2 Pro |   1000   |     66  | 17.543686 ms  |  239077.69 MB/s
+// CPU    | BatchSize |	 Count  |   Time/op     |   Throughput
+// M2 Pro |     10    |   1335  |    0.860 ms   |     48721.98 MB/s
+// M2 Pro |    100    |   400   |    2.637 ms   |     159044.64 MB/s
+// M2 Pro |   1000    |   56    |   19.966 ms   |     210065.00 MB/s
 func BenchmarkPinSectors(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 
@@ -1011,15 +1011,13 @@ func BenchmarkPinSectors(b *testing.B) {
 				HostKey: hk,
 			})
 		}
-		slabIDs, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+		_, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
 			MinShards:     1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       sectors,
 		})
 		if err != nil {
 			b.Fatal(err)
-		} else if len(slabIDs) != 1 {
-			b.Fatal("expected 1 slab id")
 		}
 	}
 
@@ -1028,9 +1026,9 @@ func BenchmarkPinSectors(b *testing.B) {
 		b.Helper()
 		_, err := store.pool.Exec(context.Background(), `
 			UPDATE sectors
-			SET contract_id = NULL,
+			SET contract_sectors_map_id = NULL,
 			uploaded_at = NOW() - interval '1 week' * random()
-			WHERE contract_id IS NOT NULL`)
+			WHERE contract_sectors_map_id IS NOT NULL`)
 		if err != nil {
 			b.Fatal(err)
 		}
