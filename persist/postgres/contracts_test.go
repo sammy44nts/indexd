@@ -951,7 +951,7 @@ func TestMarkUnrenewableContractsBad(t *testing.T) {
 	assertContractGood(false)
 }
 
-func TestMarkBroadcastAttempted(t *testing.T) {
+func TestMarkBroadcastAttempt(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	// add a host
