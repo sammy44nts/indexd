@@ -148,6 +148,9 @@ CREATE TABLE contracts (
   -- revision broadcast related columns
   last_broadcast_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
+  -- contract pruning 
+  last_prune TIMESTAMP WITH TIME ZONE,
+  
   -- metrics for visualization (not ACID)
   capacity BIGINT NOT NULL DEFAULT 0 CHECK(capacity >= size),
   size BIGINT NOT NULL DEFAULT 0 CHECK(size >= 0),
