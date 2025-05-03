@@ -222,9 +222,13 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	})
 }
 
-// UnpinSlab removes the association between the given account and the slab. If
-// the slab was only referenced by the given account, it will also be deleted.
-// The dangling sectors are removed by a background process.
+// UnpinSlab removes the association between the account and the given slab. If
+// this slab was only referenced by the given account, it will also be deleted,
+// along with its sectors.
+//
+// TODO: when we deduplicate sectors, unpinning a slab will delete the reference
+// and the slab, providing it wasn't referenced by another account. The sectors
+// will be removed by a background process that removes all dangling sectors.
 func (s *Store) UnpinSlab(ctx context.Context, accountID proto.Account, slabID slabs.SlabID) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		// fetch account id
