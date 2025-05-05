@@ -39,10 +39,9 @@ type (
 		updatePriceFrequency time.Duration
 		rateWindow           time.Duration
 
-		mu       sync.Mutex
-		rates    []decimal.Decimal
-		average  decimal.Decimal
-		currency string
+		mu      sync.Mutex
+		rates   []decimal.Decimal
+		average decimal.Decimal
 	}
 
 	// Explorer retrieves data about the Sia network from an external source.
@@ -203,10 +202,8 @@ func (pm *PinManager) updatePrices(ctx context.Context, force bool, log *zap.Log
 	pins, err := pm.store.PinnedSettings(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve pinned settings, %w", err)
-	}
-
-	if pins.Currency == "" {
-		// if no currency is set, default to USD
+	} else if pins.Currency == "" {
+		// if no currency is set, default to USD but ignore any pins
 		pins = PinnedSettings{Currency: "usd"}
 	}
 
@@ -224,7 +221,7 @@ func (pm *PinManager) updatePrices(ctx context.Context, force bool, log *zap.Log
 		return fmt.Errorf("invalid exchange rate, %v", rate)
 	}
 
-	update := pm.addRate(pins.Currency, rate)
+	update := pm.addRate(rate)
 	if !force && !update {
 		log.Debug("no update required")
 		return nil
@@ -277,15 +274,9 @@ func (pm *PinManager) updatePrices(ctx context.Context, force bool, log *zap.Log
 // addRate adds the rate in the given currency to the list and returns a boolean
 // whether the prices should be updated, this happens when the average rate
 // exceeds a certain threshold.
-func (pm *PinManager) addRate(currency string, rate float64) bool {
+func (pm *PinManager) addRate(rate float64) bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
-	// reset rates if currency has changed
-	if pm.currency != currency {
-		pm.currency = currency
-		pm.rates = nil
-	}
 
 	// add rate to list
 	maxRates := int(pm.rateWindow / pm.updatePriceFrequency)
