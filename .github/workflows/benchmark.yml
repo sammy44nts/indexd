@@ -10,6 +10,28 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: indexd_benchmark
+          POSTGRES_PASSWORD: indexd_benchmark
+          POSTGRES_DB: indexd_benchmark
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_USER: indexd_benchmark
+      POSTGRES_PASSWORD: indexd_benchmark
+      POSTGRES_DB: indexd_benchmark
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,12 +45,12 @@ jobs:
         run: go install golang.org/x/perf/cmd/benchstat@latest
 
       - name: Run benchmarks
-        run: go test -bench=. -benchmem ./... > new_bench.txt
+        run: go test -bench=. -benchmem -run=^$ -timeout=1h -benchtime=100x ./... | tee new_bench.txt
 
       - name: Fetch baseline benchmark
         run: |
-          git fetch origin main
-          git checkout origin/main -- baseline_bench.txt || echo "No baseline found, skipping"
+          git fetch origin pj/benchmarks-ci
+          git checkout pj/benchmarks-ci -- baseline_bench.txt || echo "No baseline found, skipping"
 
       - name: Compare benchmarks
         run: |

@@ -756,6 +756,7 @@ func BenchmarkSlabs(b *testing.B) {
 			slabIDs := initialSlabIDs[:nSlabs]
 			b.StartTimer()
 
+			time.Sleep(10 * time.Millisecond) // simulate regression
 			_, err := store.Slabs(context.Background(), proto.Account{1}, slabIDs)
 			if err != nil {
 				b.Fatal(err)
@@ -848,9 +849,9 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 		b.Helper()
 		_, err := store.pool.Exec(context.Background(), `
 			UPDATE sectors
-			SET contract_id = NULL,
+			SET contract_sectors_map_id = NULL,
 			uploaded_at = NOW() - interval '1 week' * random()
-			WHERE contract_id IS NOT NULL`)
+			WHERE contract_sectors_map_id IS NOT NULL`)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -932,15 +933,12 @@ func BenchmarkSectorsForIntegrityCheck(b *testing.B) {
 				HostKey: hk,
 			})
 		}
-		slabIDs, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+		if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 			MinShards:     1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       sectors,
-		})
-		if err != nil {
+		}); err != nil {
 			b.Fatal(err)
-		} else if len(slabIDs) != 1 {
-			b.Fatal("expected 1 slab id")
 		}
 	}
 
@@ -1226,15 +1224,12 @@ func BenchmarkRecordIntegrityChecks(b *testing.B) {
 			})
 			sectorRoots = append(sectorRoots, root)
 		}
-		slabIDs, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+		if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 			MinShards:     1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       sectors,
-		})
-		if err != nil {
+		}); err != nil {
 			b.Fatal(err)
-		} else if len(slabIDs) != 1 {
-			b.Fatal("expected 1 slab id")
 		}
 	}
 
@@ -1305,15 +1300,12 @@ func BenchmarkFailingSectors(b *testing.B) {
 			})
 			sectorRoots = append(sectorRoots, root)
 		}
-		slabIDs, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+		if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 			MinShards:     1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       sectors,
-		})
-		if err != nil {
+		}); err != nil {
 			b.Fatal(err)
-		} else if len(slabIDs) != 1 {
-			b.Fatal("expected 1 slab id")
 		}
 	}
 

@@ -1,0 +1,68 @@
+PASS
+ok  	go.sia.tech/indexd/accounts	0.006s
+PASS
+ok  	go.sia.tech/indexd/alerts	0.007s
+PASS
+ok  	go.sia.tech/indexd/api	0.011s
+?   	go.sia.tech/indexd/build	[no test files]
+?   	go.sia.tech/indexd/cmd/indexd	[no test files]
+?   	go.sia.tech/indexd/config	[no test files]
+PASS
+ok  	go.sia.tech/indexd/contracts	0.018s
+?   	go.sia.tech/indexd/explorer	[no test files]
+PASS
+ok  	go.sia.tech/indexd/hosts	0.015s
+PASS
+ok  	go.sia.tech/indexd/internal/testutils	0.011s
+goos: linux
+goarch: amd64
+pkg: go.sia.tech/indexd/persist/postgres
+cpu: AMD EPYC 7763 64-Core Processor                
+BenchmarkHostAccountsForFunding/10000_accounts-2         	     100	   5701902 ns/op	  614406 B/op	   10038 allocs/op
+BenchmarkHostAccountsForFunding/100000_accounts-2        	     100	   6346212 ns/op	  614413 B/op	   10038 allocs/op
+BenchmarkHostAccountsForFunding/1000000_accounts-2       	     100	   5740783 ns/op	  614420 B/op	   10038 allocs/op
+BenchmarkUpdateHostAccounts-2                            	     100	  19013015 ns/op	 1793899 B/op	   12846 allocs/op
+BenchmarkContracts/contract-2                            	     100	    519661 ns/op	    6242 B/op	     137 allocs/op
+BenchmarkContracts/contracts_100-2                       	     100	   1639590 ns/op	  406821 B/op	    9053 allocs/op
+BenchmarkContracts/contracts_revisable_100-2             	     100	   1670655 ns/op	  406776 B/op	    9056 allocs/op
+BenchmarkContracts/contracts_revisable+good_100-2        	     100	   1754701 ns/op	  406818 B/op	    9059 allocs/op
+BenchmarkContracts/contracts_1000-2                      	     100	   9268681 ns/op	 4288728 B/op	   90065 allocs/op
+BenchmarkContracts/contracts_revisable_1000-2            	     100	   9418013 ns/op	 4288786 B/op	   90068 allocs/op
+BenchmarkContracts/contracts_revisable+good_1000-2       	     100	   9855107 ns/op	 4288771 B/op	   90071 allocs/op
+BenchmarkContractsForBroadcasting-2                      	     100	  12706222 ns/op	   11569 B/op	     279 allocs/op
+BenchmarkContractsForFunding-2                           	     100	    673669 ns/op	    5571 B/op	     123 allocs/op
+BenchmarkHosts/Host-2                                    	     100	   1025147 ns/op	   11867 B/op	     188 allocs/op
+BenchmarkHosts/Hosts_10-2                                	     100	   7646117 ns/op	   68616 B/op	    1089 allocs/op
+BenchmarkHosts/Hosts_100-2                               	     100	  11124074 ns/op	  588472 B/op	    9910 allocs/op
+BenchmarkHosts/Hosts_1000-2                              	     100	  24831423 ns/op	 6131178 B/op	   98151 allocs/op
+BenchmarkHosts/UpdateHost-2                              	     100	   1138652 ns/op	    3546 B/op	     145 allocs/op
+BenchmarkSlabs/PinSlab-2                                 	     100	   3315391 ns/op	12651.01 MB/s	   48529 B/op	     559 allocs/op
+BenchmarkSlabs/Slabs-40MiB-2                             	     100	    895544 ns/op	46835.25 MB/s	   18148 B/op	     383 allocs/op
+BenchmarkSlabs/Slabs-400MiB-2                            	     100	   2089992 ns/op	20068.52 MB/s	  168886 B/op	    3535 allocs/op
+BenchmarkSlabs/Slabs-4GiB-2                              	     100	  13509759 ns/op	3104.65 MB/s	 1724137 B/op	   34889 allocs/op
+BenchmarkUnpinnedSectors/100-2                           	     100	   2977028 ns/op	140888.95 MB/s	   17114 B/op	     524 allocs/op
+BenchmarkUnpinnedSectors/1000-2                          	     100	   1595112 ns/op	2629473.80 MB/s	  161950 B/op	    5026 allocs/op
+BenchmarkUnpinnedSectors/10000-2                         	     100	  26361976 ns/op	1591043.10 MB/s	 1609322 B/op	   50030 allocs/op
+BenchmarkSectorsForIntegrityCheck/10-2                   	     100	    631503 ns/op	66417.79 MB/s	    3401 B/op	      78 allocs/op
+BenchmarkSectorsForIntegrityCheck/100-2                  	     100	    711705 ns/op	589331.58 MB/s	   22074 B/op	     531 allocs/op
+BenchmarkSectorsForIntegrityCheck/1000-2                 	     100	   9596452 ns/op	437068.19 MB/s	  230113 B/op	    5037 allocs/op
+BenchmarkPinSectors/10-2                                 	     100	   1339463 ns/op	31313.33 MB/s	    2764 B/op	      53 allocs/op
+BenchmarkPinSectors/100-2                                	     100	   4047958 ns/op	103615.31 MB/s	   30142 B/op	     330 allocs/op
+BenchmarkPinSectors/1000-2                               	     100	  27409092 ns/op	153026.01 MB/s	  317668 B/op	    3038 allocs/op
+BenchmarkUnhealthySlab-2                                 	     100	  33094563 ns/op	    2474 B/op	      32 allocs/op
+BenchmarkRecordIntegrityChecks/10-2                      	     100	   1174151 ns/op	35722.02 MB/s	    2808 B/op	      55 allocs/op
+BenchmarkRecordIntegrityChecks/100-2                     	     100	   5445338 ns/op	77025.59 MB/s	   30228 B/op	     332 allocs/op
+BenchmarkRecordIntegrityChecks/1000-2                    	     100	  51673396 ns/op	81169.51 MB/s	  317682 B/op	    3040 allocs/op
+BenchmarkFailingSectors/100-2                            	     100	   3443317 ns/op	121810.00 MB/s	   22140 B/op	     531 allocs/op
+BenchmarkFailingSectors/1000-2                           	     100	  25336455 ns/op	165544.23 MB/s	  230154 B/op	    5037 allocs/op
+BenchmarkFailingSectors/10000-2                          	     100	  36272970 ns/op	1156316.67 MB/s	 2595113 B/op	   50049 allocs/op
+BenchmarkMarkSectorsLost/100-2                           	     100	   5126009 ns/op	81823.97 MB/s	   30436 B/op	     336 allocs/op
+BenchmarkMarkSectorsLost/1000-2                          	     100	  25779119 ns/op	162701.60 MB/s	  317880 B/op	    3046 allocs/op
+BenchmarkMarkSectorsLost/10000-2                         	     100	 276696927 ns/op	151584.77 MB/s	 3448606 B/op	   29171 allocs/op
+PASS
+ok  	go.sia.tech/indexd/persist/postgres	814.539s
+PASS
+ok  	go.sia.tech/indexd/pins	0.007s
+PASS
+ok  	go.sia.tech/indexd/slabs	0.003s
+?   	go.sia.tech/indexd/subscriber	[no test files]
