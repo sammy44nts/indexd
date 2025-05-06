@@ -29,6 +29,7 @@ type (
 	// in the database.
 	Store interface {
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
+		RefreshUnhealthySlabs(ctx context.Context) error
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
 	}
 )
@@ -117,6 +118,10 @@ func (m *SlabManager) performSlabMigrations() error {
 	logger := m.log.Named("migrations")
 	logger.Debug("starting slab migrations", zap.Time("start", start))
 
+	err := m.store.RefreshUnhealthySlabs(context.Background())
+	if err != nil {
+		logger.Error("failed to refresh unhealthy slabs", zap.Error(err))
+	}
 	// TODO: implement
 
 	logger.Debug("finished slab migrations", zap.Duration("elapsed", time.Since(start)))

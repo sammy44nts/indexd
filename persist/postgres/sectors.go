@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/slabs"
-	"lukechampine.com/frand"
 )
 
 // MarkSectorsLost marks the sectors as lost by setting both the contract ID and
@@ -369,55 +368,26 @@ func (s *Store) UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, li
 	return roots, err
 }
 
-// UnhealthySlab returns a slab that has at least one sector that needs to be
-// migrated to a new host and hasn't had a repair attempted since
-// 'maxRepairAttempt'. The condition for such a slab is that it either has:
-// a). a sector that is not stored on a host (host_id == null)
-// b). a sector that is stored in a bad contract (contract_id != null && contract.good = false)
-// When no slab is found, ErrSlabNotFound is returned. If a slab is found, it
-// will have its last_repair_attempt updated to the time of the call. To prevent
-// subsequent or parallel calls from returning the same slab.
-//
-// NOTE: For the sake of scalability, we don't prioritize any slabs and instead
-// simply fetch the first one that we can get.
+// UnhealthySlab returns an unhealthy slab that hasn't had a repair attempted
+// since 'maxRepairAttempt'. When no slab is found, ErrSlabNotFound is returned.
+// If a slab is found, it will have its last_repair_attempt updated to the time
+// of the call. To prevent subsequent or parallel calls from returning the same
+// slab.
 func (s *Store) UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (slabs.SlabID, error) {
-	// not stored on any host
-	conditionA := `
-		SELECT 1
-		FROM slab_sectors
-		INNER JOIN sectors ON sectors.id = slab_sectors.sector_id
-		WHERE slab_sectors.slab_id = slabs.id
-		AND sectors.host_id IS NULL`
-
-	// stored on bad contract
-	conditionB := `
-		SELECT 1
-		FROM slab_sectors
-		INNER JOIN sectors ON sectors.id = slab_sectors.sector_id
-		INNER JOIN contract_sectors_map csm ON sectors.contract_sectors_map_id = csm.id
-		INNER JOIN contracts ON csm.contract_id = contracts.contract_id
-		WHERE slab_sectors.slab_id = slabs.id
-		AND contracts.good = FALSE`
-
-	if frand.Intn(2) == 0 {
-		conditionA, conditionB = conditionB, conditionA
-	}
-
 	var slabID slabs.SlabID
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		err := tx.QueryRow(ctx, `
-			WITH candidate AS (
-				SELECT id AS slab_id
-				FROM slabs
-				WHERE last_repair_attempt <= $1
-				AND EXISTS (`+conditionA+" UNION ALL "+conditionB+`)
-				LIMIT 1
-			)
 			UPDATE slabs
 			SET last_repair_attempt = NOW()
-			FROM candidate
-			WHERE slabs.id = candidate.slab_id
-			RETURNING slabs.digest;
+			WHERE id = (
+				SELECT slabs.id
+				FROM slabs
+				INNER JOIN unhealthy_slabs ON slabs.id = unhealthy_slabs.slab_id
+				WHERE slabs.last_repair_attempt <= $1
+				ORDER BY slabs.last_repair_attempt ASC
+				LIMIT 1
+			)
+			RETURNING digest
 		`, maxRepairAttempt).Scan((*sqlHash256)(&slabID))
 		if errors.Is(err, sql.ErrNoRows) {
 			return slabs.ErrSlabNotFound
@@ -425,4 +395,17 @@ func (s *Store) UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (
 		return err
 	})
 	return slabID, err
+}
+
+// RefreshUnhealthySlabs refreshes a materialized view that contains slabs with
+// at least one sector that needs to be migrated to a new host. The condition
+// for such a sector is that it's either not stored on a host, or stored in a
+// bad contract. This function is meant to be called periodically to keep the view
+// up to date. The view is refreshed concurrently to avoid blocking other
+// transactions.
+func (s *Store) RefreshUnhealthySlabs(ctx context.Context) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `REFRESH MATERIALIZED VIEW CONCURRENTLY unhealthy_slabs`)
+		return err
+	})
 }

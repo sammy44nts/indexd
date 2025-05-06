@@ -205,6 +205,9 @@ CREATE TABLE slabs (
 );
 CREATE INDEX slabs_digest_idx ON slabs(digest);
 
+-- speeds up lookup of unhealthy slabs
+CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(last_repair_attempt ASC);
+
 CREATE TABLE account_slabs (
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
     slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
@@ -253,13 +256,19 @@ CREATE TABLE slab_sectors (
     PRIMARY KEY (slab_id, sector_id)
 );
 
+-- speeds up lookup of unhealthy slabs
+CREATE INDEX slab_sectors_sector_id_idx ON slab_sectors(sector_id);
+
 -- speed up fetching sectors for slab ordered by their position within the slab
 CREATE UNIQUE INDEX slab_sectors_slab_id_slab_index_idx ON slab_sectors(slab_id, slab_index ASC);
 
--- speeds up lookup of unhealthy slabs
-CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(last_repair_attempt ASC);
-CREATE INDEX slab_sectors_sector_id_idx ON slab_sectors(sector_id);
-CREATE INDEX sectors_id_idx ON sectors(id) INCLUDE (host_id, contract_sectors_map_id);
-CREATE INDEX sectors_id_host_null_idx ON sectors(id) WHERE host_id IS NULL;
-CREATE INDEX sectors_contract_sectors_map_id_host_id_idx ON sectors(contract_sectors_map_id, host_id);
-CREATE INDEX contracts_contract_id_good_idx ON contracts(contract_id, good);
+-- materialized view to speed up lookup of unhealthy slabs
+CREATE MATERIALIZED VIEW unhealthy_slabs AS
+    SELECT slab_id
+    FROM slab_sectors
+    INNER JOIN sectors ON sectors.id = slab_sectors.sector_id
+    LEFT JOIN contract_sectors_map csm ON sectors.contract_sectors_map_id = csm.id
+    LEFT JOIN contracts ON csm.contract_id = contracts.contract_id WHERE sectors.host_id IS NULL OR contracts.good = FALSE
+    GROUP BY slab_sectors.slab_id;
+
+CREATE UNIQUE INDEX unhealthy_slabs_slab_id_idx ON unhealthy_slabs(slab_id);

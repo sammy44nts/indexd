@@ -1089,7 +1089,7 @@ func BenchmarkPinSectors(b *testing.B) {
 // BenchmarkUnhealthySlab benchmarks UnhealthySlab
 //
 //	CPU    |  Count  |   Time/op
-//	M1 Max |   100   |    53.84 ms
+//	M1 Max |   100   |   1.63 ms
 func BenchmarkUnhealthySlab(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}
@@ -1176,6 +1176,12 @@ func BenchmarkUnhealthySlab(b *testing.B) {
 
 	// 25% of the sectors don't have a host at all
 	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET host_id = NULL, contract_sectors_map_id = NULL WHERE id % 4 = 1`)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// populate the materialized view
+	err = store.RefreshUnhealthySlabs(context.Background())
 	if err != nil {
 		b.Fatal(err)
 	}
