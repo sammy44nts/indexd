@@ -756,7 +756,6 @@ func BenchmarkSlabs(b *testing.B) {
 			slabIDs := initialSlabIDs[:nSlabs]
 			b.StartTimer()
 
-			time.Sleep(10 * time.Millisecond) // simulate regression
 			_, err := store.Slabs(context.Background(), proto.Account{1}, slabIDs)
 			if err != nil {
 				b.Fatal(err)
@@ -769,6 +768,7 @@ func BenchmarkSlabs(b *testing.B) {
 		b.SetBytes(slabSize)
 		b.ResetTimer()
 		for b.Loop() {
+			time.Sleep(time.Second) // simulate regression
 			_, err := store.PinSlab(context.Background(), proto.Account{1}, time.Time{}, newSlab())
 			if err != nil {
 				b.Fatal(err)
