@@ -1069,7 +1069,6 @@ func BenchmarkRemoveSectors(b *testing.B) {
 			}
 		})
 	}
-
 }
 
 // BenchmarkUnpinnedSectors benchmarks UnpinnedSectors in various batch sizes.
