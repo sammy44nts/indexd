@@ -1159,7 +1159,7 @@ func TestSyncContract(t *testing.T) {
 // BenchmarkContracts is a benchmark to ensure the performance of
 // Contract and Contracts.
 //
-// M1 Max | Contract       |                | 1 ms/op
+// M1 Max | Contract       |                | 1.3 ms/op
 // M1 Max | Contracts 100  | None           | 1.9 ms/op
 // M1 Max | Contracts 100  | Revisable      | 2.4 ms/op
 // M1 Max | Contracts 100  | Revisable+Good | 2.2 ms/op
@@ -1220,7 +1220,8 @@ func BenchmarkContracts(b *testing.B) {
 			b.Fatalf("too many iterations, %d > %d", b.N, len(contractIDs))
 		}
 		for b.Loop() {
-			_, err := store.Contract(context.Background(), contractIDs[b.N%len(contractIDs)])
+			rIdx := frand.Intn(len(contractIDs))
+			_, err := store.Contract(context.Background(), contractIDs[rIdx])
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -1321,7 +1322,7 @@ func BenchmarkContractsForBroadcasting(b *testing.B) {
 // ContractsForFunding, we prepare the database with a certain number of
 // contracts per host, with a random state, remaining allowance and good status.
 //
-// M1 Max | 100k contracts | 1.3ms/op
+// M1 Max | 100k contracts | 1.56ms/op
 func BenchmarkContractsForFunding(b *testing.B) {
 	const (
 		numContractsPerHost = 100
@@ -1366,7 +1367,67 @@ func BenchmarkContractsForFunding(b *testing.B) {
 	}
 
 	for b.Loop() {
-		if _, err := store.ContractsForFunding(context.Background(), hosts[b.N%numHosts], 50); err != nil {
+		rIdx := frand.Intn(len(hosts))
+		if _, err := store.ContractsForFunding(context.Background(), hosts[rIdx], 50); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkContractsForPinning is a benchmark to ensure the performance of
+// ContractsForPinning, we prepare the database with contracts that are randomly
+// suitable for pinning depending on various factors.
+//
+// M1 Max | 100k contracts | 1.41ms/op
+func BenchmarkContractsForPinning(b *testing.B) {
+	const (
+		numContractsPerHost = 100
+		numHosts            = 1000
+	)
+
+	// prepare database
+	store := initPostgres(b, zap.NewNop())
+	hosts := make([]types.PublicKey, 0, numHosts)
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for range numHosts {
+			var hostID int64
+			hk := types.GeneratePrivateKey().PublicKey()
+			err := tx.QueryRow(context.Background(), `INSERT INTO hosts (public_key, last_announcement) VALUES ($1, NOW()) RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID)
+			if err != nil {
+				return err
+			}
+
+			for range numContractsPerHost {
+				var id types.FileContractID
+				frand.Read(id[:])
+				size := frand.Uint64n(1e9)
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+					hostID,
+					sqlHash256(id),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.ZeroCurrency),
+					sqlCurrency(types.NewCurrency64(frand.Uint64n(5))), // random allowance
+					sqlContractState(uint8(frand.Uint64n(3))),          // random state
+					frand.Uint64n(2) == 0,                              // random good
+					size,                                               // random size
+					size+frand.Uint64n(1e3),                            // random capacity
+				); err != nil {
+					return err
+				}
+			}
+
+			hosts = append(hosts, hk)
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	for b.Loop() {
+		rIdx := frand.Intn(len(hosts))
+		if _, err := store.ContractsForPinning(context.Background(), hosts[rIdx]); err != nil {
 			b.Fatal(err)
 		}
 	}
