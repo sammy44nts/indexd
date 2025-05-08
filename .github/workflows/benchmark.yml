@@ -45,37 +45,39 @@ jobs:
         run: go install golang.org/x/perf/cmd/benchstat@latest
 
       - name: Run benchmarks
-        run: go test -bench='Benchmark' -count=10 -benchtime=25x -timeout=60m ./... | tee new_bench.txt 
-
-      - name: Fetch baseline benchmark
         run: |
-          git fetch origin master
-          git checkout master -- baseline_bench.txt || echo "No baseline found, skipping"
-
-      - name: Compare benchmarks
-        run: |
-          if [ -f baseline_bench.txt ]; then
-            benchstat baseline_bench.txt new_bench.txt > benchdiff.txt
-            cat benchdiff.txt
-          else
-            echo "No baseline to compare. Skipping comparison."
-          fi
-
-      - name: Fail on regression
-        run: |
-          if [ -f benchdiff.txt ]; then
-            if grep -E '([3-9][0-9]%|[1-9][0-9]{2,}%?)' benchdiff.txt; then
-              echo "Performance regression detected! 🔥"
-              exit 1
-            else
-              echo "No significant regression detected. ✅"
-            fi
-          else
-            echo "No benchmark comparison done."
-          fi
+          go test -run='^$' -bench=. -count=10 -benchtime=25x -timeout=60m ./... > new_bench.txt
 
       - name: Save latest benchmark as artifact
         uses: actions/upload-artifact@v4
         with:
           name: latest-benchmark
           path: new_bench.txt
+
+      - name: Check for baseline benchmark
+        id: lookup_baseline
+        run: |
+          git fetch origin master
+          if git ls-tree --name-only origin/master | grep -q '^baseline_bench.txt$'; then
+            git checkout origin/master -- baseline_bench.txt
+            echo "baseline_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "No baseline found in origin/master, skipping"
+            echo "baseline_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compare benchmarks
+        if: steps.lookup_baseline.outputs.baseline_found == 'true'
+        run: |
+          benchstat baseline_bench.txt new_bench.txt > benchdiff.txt
+          cat benchdiff.txt
+
+      - name: Fail on regression
+        if: steps.lookup_baseline.outputs.baseline_found == 'true'
+        run: |
+          if grep -E '([3-9][0-9]%|[1-9][0-9]{2,}%?)' benchdiff.txt; then
+            echo "Performance regression detected! 🔥"
+            exit 1
+          else
+            echo "No significant regression detected. ✅"
+          fi
