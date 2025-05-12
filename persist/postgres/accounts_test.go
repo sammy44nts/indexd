@@ -471,15 +471,15 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 			if b.N > numHosts {
 				b.Fatalf("too many iterations, %d > %d", b.N, numHosts)
 			}
-			for i := 0; i < b.N; i++ {
-				hk := hosts[i%numHosts]
+			for b.Loop() {
+				hk := hosts[frand.Intn(numHosts)]
 				hostID := hostIDs[hk]
 
 				if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 					// fetch accounts without account_host entry
 					if accounts, err := store.newHostAccountsForFunding(context.Background(), tx, hk, hostID, batchSize); err != nil {
 						return err
-					} else if len(accounts) != batchSize {
+					} else if len(accounts) == batchSize {
 						return fmt.Errorf("expected %d new accounts, got %d", batchSize, len(accounts))
 					}
 
