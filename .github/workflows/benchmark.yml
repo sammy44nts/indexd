@@ -45,12 +45,12 @@ jobs:
         run: |
           set -euo pipefail
       
-          if ! go test -run='^$' -benchmem -benchtime=25x -bench=. -timeout=1h ./... 2>&1 | tee new_bench.txt; then
+          if ! go test -run='^$' -benchmem -benchtime=10x -bench=. -timeout=1h ./... 2>&1 | tee indexd_benchmarks.txt; then
             echo "go test exited with an error"
             exit 1
           fi
       
-          if grep -E 'FAIL|panic:|fatal error' new_bench.txt; then
+          if grep -E 'FAIL|panic:|fatal error' indexd_benchmarks.txt; then
             echo "Detected failure pattern in benchmark output"
             exit 1
           fi
@@ -59,4 +59,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: latest-benchmark
-          path: new_bench.txt
+          path: indexd_benchmarks.txt
+          retention-days: 31

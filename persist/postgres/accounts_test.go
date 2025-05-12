@@ -479,7 +479,7 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 					// fetch accounts without account_host entry
 					if accounts, err := store.newHostAccountsForFunding(context.Background(), tx, hk, hostID, batchSize); err != nil {
 						return err
-					} else if len(accounts) == batchSize {
+					} else if len(accounts) != batchSize {
 						return fmt.Errorf("expected %d new accounts, got %d", batchSize, len(accounts))
 					}
 
