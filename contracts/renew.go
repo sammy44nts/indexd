@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (c *contractor) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
+func (c *hostClient) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, contractID)
 	if err != nil {
 		return rhp.RPCRenewContractResult{}, fmt.Errorf("failed to fetch latest revision: %w", err)
@@ -99,13 +99,13 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		return nil
 	}
 
-	contractor, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
+	hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
-		contractLog.Debug("failed to create contractor", zap.Error(err))
+		contractLog.Debug("failed to dial host", zap.Error(err))
 		return nil
 	}
-	defer contractor.Close()
-	res, err := contractor.RenewContract(ctx, host.Settings, contract.ID, proofHeight)
+	defer hc.Close()
+	res, err := hc.RenewContract(ctx, host.Settings, contract.ID, proofHeight)
 	if err != nil {
 		contractLog.Debug("failed to renew", zap.Error(err))
 		return nil

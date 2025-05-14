@@ -17,7 +17,7 @@ type refreshContractCall struct {
 	params   proto.RPCRefreshContractParams
 }
 
-func (c *contractorMock) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+func (c *hostClientMock) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
 	c.refreshCalls = append(c.refreshCalls, refreshContractCall{
 		settings: settings,
 		params:   params,
@@ -162,15 +162,15 @@ func TestPerformContractRefreshes(t *testing.T) {
 
 	if err := contracts.performContractRefreshes(context.Background(), zap.NewNop()); err != nil {
 		t.Fatal(err)
-	} else if len(dialer.Contractor(good.PublicKey).refreshCalls) != 4 {
-		t.Fatalf("expected 4 refresh calls, got %v", len(dialer.Contractor(good.PublicKey).refreshCalls))
-	} else if len(dialer.Contractor(bad.PublicKey).refreshCalls) != 0 {
+	} else if len(dialer.HostClient(good.PublicKey).refreshCalls) != 4 {
+		t.Fatalf("expected 4 refresh calls, got %v", len(dialer.HostClient(good.PublicKey).refreshCalls))
+	} else if len(dialer.HostClient(bad.PublicKey).refreshCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
-	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{2}, dialer.Contractor(good.PublicKey).refreshCalls[0])
-	assertRefresh(good, types.Siacoins(110), types.Siacoins(110), types.FileContractID{3}, dialer.Contractor(good.PublicKey).refreshCalls[1])
-	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{4}, dialer.Contractor(good.PublicKey).refreshCalls[2])
-	assertRefresh(good, types.Siacoins(1), types.Siacoins(1), types.FileContractID{6}, dialer.Contractor(good.PublicKey).refreshCalls[3])
+	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{2}, dialer.HostClient(good.PublicKey).refreshCalls[0])
+	assertRefresh(good, types.Siacoins(110), types.Siacoins(110), types.FileContractID{3}, dialer.HostClient(good.PublicKey).refreshCalls[1])
+	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{4}, dialer.HostClient(good.PublicKey).refreshCalls[2])
+	assertRefresh(good, types.Siacoins(1), types.Siacoins(1), types.FileContractID{6}, dialer.HostClient(good.PublicKey).refreshCalls[3])
 
 	// assert refreshes made it into the store leading to 8 existing + 4 refreshed
 	// contracts in the store
