@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (c *contractor) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+func (c *hostClient) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, params.ContractID)
 	if err != nil {
 		return rhp.RPCRefreshContractResult{}, fmt.Errorf("failed to fetch latest revision: %w", err)
@@ -118,13 +118,13 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		return nil
 	}
 
-	contractor, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
+	hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
-		contractLog.Debug("failed to dial contractor", zap.Error(err))
+		contractLog.Debug("failed to dial host", zap.Error(err))
 		return nil
 	}
-	defer contractor.Close()
-	res, err := contractor.RefreshContract(ctx, host.Settings, proto.RPCRefreshContractParams{
+	defer hc.Close()
+	res, err := hc.RefreshContract(ctx, host.Settings, proto.RPCRefreshContractParams{
 		Allowance:  additionalAllowance,
 		Collateral: additionalCollateral,
 		ContractID: contract.ID,

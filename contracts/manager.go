@@ -46,9 +46,9 @@ type (
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
-	// Contractor defines the dependencies required to form, renew and refresh
+	// HostClient defines the dependencies required to form, renew and refresh
 	// contracts.
-	Contractor interface {
+	HostClient interface {
 		io.Closer
 		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
 		LatestRevision(ctx context.Context, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error)
@@ -467,13 +467,13 @@ func (cm *ContractManager) syncContract(ctx context.Context, contract Contract, 
 	revisionCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	contractor, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
+	hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
-		contractLog.Warn("failed to create contractor", zap.Error(err))
+		contractLog.Warn("failed to dial host", zap.Error(err))
 		return err
 	}
-	defer contractor.Close()
-	resp, err := contractor.LatestRevision(revisionCtx, contract.ID)
+	defer hc.Close()
+	resp, err := hc.LatestRevision(revisionCtx, contract.ID)
 	if err != nil {
 		contractLog.Warn("failed to fetch latest revision", zap.Error(err))
 		return nil
