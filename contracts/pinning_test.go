@@ -2,7 +2,6 @@ package contracts
 
 import (
 	"context"
-	"errors"
 	"net"
 	"sort"
 	"testing"
@@ -16,47 +15,6 @@ import (
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
-
-type mockSectorPinner struct {
-	host   HostClient
-	prices proto.HostPrices
-}
-
-func newMockSectorPinner(hc HostClient, hp proto.HostPrices) *mockSectorPinner {
-	return &mockSectorPinner{
-		host:   hc,
-		prices: hp,
-	}
-}
-
-func (m *mockSectorPinner) PinSectors(ctx context.Context, contractIDs []types.FileContractID, sectors []types.Hash256, log *zap.Logger) (usedContractID types.FileContractID, missing []types.Hash256, _ error) {
-	for _, contractID := range contractIDs {
-		res, err := m.host.AppendSectors(ctx, m.prices, contractID, sectors)
-		if err != nil {
-			continue
-		} else if len(res.Sectors) == 0 {
-			continue
-		}
-
-		// figure out which sectors were missing if necessary
-		if len(res.Sectors) != len(sectors) {
-			lookup := make(map[types.Hash256]struct{}, len(sectors))
-			for _, sector := range sectors {
-				lookup[sector] = struct{}{}
-			}
-			for _, sector := range res.Sectors {
-				delete(lookup, sector)
-			}
-			for sector := range lookup {
-				missing = append(missing, sector)
-			}
-		}
-
-		usedContractID = contractID
-		return
-	}
-	return types.FileContractID{}, nil, errors.New("no contract found")
-}
 
 type appendSectorCall struct {
 	hostPrices proto.HostPrices
@@ -280,7 +238,7 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 
 	// pin sectors on h1
 	h1Prices := h1.Settings.Prices
-	err := cm.performSectorPinningOnHost(context.Background(), newMockSectorPinner(host, h1Prices), h1, zap.NewNop())
+	err := cm.performSectorPinningOnHost(context.Background(), &sectorPinner{host: host, prices: h1Prices}, h1, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +256,7 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 
 	// pin sectors on h2
 	h2Prices := h2.Settings.Prices
-	err = cm.performSectorPinningOnHost(context.Background(), newMockSectorPinner(host, h2Prices), h2, zap.NewNop())
+	err = cm.performSectorPinningOnHost(context.Background(), &sectorPinner{host: host, prices: h2Prices}, h2, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
