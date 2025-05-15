@@ -70,9 +70,6 @@ type pinCall struct {
 }
 
 func (c *hostClientMock) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.appendSectorCalls = append(c.appendSectorCalls, appendSectorCall{
 		hostPrices: hostPrices,
 		contractID: contractID,

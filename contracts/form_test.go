@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"sync"
 	"testing"
 
 	proto "go.sia.tech/core/rhp/v4"
@@ -64,14 +63,13 @@ func (d *dialerMock) Dial(ctx context.Context, hostKey types.PublicKey, addr str
 }
 
 type hostClientMock struct {
-	formCalls       []formContractCall
-	refreshCalls    []refreshContractCall
-	renewCalls      []renewContractCall
-	latestRevisions map[types.FileContractID]proto.RPCLatestRevisionResponse
-
-	mu                sync.Mutex
 	appendSectorCalls []appendSectorCall
-	missingSectors    map[types.Hash256]struct{}
+	formCalls         []formContractCall
+	refreshCalls      []refreshContractCall
+	renewCalls        []renewContractCall
+
+	latestRevisions map[types.FileContractID]proto.RPCLatestRevisionResponse
+	missingSectors  map[types.Hash256]struct{}
 }
 
 func newHostClientMock() *hostClientMock {
