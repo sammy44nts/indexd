@@ -380,6 +380,52 @@ WHERE contract_id = $6
 	})
 }
 
+// PrunableContractRoots returns the indices of the roots that are not present
+// in the database, and thus can be pruned.
+func (s *Store) PrunableContractRoots(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, roots []types.Hash256) ([]uint64, error) {
+	var sqlRoots []sqlHash256
+	for _, root := range roots {
+		sqlRoots = append(sqlRoots, sqlHash256(root))
+	}
+
+	var indices []uint64
+	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		rows, err := tx.Query(ctx, `
+			SELECT s.sector_root
+			FROM sectors s
+			INNER JOIN contract_sectors_map csm ON s.contract_sectors_map_id = csm.id
+			INNER JOIN hosts h ON s.host_id = h.id
+			WHERE csm.contract_id = $1 AND h.public_key = $2 AND s.sector_root = ANY($3)`, sqlHash256(contractID), sqlPublicKey(hostKey), sqlRoots)
+		if err != nil {
+			return fmt.Errorf("failed to fetch prunable contract roots: %w", err)
+		}
+		defer rows.Close()
+
+		lookup := make(map[sqlHash256]struct{})
+		for rows.Next() {
+			var root sqlHash256
+			if err := rows.Scan(&root); err != nil {
+				return fmt.Errorf("failed to scan root: %w", err)
+			}
+			lookup[root] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to iterate over rows: %w", err)
+		}
+
+		for idx, root := range roots {
+			if _, ok := lookup[sqlHash256(root)]; !ok {
+				indices = append(indices, uint64(idx))
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return indices, nil
+}
+
 func (tx *updateTx) UpdateContractElements(fces ...types.V2FileContractElement) error {
 	for _, fce := range fces {
 		_, err := tx.tx.Exec(tx.ctx, `
