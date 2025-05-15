@@ -89,7 +89,7 @@ type (
 		PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
 		SyncContract(ctx context.Context, contractID types.FileContractID, params ContractSyncParams) error
-		PrunableContractRoots(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error)
+		PrunableContractRoots(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error)
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 	}

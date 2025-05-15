@@ -377,22 +377,21 @@ func (s *Store) MarkPruned(ctx context.Context, contractID types.FileContractID)
 	})
 }
 
-// PrunableContractRoots returns the indices of the roots that are not present in the
-// database, and thus can be pruned.
-func (s *Store) PrunableContractRoots(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error) {
-	var args []sqlHash256
+// PrunableContractRoots diffs the given roots with the roots in the database
+// and returns the roots that can be pruned.
+func (s *Store) PrunableContractRoots(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error) {
+	var sqlRoots []sqlHash256
 	for _, root := range roots {
-		args = append(args, sqlHash256(root))
+		sqlRoots = append(sqlRoots, sqlHash256(root))
 	}
 
-	var indices []uint64
+	prunable := make([]types.Hash256, 0, len(roots))
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `
-			SELECT s.sector_root 
-			FROM sectors s 
-			INNER JOIN contract_sectors_map csm ON s.contract_sectors_map_id = csm.id 
-			INNER JOIN hosts h ON s.host_id = h.id
-			WHERE s.sector_root = ANY($1) AND csm.contract_id = $2 AND h.public_key = $3`, args, sqlHash256(contractID), sqlPublicKey(hostKey))
+			SELECT s.sector_root
+			FROM sectors s
+			INNER JOIN contract_sectors_map csm ON s.contract_sectors_map_id = csm.id
+			WHERE csm.contract_id = $1 AND s.sector_root = ANY($2)`, sqlHash256(contractID), sqlRoots)
 		if err != nil {
 			return fmt.Errorf("failed to fetch prunable contract roots: %w", err)
 		}
@@ -410,9 +409,9 @@ func (s *Store) PrunableContractRoots(ctx context.Context, hostKey types.PublicK
 			return fmt.Errorf("failed to iterate over rows: %w", err)
 		}
 
-		for idx, root := range roots {
+		for _, root := range roots {
 			if _, ok := lookup[sqlHash256(root)]; !ok {
-				indices = append(indices, uint64(idx))
+				prunable = append(prunable, root)
 			}
 		}
 		return nil
@@ -420,7 +419,7 @@ func (s *Store) PrunableContractRoots(ctx context.Context, hostKey types.PublicK
 		return nil, err
 	}
 
-	return nil, nil
+	return prunable, nil
 }
 
 // MarkUnrenewableContractsBad marks all contracts as bad that have a proof

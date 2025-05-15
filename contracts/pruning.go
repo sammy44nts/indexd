@@ -60,7 +60,7 @@ func (cp *contractPruner) PruneContract(ctx context.Context, contractID types.Fi
 		prunable := make(map[types.Hash256]struct{}, len(res.Roots))
 		for start := 0; start < len(res.Roots); start += rootsBatchSize {
 			end := min(start+rootsBatchSize, len(res.Roots))
-			batch, err := cp.store.PrunableContractRoots(ctx, contract.V2FileContract.HostPublicKey, contractID, res.Roots[start:end])
+			batch, err := cp.store.PrunableContractRoots(ctx, contractID, res.Roots[start:end])
 			if err != nil {
 				return pruned, fmt.Errorf("failed to fetch prunable contract roots: %w", err)
 			}

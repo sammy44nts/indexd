@@ -17,7 +17,7 @@ func (s *storeMock) MarkPruned(ctx context.Context, contractID types.FileContrac
 	return nil
 }
 
-func (s *storeMock) PrunableContractRoots(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error) {
+func (s *storeMock) PrunableContractRoots(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error) {
 	return nil, nil
 }
 
