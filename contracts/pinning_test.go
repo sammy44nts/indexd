@@ -66,9 +66,6 @@ func (s *storeMock) ContractsForPinning(ctx context.Context, hk types.PublicKey,
 }
 
 func (s *storeMock) PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// find host key
 	var hk types.PublicKey
 	for _, contract := range s.contracts {
@@ -99,9 +96,6 @@ func (s *storeMock) PinSectors(ctx context.Context, contractID types.FileContrac
 }
 
 func (s *storeMock) MarkSectorsLost(ctx context.Context, hk types.PublicKey, roots []types.Hash256) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// build map
 	lookup := make(map[types.Hash256]struct{}, len(roots))
 	for _, root := range roots {
@@ -123,9 +117,6 @@ func (s *storeMock) MarkSectorsLost(ctx context.Context, hk types.PublicKey, roo
 }
 
 func (s *storeMock) UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	sectors, ok := s.sectors[hostKey]
 	if !ok {
 		return nil, nil

@@ -29,15 +29,13 @@ func (u *mockProofUpdater) UpdateElementProof(stateElement *types.StateElement) 
 }
 
 type storeMock struct {
+	contracts   []Contract
 	toBroadcast []types.V2FileContractElement
 	pruneCalls  int
 	rejectCalls int
 	settings    MaintenanceSettings
 	hosts       map[types.PublicKey]hosts.Host
-
-	mu        sync.Mutex
-	contracts []Contract
-	sectors   map[types.PublicKey][]sector
+	sectors     map[types.PublicKey][]sector
 }
 
 type sector struct {
