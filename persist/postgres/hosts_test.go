@@ -396,7 +396,7 @@ func TestHosts(t *testing.T) {
 
 		// form contract
 		if contract {
-			err := db.AddFormedContract(context.Background(), hk, types.FileContractID{i}, newTestContract(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
+			err := db.AddFormedContract(context.Background(), hk, types.FileContractID{i}, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -750,7 +750,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// add contract to h2
-	err = db.AddFormedContract(context.Background(), h2, types.FileContractID{1}, newTestContract(h2), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
+	err = db.AddFormedContract(context.Background(), h2, types.FileContractID{1}, newTestRevision(h2), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
 	if err != nil {
 		t.Fatal(err)
 	}

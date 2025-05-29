@@ -13,7 +13,7 @@ import (
 )
 
 // AddFormedContract adds a freshly formed contract to the database.
-func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, contract types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error {
+func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var hostID int64
 		if err := tx.QueryRow(ctx, `SELECT id FROM hosts WHERE public_key = $1`, sqlPublicKey(hostKey)).Scan(&hostID); errors.Is(err, sql.ErrNoRows) {
@@ -22,7 +22,7 @@ func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, 
 			return fmt.Errorf("failed to fetch host: %w", err)
 		}
 		resp, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, remaining_allowance, miner_fee, total_collateral, raw_revision) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9)`,
-			hostID, sqlHash256(contractID), contract.ProofHeight, contract.ExpirationHeight, sqlCurrency(contractPrice), sqlCurrency(allowance), sqlCurrency(minerFee), sqlCurrency(contract.TotalCollateral), sqlFileContract(contract))
+			hostID, sqlHash256(contractID), revision.ProofHeight, revision.ExpirationHeight, sqlCurrency(contractPrice), sqlCurrency(allowance), sqlCurrency(minerFee), sqlCurrency(revision.TotalCollateral), sqlFileContract(revision))
 		if err != nil {
 			return fmt.Errorf("failed to add formed contract to database: %w", err)
 		} else if resp.RowsAffected() != 1 {
