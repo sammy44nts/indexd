@@ -75,7 +75,7 @@ another account's slabs or even fetch that slab's metadata.
 ## Pinning
 
 Pinning slabs happens as part of periodic maintenance that the indexer performs
-on contracts (see [Pinning and Pruning](006_slab_pinning.md). The process looks
+on contracts (see [Contract Maintenance](003_contract_maintenance.md)). The process looks
 like this:
 
 For each host we have a contract with we do the following:
