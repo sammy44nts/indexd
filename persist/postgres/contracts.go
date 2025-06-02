@@ -21,8 +21,8 @@ func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, 
 		} else if err != nil {
 			return fmt.Errorf("failed to fetch host: %w", err)
 		}
-		resp, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, remaining_allowance, miner_fee, total_collateral, raw_revision) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9)`,
-			hostID, sqlHash256(contractID), revision.ProofHeight, revision.ExpirationHeight, sqlCurrency(contractPrice), sqlCurrency(allowance), sqlCurrency(minerFee), sqlCurrency(revision.TotalCollateral), sqlFileContract(revision))
+		resp, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, capacity, size, revision_number, contract_price, initial_allowance, remaining_allowance, miner_fee, total_collateral, raw_revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $12)`,
+			hostID, sqlHash256(contractID), revision.ProofHeight, revision.ExpirationHeight, revision.Capacity, revision.Filesize, revision.RevisionNumber, sqlCurrency(contractPrice), sqlCurrency(allowance), sqlCurrency(minerFee), sqlCurrency(revision.TotalCollateral), sqlFileContract(revision))
 		if err != nil {
 			return fmt.Errorf("failed to add formed contract to database: %w", err)
 		} else if resp.RowsAffected() != 1 {
@@ -44,17 +44,20 @@ func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, 
 func (s *Store) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee, usedCollateral types.Currency) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		_, err := tx.Exec(ctx, `
-INSERT INTO contracts(host_id, contract_id, proof_height, expiration_height, renewed_from, capacity, size, contract_price, initial_allowance, remaining_allowance, miner_fee, used_collateral, total_collateral, raw_revision)
-(SELECT host_id, $1, $2, $3, contract_id, CASE WHEN $2 = proof_height THEN capacity ELSE size END, size, $4, $5, $5, $6, $7, $8, $9 FROM contracts WHERE contract_id = $10)`,
+INSERT INTO contracts(host_id, contract_id, renewed_from, raw_revision, revision_number, proof_height, expiration_height, capacity, size, initial_allowance, remaining_allowance, total_collateral, used_collateral, contract_price, miner_fee)
+(SELECT host_id, $1, contract_id, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12 FROM contracts WHERE contract_id = $13)`,
 			sqlHash256(renewedTo),
+			sqlFileContract(revision),
+			revision.RevisionNumber,
 			revision.ProofHeight,
 			revision.ExpirationHeight,
-			sqlCurrency(contractPrice),
-			sqlCurrency(revision.RenterOutput.Value),
-			sqlCurrency(minerFee),
-			sqlCurrency(usedCollateral),
+			revision.Capacity,
+			revision.Filesize,
+			sqlCurrency(revision.RenterOutput.Value), // initial & remaining allowance
 			sqlCurrency(revision.TotalCollateral),
-			sqlFileContract(revision),
+			sqlCurrency(usedCollateral),
+			sqlCurrency(contractPrice),
+			sqlCurrency(minerFee),
 			sqlHash256(renewedFrom),
 		)
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -721,22 +722,23 @@ func TestFormRenewContract(t *testing.T) {
 
 	// add a host
 	hk := types.PublicKey{1, 1, 1}
-	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
 		return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement{}, time.Now())
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// helper to assert contract in db
+	// define helper to assert contract in db
 	assertContract := func(id types.FileContractID, expected contracts.Contract) {
 		t.Helper()
+
 		contract, err := store.Contract(context.Background(), id)
 		if err != nil {
 			t.Fatal("failed to fetch contract", err)
 		} else if contract.Formation.Before(start) || contract.Formation.After(time.Now().Round(time.Microsecond)) {
 			t.Fatalf("expected formation time to be after start time but not in the future")
 		}
+
 		contract.Formation = time.Time{}
 		contract.LastBroadcastAttempt = time.Time{}
 		if !reflect.DeepEqual(contract, expected) {
@@ -744,63 +746,62 @@ func TestFormRenewContract(t *testing.T) {
 		}
 	}
 
-	// form contract
-	expectedFormed := contracts.Contract{
-		ID:               types.FileContractID{1, 2, 3},
-		HostKey:          hk,
-		ProofHeight:      100,
-		ExpirationHeight: 200,
-		State:            contracts.ContractStatePending,
-
-		ContractPrice:      types.Siacoins(1),
-		InitialAllowance:   types.Siacoins(2),
-		RemainingAllowance: types.Siacoins(2),
-		MinerFee:           types.Siacoins(3),
-		TotalCollateral:    types.Siacoins(4),
-
-		Good: true,
-	}
-	revision := newTestRevision(hk)
-	revision.ProofHeight = expectedFormed.ProofHeight
-	revision.ExpirationHeight = expectedFormed.ExpirationHeight
-	revision.TotalCollateral = expectedFormed.TotalCollateral
-	err = store.AddFormedContract(context.Background(), hk, expectedFormed.ID, revision, expectedFormed.ContractPrice, expectedFormed.InitialAllowance, expectedFormed.MinerFee)
-	if err != nil {
-		t.Fatal("failed to add formed contract", err)
-	}
-	assertContract(expectedFormed.ID, expectedFormed)
-
-	// assert `contract_sectors_map` entry was created when forming a contract
-	var mapID int64
-	err = store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(expectedFormed.ID)).Scan(&mapID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// simulate using the contract and marking it not good
-	modifyContract := func(contractID types.FileContractID) {
-		err = store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-			resp, err := tx.Exec(context.Background(), `
-					UPDATE contracts
-					SET state = 1, capacity = 2000, size = 1000, good = FALSE, append_sector_spending = 1, free_sector_spending = 2, fund_account_spending = 3, sector_roots_spending = 4
-					WHERE contract_id = $1
-					`, sqlHash256(contractID))
+	// define helper to simulate contract usage
+	simulateUsage := func(contractID types.FileContractID) {
+		t.Helper()
+		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+			resp, err := tx.Exec(context.Background(), `UPDATE contracts SET state = 1, good = FALSE, append_sector_spending = 1, free_sector_spending = 2, fund_account_spending = 3, sector_roots_spending = 4 WHERE contract_id = $1`, sqlHash256(contractID))
 			if err != nil {
 				return err
 			} else if resp.RowsAffected() != 1 {
 				t.Fatalf("expected 1 row to be affected, got %d", resp.RowsAffected())
 			}
 			return nil
-		})
-		if err != nil {
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	modifyContract(expectedFormed.ID)
 
+	// form contract
+	formation := newTestRevision(hk)
+	formation.RenterOutput.Value = types.NewCurrency64(math.MaxUint64) // initial allowance
+
+	expectedFormed := contracts.Contract{
+		ID:      types.FileContractID{1},
+		HostKey: hk,
+		State:   contracts.ContractStatePending,
+
+		// revision fields
+		RevisionNumber:     formation.RevisionNumber,
+		ProofHeight:        formation.ProofHeight,
+		ExpirationHeight:   formation.ExpirationHeight,
+		Capacity:           formation.Capacity,
+		Size:               formation.Filesize,
+		InitialAllowance:   formation.RenterOutput.Value,
+		RemainingAllowance: formation.RenterOutput.Value,
+		TotalCollateral:    formation.TotalCollateral,
+
+		ContractPrice: types.Siacoins(1),
+		MinerFee:      types.Siacoins(2),
+
+		Good: true,
+	}
+	if err := store.AddFormedContract(context.Background(), hk, expectedFormed.ID, formation, expectedFormed.ContractPrice, expectedFormed.InitialAllowance, expectedFormed.MinerFee); err != nil {
+		t.Fatal("failed to add formed contract", err)
+	}
+
+	// assert the contract matches the expectations
+	assertContract(expectedFormed.ID, expectedFormed)
+
+	// assert the contract sector mapping exists
+	var mapID int64
+	if err := store.pool.QueryRow(context.Background(), `SELECT id FROM contract_sectors_map WHERE contract_id = $1`, sqlHash256(expectedFormed.ID)).Scan(&mapID); err != nil {
+		t.Fatal(err)
+	}
+
+	// simulate usage, assert the contract is active, bad and has spending
+	simulateUsage(expectedFormed.ID)
 	expectedFormed.State = contracts.ContractStateActive
-	expectedFormed.Capacity = 2000
-	expectedFormed.Size = 1000
 	expectedFormed.Good = false
 	expectedFormed.Spending = contracts.ContractSpending{
 		AppendSector: types.NewCurrency64(1),
@@ -810,34 +811,37 @@ func TestFormRenewContract(t *testing.T) {
 	}
 	assertContract(expectedFormed.ID, expectedFormed)
 
-	// refresh the contract
+	// prepare a refresh of the contract, we want to assert spending gets reset,
+	// refreshed contracts are good and the renewed from is set
+	refresh := formation
+	refresh.RenterOutput.Value = types.NewCurrency64(math.MaxUint64) // new initial allowance
+
 	expectedRefreshed := contracts.Contract{
-		ID:                 types.FileContractID{4, 5, 6},
-		Capacity:           expectedFormed.Capacity,         // same capacity after refresh
-		Size:               expectedFormed.Size,             // same size after refresh
-		HostKey:            expectedFormed.HostKey,          // same host
-		ProofHeight:        expectedFormed.ProofHeight,      // same proof height for refresh
-		ExpirationHeight:   expectedFormed.ExpirationHeight, // same expiration height for refresh
-		State:              contracts.ContractStatePending,  // refresh resets state
-		ContractPrice:      types.Siacoins(2),               // new contract price
-		InitialAllowance:   types.Siacoins(3),               // new initial allowance
-		RemainingAllowance: types.Siacoins(3),               // matches initial allowance
-		MinerFee:           types.Siacoins(4),               // new miner fee
-		Good:               true,                            // refreshed contract is good
-		RenewedFrom:        expectedFormed.ID,               // refreshed from formed contract
-		Spending:           contracts.ContractSpending{},    // spending is reset
-		UsedCollateral:     types.Siacoins(4),
-		TotalCollateral:    types.Siacoins(5),
+		ID:          types.FileContractID{2},
+		HostKey:     expectedFormed.HostKey, // same host
+		RenewedFrom: expectedFormed.ID,      // refreshed from formed contract
+
+		// revision fields
+		RevisionNumber:     refresh.RevisionNumber,
+		ProofHeight:        refresh.ProofHeight,
+		ExpirationHeight:   refresh.ExpirationHeight,
+		Capacity:           refresh.Capacity,
+		Size:               refresh.Filesize,
+		InitialAllowance:   refresh.RenterOutput.Value,
+		RemainingAllowance: refresh.RenterOutput.Value,
+		TotalCollateral:    refresh.TotalCollateral,
+
+		UsedCollateral: refresh.TotalCollateral.Div64(2), // updated used collateral
+		ContractPrice:  types.Siacoins(2),                // new contract price
+		MinerFee:       types.Siacoins(4),                // new miner fee
+
+		State: contracts.ContractStatePending, // refresh resets state
+		Good:  true,                           // refreshed contract is good
+
+		Spending: contracts.ContractSpending{}, // spending is reset
 	}
 
-	renewed := newTestRevision(hk)
-	renewed.ProofHeight = expectedRefreshed.ProofHeight
-	renewed.ExpirationHeight = expectedRefreshed.ExpirationHeight
-	renewed.TotalCollateral = expectedRefreshed.TotalCollateral
-	renewed.RenterOutput.Value = expectedRefreshed.InitialAllowance
-
-	err = store.AddRenewedContract(context.Background(), expectedRefreshed.RenewedFrom, expectedRefreshed.ID, renewed, expectedRefreshed.ContractPrice, expectedRefreshed.MinerFee, expectedRefreshed.UsedCollateral)
-	if err != nil {
+	if err := store.AddRenewedContract(context.Background(), expectedRefreshed.RenewedFrom, expectedRefreshed.ID, refresh, expectedRefreshed.ContractPrice, expectedRefreshed.MinerFee, expectedRefreshed.UsedCollateral); err != nil {
 		t.Fatal("failed to add refreshed contract", err)
 	}
 	expectedFormed.RenewedTo = expectedRefreshed.ID
@@ -845,10 +849,8 @@ func TestFormRenewContract(t *testing.T) {
 	assertContract(expectedRefreshed.ID, expectedRefreshed)
 
 	// modify the refreshed contract
-	modifyContract(expectedRefreshed.ID)
+	simulateUsage(expectedRefreshed.ID)
 	expectedRefreshed.State = contracts.ContractStateActive
-	expectedRefreshed.Capacity = 2000
-	expectedRefreshed.Size = 1000
 	expectedRefreshed.Good = false
 	expectedRefreshed.Spending = contracts.ContractSpending{
 		AppendSector: types.NewCurrency64(1),
@@ -859,34 +861,39 @@ func TestFormRenewContract(t *testing.T) {
 	assertContract(expectedRefreshed.ID, expectedRefreshed)
 
 	// renew the refreshed contract
+	renewal := refresh
+	renewal.RenterOutput.Value = types.Siacoins(6) // new initial allowance
+	renewal.Capacity = renewal.Filesize            // capacity shrinks to size upon renewal
+	renewal.ProofHeight *= 2                       // higher proof height for renew
+	renewal.ExpirationHeight *= 2                  // higher expiration height for renew
+
 	expectedRenewed := contracts.Contract{
-		ID:                 types.FileContractID{7, 8, 9},
-		Capacity:           expectedRefreshed.Size,                 // capacity shrinks to size upon renewal
-		Size:               expectedRefreshed.Size,                 // same size after renewal
-		HostKey:            expectedRefreshed.HostKey,              // same host
-		ProofHeight:        expectedRefreshed.ProofHeight * 2,      // higher proof height for renew
-		ExpirationHeight:   expectedRefreshed.ExpirationHeight * 2, // higher expiration height for renew
-		State:              contracts.ContractStatePending,         // renewal resets state
-		ContractPrice:      types.Siacoins(5),                      // new contract price
-		InitialAllowance:   types.Siacoins(6),                      // new initial allowance
-		RemainingAllowance: types.Siacoins(6),                      // matches initial allowance
-		MinerFee:           types.Siacoins(7),                      // new miner fee
-		Good:               true,                                   // renewed contract is good
-		RenewedFrom:        expectedRefreshed.ID,                   // renewed from refreshed contract
-		Spending:           contracts.ContractSpending{},           // spending is reset
-		UsedCollateral:     types.Siacoins(4),
-		TotalCollateral:    types.Siacoins(5),
+		ID:          types.FileContractID{7, 8, 9},
+		HostKey:     expectedRefreshed.HostKey, // same host
+		RenewedFrom: expectedRefreshed.ID,      // renewed from refreshed contract
+
+		// revision fields
+		RevisionNumber:     renewal.RevisionNumber,
+		ProofHeight:        renewal.ProofHeight,
+		ExpirationHeight:   renewal.ExpirationHeight,
+		Capacity:           renewal.Capacity,
+		Size:               renewal.Filesize,
+		InitialAllowance:   renewal.RenterOutput.Value,
+		RemainingAllowance: renewal.RenterOutput.Value,
+		TotalCollateral:    renewal.TotalCollateral,
+
+		UsedCollateral: renewal.TotalCollateral.Div64(4), // updated used collateral
+		ContractPrice:  types.Siacoins(5),                // new contract price
+		MinerFee:       types.Siacoins(7),                // new miner fee
+
+		State: contracts.ContractStatePending, // renewal resets state
+		Good:  true,                           // renewed contract is good
+
+		Spending: contracts.ContractSpending{}, // spending is reset
 	}
 
-	renewed = newTestRevision(hk)
-	renewed.ProofHeight = expectedRenewed.ProofHeight
-	renewed.ExpirationHeight = expectedRenewed.ExpirationHeight
-	renewed.TotalCollateral = expectedRenewed.TotalCollateral
-	renewed.RenterOutput.Value = expectedRenewed.InitialAllowance
-
-	err = store.AddRenewedContract(context.Background(), expectedRenewed.RenewedFrom, expectedRenewed.ID, renewed, expectedRenewed.ContractPrice, expectedRenewed.MinerFee, expectedRenewed.UsedCollateral)
-	if err != nil {
-		t.Fatal("failed to add refreshed contract", err)
+	if err := store.AddRenewedContract(context.Background(), expectedRenewed.RenewedFrom, expectedRenewed.ID, renewal, expectedRenewed.ContractPrice, expectedRenewed.MinerFee, expectedRenewed.UsedCollateral); err != nil {
+		t.Fatal("failed to add renewed contract", err)
 	}
 	expectedRefreshed.RenewedTo = expectedRenewed.ID
 	assertContract(expectedFormed.ID, expectedFormed)
@@ -1364,11 +1371,13 @@ func BenchmarkContracts(b *testing.B) {
 
 			hostContractIDs := make([]types.FileContractID, numContractsPerHost)
 			for i := range numContractsPerHost {
+				revision := newTestRevision(hk)
 				frand.Read(hostContractIDs[i][:])
 				size := frand.Uint64n(1e9)
-				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity, last_broadcast_attempt, last_prune, raw_revision) VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, E'\\x');`,
+				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, raw_revision, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity, last_broadcast_attempt, last_prune) VALUES ($1, $2, $3, 0, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);`,
 					hostID,
 					sqlHash256(hostContractIDs[i][:]),
+					sqlFileContract(revision),
 					sqlCurrency(types.ZeroCurrency),
 					sqlCurrency(types.ZeroCurrency),
 					sqlCurrency(types.ZeroCurrency),
@@ -1575,7 +1584,7 @@ func newTestRevision(hk types.PublicKey) types.V2FileContract {
 		Capacity:         200,
 		Filesize:         100,
 		FileMerkleRoot:   types.Hash256{1},
-		ProofHeight:      400,
+		ProofHeight:      600,
 		ExpirationHeight: 800,
 		RevisionNumber:   1,
 		TotalCollateral:  types.Siacoins(100),
