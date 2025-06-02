@@ -234,6 +234,13 @@ WHERE
 	return hosts, nil
 }
 
+// HostsForPinning returns a list of host keys that can be used for sector
+// pinning. A host is eligble for pinning if it is not blocked, has unpinned
+// sectors and has an active contract.
+func (s *Store) HostsForPinning(ctx context.Context) ([]types.PublicKey, error) {
+	panic("not implemented")
+}
+
 // BlockedHosts returns a list of blocked hostkeys.
 func (s *Store) BlockedHosts(ctx context.Context, offset, limit int) ([]types.PublicKey, error) {
 	// sanity check input

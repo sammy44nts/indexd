@@ -351,6 +351,10 @@ ORDER BY ss.slab_index ASC`, slabID).Query(func(rows pgx.Rows) error {
 // contract with. That way, we can avoid a race where the host changes in the
 // meantime and the contract then no longer matches the host.
 func (s *Store) PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error {
+	if len(roots) == 0 {
+		return nil
+	}
+
 	sqlRoots := make([]sqlHash256, len(roots))
 	for i, root := range roots {
 		sqlRoots[i] = sqlHash256(root)

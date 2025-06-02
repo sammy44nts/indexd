@@ -111,10 +111,6 @@ func (c *hostClient) FormContract(ctx context.Context, settings proto.HostSettin
 	return res, nil
 }
 
-func (c *hostClient) LatestRevision(ctx context.Context, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
-	return rhp.RPCLatestRevision(ctx, c.client, contractID)
-}
-
 // performContractFormation makes sure that we have at least 'wanted' good
 // contracts with good hosts in unique CIDRs.
 func (cm *ContractManager) performContractFormation(ctx context.Context, period uint64, wanted uint64, log *zap.Logger) error {
