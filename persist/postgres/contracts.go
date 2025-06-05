@@ -13,19 +13,29 @@ import (
 )
 
 // ContractRevision returns the latest revision.
-func (s *Store) ContractRevision(ctx context.Context, contractID types.FileContractID) (types.V2FileContract, bool, error) {
-	// proof height - 144
-	return types.V2FileContract{}, false, nil
+func (s *Store) ContractRevision(ctx context.Context, contractID types.FileContractID) (revision types.V2FileContract, renewed bool, _ error) {
+	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		return tx.QueryRow(ctx, `SELECT raw_revision, renewed_to IS NOT NULL FROM contracts WHERE contract_id = $1`, sqlHash256(contractID)).Scan((*sqlFileContract)(&revision), &renewed)
+	}); errors.Is(err, sql.ErrNoRows) {
+		return types.V2FileContract{}, false, fmt.Errorf("contract %q: %w", contractID, contracts.ErrNotFound)
+	} else if err != nil {
+		return types.V2FileContract{}, false, fmt.Errorf("failed to fetch contract revision: %w", err)
+	}
+	return revision, renewed, nil
 }
 
 // UpdateContractRevision updates the contract revision in the database.
 func (s *Store) UpdateContractRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract) error {
-	// Capacity:           resp.Contract.Capacity,
-	// RemainingAllowance: resp.Contract.RenterOutput.Value,
-	// RevisionNumber:     resp.Contract.RevisionNumber,
-	// Size:               resp.Contract.Filesize,
-	// UsedCollateral:     resp.Contract.MissedHostValue,
-	return nil
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		query := `UPDATE contracts SET raw_revision = $1, revision_number = $2, capacity = $3, size = $4, remaining_allowance = $5, used_collateral = $6 WHERE contract_id = $7`
+		_, err := tx.Exec(ctx, query, sqlFileContract(revision), revision.RevisionNumber, revision.Capacity, revision.Filesize, sqlCurrency(revision.RenterOutput.Value), sqlCurrency(revision.MissedHostValue), sqlHash256(contractID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("contract %q: %w", contractID, contracts.ErrNotFound)
+		} else if err != nil {
+			return fmt.Errorf("failed to update contract revision: %w", err)
+		}
+		return nil
+	})
 }
 
 // AddFormedContract adds a freshly formed contract to the database.
