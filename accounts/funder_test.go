@@ -3,8 +3,6 @@ package accounts
 import (
 	"context"
 	"errors"
-	"net"
-	"strings"
 	"testing"
 
 	"go.sia.tech/core/consensus"
@@ -13,129 +11,123 @@ import (
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-var badContractId = types.FileContractID{1, 1, 1}
+type dialerMock struct{}
 
-type tcMock struct{}
-
-func (tcMock) DialStream() (net.Conn, error) { return nil, nil }
-func (tcMock) FrameSize() int                { return 0 }
-func (tcMock) PeerKey() types.PublicKey      { return types.PublicKey{} }
-func (tcMock) Close() error                  { return nil }
+func (d *dialerMock) Dial(ctx context.Context, hostKey types.PublicKey, addr string) (hosts.HostClient, error) {
+	return &hostClientMock{}, nil
+}
 
 type cmMock struct{}
 
 func (cmMock) TipState() consensus.State { return consensus.State{} }
 
-type hostMock struct {
-	revisions map[types.FileContractID]proto.RPCLatestRevisionResponse
-	calls     []rhp.RPCReplenishAccountsParams
+type hostClientMock struct{}
+
+func (*hostClientMock) Close() error { return nil }
+
+func (*hostClientMock) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
+	return rhp.RPCAppendSectorsResult{}, nil
 }
-
-func (hostMock) Dial(ctx context.Context, addr string, pk types.PublicKey) (rhp.TransportClient, error) {
-	return &tcMock{}, nil
+func (*hostClientMock) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
+	return rhp.RPCFormContractResult{}, nil
 }
-
-func (h *hostMock) RPCLatestRevision(ctx context.Context, t rhp.TransportClient, fcid types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
-	if rev, ok := h.revisions[fcid]; ok {
-		return rev, nil
-	}
-	return proto.RPCLatestRevisionResponse{}, errors.New("unknown contract")
+func (*hostClientMock) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+	return rhp.RPCRefreshContractResult{}, nil
 }
-
-func (h *hostMock) RPCReplenishAccounts(_ context.Context, _ rhp.TransportClient, params rhp.RPCReplenishAccountsParams, _ consensus.State, _ rhp.ContractSigner) (rhp.RPCReplenishAccountsResult, error) {
-	if params.Contract.ID == badContractId {
-		return rhp.RPCReplenishAccountsResult{}, errors.New("failed to replenish")
-	} else if _, ok := h.revisions[params.Contract.ID]; !ok {
-		return rhp.RPCReplenishAccountsResult{}, errors.New("unknown contract")
+func (*hostClientMock) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
+	return rhp.RPCRenewContractResult{}, nil
+}
+func (*hostClientMock) ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (rhp.RPCReplenishAccountsResult, int, error) {
+	// use contract ID to cover all possible branches
+	switch contractID {
+	case types.FileContractID{1}:
+		return rhp.RPCReplenishAccountsResult{}, 0, hosts.ErrContractInsufficientFunds
+	case types.FileContractID{2}:
+		return rhp.RPCReplenishAccountsResult{}, 0, hosts.ErrContractNotRevisable
+	case types.FileContractID{3}:
+		return rhp.RPCReplenishAccountsResult{}, 0, errors.New("failed to replenish accounts")
+	case types.FileContractID{4}:
+		return rhp.RPCReplenishAccountsResult{Revision: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Sub(types.NewCurrency64(1))}}}, 1, nil
+	case types.FileContractID{5}, types.FileContractID{6}:
+		return rhp.RPCReplenishAccountsResult{Revision: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target}}}, 1, nil
+	case types.FileContractID{7}:
+		return rhp.RPCReplenishAccountsResult{Revision: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target}}}, len(accounts) - 1, nil
+	default:
+		panic("unexpected contract ID in mock")
 	}
-
-	h.calls = append(h.calls, params)
-
-	var underflow bool
-	rev := params.Contract.Revision
-	rev.RenterOutput.Value, underflow = rev.RenterOutput.Value.SubWithUnderflow(params.Target.Mul64(uint64(len(params.Accounts))))
-	if underflow {
-		return rhp.RPCReplenishAccountsResult{}, errors.New("insufficient funds")
-	}
-
-	return rhp.RPCReplenishAccountsResult{Revision: rev}, nil
 }
 
 // TestFunder is a unit test that checks the various edge cases in FundAccounts
 func TestFunder(t *testing.T) {
-	// prepare mock host
-	target := types.Siacoins(1)
-	h := &hostMock{revisions: map[types.FileContractID]proto.RPCLatestRevisionResponse{
-		{1}: {Revisable: false},                                                                                                              // not revisable
-		{2}: {Revisable: true, Contract: types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Sub(types.NewCurrency64(1))}}}, // insufficient funds
-	}}
-
 	// prepare funder
-	f := NewFunder(&cmMock{}, nil)
-	f.host = h
+	f := NewFunder(&cmMock{}, &dialerMock{}, nil)
 
-	// assert contract checks
-	core, logs := observer.New(zapcore.DebugLevel)
-	contractIDs := []types.FileContractID{{}, {1}, {2}}
-	funded, drained, err := f.FundAccounts(context.Background(), hosts.Host{}, nil, contractIDs, target, zap.New(core))
+	// prepare accounts
+	accounts := []HostAccount{
+		{AccountKey: proto.Account{1}},
+		{AccountKey: proto.Account{2}},
+		{AccountKey: proto.Account{3}},
+	}
+
+	// assert contract is marked as drained if it is out of funds
+	funded, drained, err := f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{1}}, accounts, types.Siacoins(1), zap.NewNop())
 	if err != nil {
-		t.Fatal("unexpected", err)
+		t.Fatal(err)
 	} else if funded != 0 {
 		t.Fatal("expected 0 accounts funded, got", funded)
-	} else if drained != 2 {
-		t.Fatal("expected 2 contracts drained, got", drained)
-	} else if entries := logs.TakeAll(); len(entries) != 3 {
-		t.Fatal("expected 3 log entries, got", len(entries))
-	} else if !strings.Contains(entries[0].Message, "latest revision") {
-		t.Fatalf("expected 'latest revision', got %q", entries[0].Message)
-	} else if !strings.Contains(entries[1].Message, "not revisable") {
-		t.Fatalf("expected 'not revisable', got %q", entries[1].Message)
-	} else if !strings.Contains(entries[2].Message, "insufficient funds") {
-		t.Fatalf("expected 'insufficient funds', got %q", entries[2].Message)
+	} else if drained != 1 {
+		t.Fatal("expected 1 contracts drained, got", drained)
 	}
 
-	// add a good contract, capable of funding two accounts
-	h.revisions[types.FileContractID{3}] = proto.RPCLatestRevisionResponse{
-		Revisable: true,
-		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Mul64(2)}},
-	}
-
-	// add a bad contract, that fails RPC replenish (to assert we don't increment fundIdx)
-	h.revisions[badContractId] = proto.RPCLatestRevisionResponse{
-		Revisable: true,
-		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target}},
-	}
-
-	// add a good contract, capable of funding 1 account
-	h.revisions[types.FileContractID{4}] = proto.RPCLatestRevisionResponse{
-		Revisable: true,
-		Contract:  types.V2FileContract{RenterOutput: types.SiacoinOutput{Value: target.Mul64(1)}},
-	}
-
-	contractIDs = []types.FileContractID{{3}, badContractId, {4}}
-	accounts := []HostAccount{{AccountKey: proto.Account{1}}, {AccountKey: proto.Account{2}}, {AccountKey: proto.Account{3}}, {AccountKey: proto.Account{4}}}
-	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, accounts, contractIDs, target, zap.NewNop())
+	// assert contract is marked as drained if it is not revisable
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{2}}, accounts, types.Siacoins(1), zap.NewNop())
 	if err != nil {
-		t.Fatal("unexpected", err)
+		t.Fatal(err)
+	} else if funded != 0 {
+		t.Fatal("expected 0 accounts funded, got", funded)
+	} else if drained != 1 {
+		t.Fatal("expected 1 contracts drained, got", drained)
+	}
+
+	// assert contract is not marked as drained if replenish RPC fails
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{3}}, accounts, types.Siacoins(1), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	} else if funded != 0 {
+		t.Fatal("expected 0 accounts funded, got", funded)
+	} else if drained != 0 {
+		t.Fatal("expected 0 contracts drained, got", drained)
+	}
+
+	// assert contract is marked as drained if replenish RPC succeeds but leaves the contract with insufficient funds afterwards
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{4}}, accounts, types.Siacoins(1), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	} else if funded != 1 {
+		t.Fatal("expected 1 account funded, got", funded)
+	} else if drained != 1 {
+		t.Fatal("expected 1 contracts drained, got", drained)
+	}
+
+	// assert contracts are iterated and funded is updated until we run out of contracts
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{5}, {6}}, accounts, types.Siacoins(1), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	} else if funded != 2 {
+		t.Fatal("expected 2 account funded, got", funded)
+	} else if drained != 0 {
+		t.Fatal("expected 0 contracts drained, got", drained)
+	}
+
+	// assert contracts are iterated and funded is updated until we run out of accounts
+	funded, drained, err = f.FundAccounts(context.Background(), hosts.Host{}, []types.FileContractID{{7}, {1}, {5}, {4}}, accounts, types.Siacoins(1), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
 	} else if funded != 3 {
-		t.Fatal("expected 3 accounts funded, got", funded)
-	} else if drained != 2 {
-		t.Fatal("expected 2 contracts drained, got", drained)
-	} else if len(h.calls) != 2 {
-		t.Fatal("expected 2 replenish calls, got", len(h.calls))
-	} else if len(h.calls[0].Accounts) != 2 {
-		t.Fatal("expected first batch to contain 2 accounts, got", len(h.calls[0].Accounts))
-	} else if h.calls[0].Accounts[0] != accounts[0].AccountKey {
-		t.Fatal("expected first account to be funded, got", h.calls[0].Accounts[0])
-	} else if h.calls[0].Accounts[1] != accounts[1].AccountKey {
-		t.Fatal("expected second account to be funded, got", h.calls[0].Accounts[1])
-	} else if len(h.calls[1].Accounts) != 1 {
-		t.Fatal("expected second batch to contain 1 account, got", len(h.calls[1].Accounts))
-	} else if h.calls[1].Accounts[0] != accounts[2].AccountKey {
-		t.Fatal("expected third account to be funded, got", h.calls[1].Accounts[0])
+		t.Fatal("expected 3 account funded, got", funded)
+	} else if drained != 1 {
+		t.Fatal("expected 1 contracts drained, got", drained) // both 1 and 4 would be drained, were it not we ran out of accounts to replenish
 	}
 }

@@ -3,14 +3,12 @@ package contracts
 import (
 	"context"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/hosts"
@@ -23,7 +21,6 @@ const (
 
 	hostsFetchLimit = 100
 
-	dialTimeout         = 10 * time.Second
 	minRemainingStorage = (10 * 1 << 30) / uint64(proto.SectorSize) // 10GB
 	maxContractSize     = 10 * 1 << 40                              // 10TB
 
@@ -46,16 +43,6 @@ type (
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
-	// HostClient defines the dependencies required to form, renew and refresh
-	// contracts.
-	HostClient interface {
-		io.Closer
-		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error)
-		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
-		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
-		RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error)
-	}
-
 	// HostManager defines the minimal interface of HostManager functionality
 	// the ContractManager requires.
 	HostManager interface {
@@ -68,6 +55,7 @@ type (
 		AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, contract types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error
 		AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, contract types.V2FileContract, contractPrice, minerFee, usedCollateral types.Currency) error
 		ContractElement(ctx context.Context, contractID types.FileContractID) (types.V2FileContractElement, error)
+		ContractRevision(ctx context.Context, contractID types.FileContractID) (types.V2FileContract, bool, error)
 		ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error)
 		Contracts(ctx context.Context, offset, limit int, queryOpts ...ContractQueryOpt) ([]Contract, error)
 		ContractsForBroadcasting(ctx context.Context, minBroadcast time.Time, limit int) ([]types.FileContractID, error)
@@ -83,15 +71,8 @@ type (
 		MarkUnrenewableContractsBad(ctx context.Context, maxProofHeight uint64) error
 		PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
-		RevisionStore
-		SyncContract(ctx context.Context, contractID types.FileContractID, params ContractSyncParams) error
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
-	}
-
-	// RevisionStore will soon be removed
-	RevisionStore interface {
-		ContractRevision(ctx context.Context, contractID types.FileContractID) (types.V2FileContract, bool, error)
 		UpdateContractRevision(ctx context.Context, contractID types.FileContractID, contract types.V2FileContract) error
 	}
 
@@ -146,7 +127,7 @@ type (
 		w     Wallet
 		store Store
 
-		dialer    dialer
+		dialer    hosts.Dialer
 		scanner   HostManager
 		renterKey types.PublicKey
 
@@ -174,15 +155,10 @@ func WithLogger(l *zap.Logger) ContractManagerOpt {
 // NewManager creates a new contract manager. It is responsible for forming and
 // renewing contracts as well as any interactions with hosts that require
 // contracts.
-func NewManager(renterKey types.PrivateKey, accountManager AccountManager, chainManager ChainManager, scanner HostManager, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
-	// auwtch - have to get the logger
-	cm := &ContractManager{log: zap.NewNop()}
-	for _, opt := range opts {
-		opt(cm)
-	}
-
-	dialer := newSiamuxDialer(chainManager, store, NewFormContractSigner(wallet, renterKey), cm.log)
-	cm = newContractManager(renterKey.PublicKey(), accountManager, chainManager, dialer, scanner, store, syncer, wallet, opts...)
+//
+// TODO: we can get rid of the double constructor in a F/U
+func NewManager(renterKey types.PrivateKey, accountManager AccountManager, chainManager ChainManager, dialer hosts.Dialer, scanner HostManager, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
+	cm := newContractManager(renterKey.PublicKey(), accountManager, chainManager, dialer, scanner, store, syncer, wallet, opts...)
 
 	ctx, cancel, err := cm.tg.AddContext(context.Background())
 	if err != nil {
@@ -195,7 +171,7 @@ func NewManager(renterKey types.PrivateKey, accountManager AccountManager, chain
 	return cm, nil
 }
 
-func newContractManager(renterKey types.PublicKey, accountManager AccountManager, chainManager ChainManager, dialer dialer, scanner HostManager, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
+func newContractManager(renterKey types.PublicKey, accountManager AccountManager, chainManager ChainManager, dialer hosts.Dialer, scanner HostManager, store Store, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
 	cm := &ContractManager{
 		am: accountManager,
 		cm: chainManager,

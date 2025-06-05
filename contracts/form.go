@@ -8,7 +8,6 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -48,74 +47,6 @@ func (s *formContractSigner) SignHash(h types.Hash256) types.Signature {
 
 func (s *formContractSigner) SignV2Inputs(txn *types.V2Transaction, toSign []int) {
 	s.w.SignV2Inputs(txn, toSign)
-}
-
-// dialer is an interface for dialing a host.
-type dialer interface {
-	Dial(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
-}
-
-type hostClient struct {
-	hostKey types.PublicKey
-
-	cm    ChainManager
-	store RevisionStore
-	log   *zap.Logger
-
-	client rhp.TransportClient
-	signer rhp.FormContractSigner
-}
-
-type siamuxDialer struct {
-	cm     ChainManager
-	store  RevisionStore
-	signer rhp.FormContractSigner
-	log    *zap.Logger
-}
-
-// newSiamuxDialer creates a new Dialer that uses the SiaMux protocol to dial a
-// host.
-func newSiamuxDialer(cm ChainManager, store RevisionStore, signer rhp.FormContractSigner, log *zap.Logger) dialer {
-	return &siamuxDialer{
-		cm:     cm,
-		store:  store,
-		signer: signer,
-		log:    log,
-	}
-}
-
-// Dial creates a production HostClient that forms, refreshes and renews
-// contracts by dialing up hosts using the SiaMux protocol.
-func (d *siamuxDialer) Dial(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-	client, err := siamux.Dial(ctx, addr, hostKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial host: %w", err)
-	}
-	return &hostClient{
-		hostKey: hostKey,
-
-		cm:    d.cm,
-		store: d.store,
-		log:   d.log.Named("hostclient").With(zap.Stringer("hostKey", hostKey)),
-
-		client: client,
-		signer: d.signer,
-	}, nil
-}
-
-func (c *hostClient) Close() error {
-	return c.client.Close()
-}
-
-func (c *hostClient) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
-	res, err := rhp.RPCFormContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, c.hostKey, settings.WalletAddress, params)
-	if err != nil {
-		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to form contract: %w", err)
-	}
-
-	return res, nil
 }
 
 // performContractFormation makes sure that we have at least 'wanted' good

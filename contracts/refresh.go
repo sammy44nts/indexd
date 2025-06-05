@@ -7,26 +7,8 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
 )
-
-func (c *hostClient) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
-	var res rhp.RPCRefreshContractResult
-	if err := c.withRevision(ctx, params.ContractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
-		res, err = rhp.RPCRefreshContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, revision, proto.RPCRefreshContractParams{
-			Allowance:  revision.RenterOutput.Value,
-			Collateral: revision.MissedHostValue,
-		})
-		if err != nil {
-			return types.V2FileContract{}, err
-		}
-		return res.Contract.Revision, nil
-	}); err != nil {
-		return rhp.RPCRefreshContractResult{}, fmt.Errorf("failed to refresh contract: %w", err)
-	}
-	return res, nil
-}
 
 func (cm *ContractManager) performContractRefreshes(ctx context.Context, log *zap.Logger) error {
 	refreshLog := log.Named("refresh")

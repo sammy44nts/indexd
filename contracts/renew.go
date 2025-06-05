@@ -5,35 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
 )
-
-func (c *hostClient) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
-	var res rhp.RPCRenewContractResult
-	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
-		// NOTE: when renewing a contract we keep the same allowance and collateral.
-		// This has the following advantages:
-		// 1. Contracts drain over time if they contain more funds than needed
-		// 2. Renewals are very "cheap" since no party needs to lock away
-		//    additional funds. Only the fees need to be paid.
-		res, err = rhp.RPCRenewContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, revision, proto.RPCRenewContractParams{
-			ContractID:  contractID,
-			Allowance:   revision.RenterOutput.Value,
-			Collateral:  revision.MissedHostValue,
-			ProofHeight: proofHeight,
-		})
-		if err != nil {
-			return types.V2FileContract{}, err
-		}
-		return res.Contract.Revision, nil
-	}); err != nil {
-		return rhp.RPCRenewContractResult{}, fmt.Errorf("failed to renew contract: %w", err)
-	}
-	return res, nil
-}
 
 func (cm *ContractManager) performContractRenewals(ctx context.Context, period, renewWindow uint64, log *zap.Logger) error {
 	renewalLog := log.Named("renewal")

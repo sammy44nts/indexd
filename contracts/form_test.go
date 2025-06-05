@@ -56,7 +56,7 @@ func (d *dialerMock) HostClient(hostKey types.PublicKey) *hostClientMock {
 	return d.clients[hostKey]
 }
 
-func (d *dialerMock) Dial(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+func (d *dialerMock) Dial(ctx context.Context, hostKey types.PublicKey, addr string) (hosts.HostClient, error) {
 	if _, ok := d.clients[hostKey]; !ok {
 		d.clients[hostKey] = newHostClientMock()
 	}
@@ -110,6 +110,10 @@ func (c *hostClientMock) FormContract(ctx context.Context, settings proto.HostSe
 			},
 		},
 	}, nil
+}
+
+func (c *hostClientMock) ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (rhp.RPCReplenishAccountsResult, int, error) {
+	return rhp.RPCReplenishAccountsResult{}, 0, nil
 }
 
 func (c *hostClientMock) SyncRevision(ctx context.Context, contractID types.FileContractID, contract types.V2FileContract) (types.V2FileContract, bool, error) {

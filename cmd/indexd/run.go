@@ -106,11 +106,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer hm.Close()
 
-	funder := accounts.NewFunder(cm, wm)
-	am := accounts.NewManager(store, funder, accounts.WithLogger(log.Named("accounts")))
+	dialer := hosts.NewSiamuxDialer(cm, store, contracts.NewFormContractSigner(wm, walletKey), log)
+
+	am := accounts.NewManager(store, accounts.NewFunder(cm, dialer, wm), accounts.WithLogger(log.Named("accounts")))
 	defer am.Close()
 
-	contracts, err := contracts.NewManager(walletKey, am, cm, hm, store, s, wm, contracts.WithLogger(log.Named("contracts")))
+	contracts, err := contracts.NewManager(walletKey, am, cm, dialer, hm, store, s, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}

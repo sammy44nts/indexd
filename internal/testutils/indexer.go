@@ -55,10 +55,10 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		t.Fatalf("failed to create host manager: %v", err)
 	}
 
-	funder := accounts.NewFunder(c.cm, wm)
-	am := accounts.NewManager(store, funder, accounts.WithLogger(log.Named("accounts")))
+	dialer := hosts.NewSiamuxDialer(c.cm, store, contracts.NewFormContractSigner(wm, walletKey), log)
+	am := accounts.NewManager(store, accounts.NewFunder(c.cm, dialer, wm), accounts.WithLogger(log.Named("accounts")))
 
-	contracts, err := contracts.NewManager(walletKey, am, c.cm, nil, store, s, wm, contracts.WithLogger(log.Named("contracts")))
+	contracts, err := contracts.NewManager(walletKey, am, c.cm, dialer, nil, store, s, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
