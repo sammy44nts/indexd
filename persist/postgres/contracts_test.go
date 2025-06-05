@@ -1321,6 +1321,20 @@ func BenchmarkContracts(b *testing.B) {
 			}
 		}
 	})
+
+	b.Run("contracts_revisions", func(b *testing.B) {
+		for b.Loop() {
+			contractID := contractIDs[frand.Intn(len(contractIDs))]
+			revision, _, err := store.ContractRevision(context.Background(), contractID)
+			if err != nil {
+				b.Fatal(err)
+			}
+			revision.RevisionNumber++
+			if err := store.UpdateContractRevision(context.Background(), contractID, revision); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func BenchmarkPrunableContractRoots(b *testing.B) {
