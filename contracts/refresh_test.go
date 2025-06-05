@@ -81,7 +81,11 @@ func TestPerformContractRefreshes(t *testing.T) {
 
 	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good, oof, ooc bool) {
 		t.Helper()
-		err := store.AddFormedContract(context.Background(), contractID, hostKey, proofHeight, expirationHeight, types.Siacoins(1), initialAllowance, types.Siacoins(3), totalCollateral)
+		revision := newTestRevision(hostKey)
+		revision.ProofHeight = proofHeight
+		revision.ExpirationHeight = expirationHeight
+		revision.TotalCollateral = totalCollateral
+		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), initialAllowance, types.Siacoins(3))
 		if err != nil {
 			t.Fatal(err)
 		}
