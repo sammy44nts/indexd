@@ -1003,6 +1003,7 @@ func newTestHostSettings(pk types.PublicKey) proto4.HostSettings {
 			Collateral:    types.NewCurrency64(200),
 			ValidUntil:    time.Now().Add(24 * time.Hour).Round(time.Microsecond),
 			TipHeight:     1,
+			Signature:     types.Signature{1, 2, 3},
 		},
 	}
 }
