@@ -372,8 +372,8 @@ func (s *Store) MarkBroadcastAttempt(ctx context.Context, contractID types.FileC
 	})
 }
 
-// MarkPruned updates the contract's next prune time to the given time
-func (s *Store) MarkPruned(ctx context.Context, contractID types.FileContractID, nextPrune time.Time) error {
+// UpdateNextPrune updates the contract's next prune time to the given time
+func (s *Store) UpdateNextPrune(ctx context.Context, contractID types.FileContractID, nextPrune time.Time) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		_, err := tx.Exec(ctx, `UPDATE contracts SET next_prune = $1 WHERE contract_id = $2`, nextPrune, sqlHash256(contractID))
 		return err

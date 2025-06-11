@@ -1012,7 +1012,7 @@ func TestUpdateContractState(t *testing.T) {
 	assertState(contracts.ContractStateActive)  // assert active
 }
 
-func TestMarkPruned(t *testing.T) {
+func TestUpdateNextPruned(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	// add a host with one contract
@@ -1029,7 +1029,7 @@ func TestMarkPruned(t *testing.T) {
 
 	// mark as pruned and assert contract was updated correctly
 	oneHourFromNow := time.Now().Add(time.Hour).Round(time.Microsecond)
-	if err := store.MarkPruned(context.Background(), fcid, oneHourFromNow); err != nil {
+	if err := store.UpdateNextPrune(context.Background(), fcid, oneHourFromNow); err != nil {
 		t.Fatal(err)
 	} else if contract, err := store.Contract(context.Background(), fcid); err != nil {
 		t.Fatal(err)
