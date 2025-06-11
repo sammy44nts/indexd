@@ -20,7 +20,7 @@ CREATE TABLE hosts (
     settings_wallet_address BYTEA NOT NULL DEFAULT '\x0000000000000000000000000000000000000000000000000000000000000000'::bytea CHECK (LENGTH(settings_wallet_address) = 32),
     settings_accepting_contracts BOOLEAN NOT NULL DEFAULT FALSE,
     settings_max_collateral NUMERIC(50,0) NOT NULL DEFAULT 0,
-    settings_max_contract_duration NUMERIC(50,0) NOT NULL DEFAULT 0,
+    settings_max_contract_duration BIGINT NOT NULL DEFAULT 0,
     settings_remaining_storage BIGINT NOT NULL DEFAULT 0,
     settings_total_storage BIGINT NOT NULL DEFAULT 0,
     settings_contract_price NUMERIC(50,0) NOT NULL DEFAULT 0,
@@ -160,7 +160,7 @@ CREATE TABLE contracts (
   last_broadcast_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
   -- contract pruning
-  last_prune TIMESTAMP WITH TIME ZONE,
+  next_prune TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() + INTERVAL '1 day',
 
   -- metrics for visualization (not ACID)
   capacity BIGINT NOT NULL DEFAULT 0 CHECK(capacity >= size),

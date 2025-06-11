@@ -33,6 +33,12 @@ func (*hostClientMock) AppendSectors(ctx context.Context, hostPrices proto.HostP
 func (*hostClientMock) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
 	return rhp.RPCFormContractResult{}, nil
 }
+func (*hostClientMock) FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
+	return rhp.RPCFreeSectorsResult{}, nil
+}
+func (*hostClientMock) SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
+	return rhp.RPCSectorRootsResult{}, nil
+}
 func (*hostClientMock) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
 	return rhp.RPCRefreshContractResult{}, nil
 }

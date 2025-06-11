@@ -54,6 +54,7 @@ type (
 	Store interface {
 		AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error
 		AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee, usedCollateral types.Currency) error
+		BlockHosts(ctx context.Context, hostKeys []types.PublicKey, reason string) error
 		ContractElement(ctx context.Context, contractID types.FileContractID) (types.V2FileContractElement, error)
 		ContractRevision(ctx context.Context, contractID types.FileContractID) (types.V2FileContract, bool, error)
 		ContractElementsForBroadcast(ctx context.Context, maxBlocksSinceExpiry uint64) ([]types.V2FileContractElement, error)
@@ -61,19 +62,22 @@ type (
 		ContractsForBroadcasting(ctx context.Context, minBroadcast time.Time, limit int) ([]types.FileContractID, error)
 		ContractsForFunding(ctx context.Context, hk types.PublicKey, limit int) ([]types.FileContractID, error)
 		ContractsForPinning(ctx context.Context, hk types.PublicKey, maxContractSize uint64) ([]types.FileContractID, error)
+		ContractsForPruning(ctx context.Context, hk types.PublicKey) ([]types.FileContractID, error)
 		Host(ctx context.Context, hostKey types.PublicKey) (hosts.Host, error)
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
+		HostsForPruning(ctx context.Context) ([]types.PublicKey, error)
 		HostsForPinning(ctx context.Context) ([]types.PublicKey, error)
 		MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error)
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
-		BlockHosts(ctx context.Context, hostKeys []types.PublicKey, reason string) error
 		MarkBroadcastAttempt(ctx context.Context, contractID types.FileContractID) error
 		MarkUnrenewableContractsBad(ctx context.Context, maxProofHeight uint64) error
 		PinSectors(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) error
-		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
+		PrunableContractRoots(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error)
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
-		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
+		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
 		UpdateContractRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract) error
+		UpdateNextPrune(ctx context.Context, contractID types.FileContractID, nextPrune time.Time) error
+		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 	}
 
 	// Syncer is the minimal interface of Syncer functionality the
@@ -246,12 +250,12 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			log.Error("account funding failed", zap.Error(err))
 		}
 
-		if err := cm.performSectorPinning(ctx, log); err != nil {
-			log.Error("sector pinning failed", zap.Error(err))
+		if err := cm.performContractPruning(ctx, log); err != nil {
+			log.Error("contract pruning failed", zap.Error(err))
 		}
 
-		if err := cm.performContractPruning(); err != nil {
-			log.Error("contract pruning failed", zap.Error(err))
+		if err := cm.performSectorPinning(ctx, log); err != nil {
+			log.Error("sector pinning failed", zap.Error(err))
 		}
 	}
 }
@@ -404,10 +408,5 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 		return fmt.Errorf("failed to broadcast contract revisions: %w", err)
 	}
 
-	return nil
-}
-
-// TODO: implement
-func (cm *ContractManager) performContractPruning() error {
 	return nil
 }
