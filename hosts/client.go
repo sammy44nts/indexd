@@ -37,6 +37,10 @@ var (
 	// by the host.
 	ErrContractNotRevisable = errors.New("contract is not revisable")
 
+	// ErrContractOutOfFunds is returned when we try to perform an action on a
+	// contract that has no funds left to cover the action.
+	ErrContractOutOfFunds = errors.New("contract is out of funds")
+
 	// ErrContractRenewed is returned when we try to revise a contract that has
 	// already been renewed.
 	ErrContractRenewed = errors.New("contract got renewed")
@@ -133,21 +137,22 @@ func (c *hostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPri
 		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("too many sectors, %d > %d", len(sectors), proto.MaxSectorBatchSize) // developer error
 	}
 
-	// fetch revision and check if it meets the requirements
-	rev, err := rhp.RPCLatestRevision(ctx, c.client, contractID)
-	if err != nil {
-		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("failed to fetch latest revision: %w", err)
-	} else if !rev.Revisable {
-		return rhp.RPCAppendSectorsResult{}, errors.New("contract is not revisable")
-	} else if rev.Contract.RenterOutput.Value.IsZero() {
-		return rhp.RPCAppendSectorsResult{}, errors.New("contract is out of funds")
-	} else if rev.Contract.Filesize > maxContractSize {
-		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("contract is too large, %d > %d", rev.Contract.Filesize, maxContractSize)
+	// append sectors
+	var res rhp.RPCAppendSectorsResult
+	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
+		if revision.Filesize > maxContractSize {
+			return types.V2FileContract{}, fmt.Errorf("contract is too large, %d > %d", revision.Filesize, maxContractSize)
+		}
+		res, err = rhp.RPCAppendSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, rhp.ContractRevision{ID: contractID, Revision: revision}, sectors)
+		if err != nil {
+			return types.V2FileContract{}, fmt.Errorf("failed to append sectors: %w", err)
+		}
+		return res.Revision, nil
+	}); err != nil {
+		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("failed to fetch append sectors: %w", err)
 	}
 
-	// append sectors
-	revision := rhp.ContractRevision{ID: contractID, Revision: rev.Contract}
-	return rhp.RPCAppendSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, revision, sectors)
+	return res, nil
 }
 
 func (c *hostClient) Close() error {
@@ -269,6 +274,8 @@ func (c *hostClient) withRevision(ctx context.Context, contractID types.FileCont
 		return ErrContractRenewed
 	} else if rev.ProofHeight > maxProofHeight {
 		return fmt.Errorf("%d > %d (%d+%d), %w", rev.ProofHeight, maxProofHeight, bh, revisionSubmissionBuffer, ErrContractNotRevisable)
+	} else if rev.RenterOutput.Value.IsZero() {
+		return ErrContractOutOfFunds
 	}
 
 	// revise the contract

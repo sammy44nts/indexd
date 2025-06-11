@@ -9,7 +9,6 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -27,20 +26,6 @@ type (
 		signer rhp.ContractSigner
 	}
 )
-
-type hostClient struct{}
-
-func (c *hostClient) Dial(ctx context.Context, addr string, peerKey types.PublicKey) (rhp.TransportClient, error) {
-	return siamux.Dial(ctx, addr, peerKey)
-}
-
-func (c *hostClient) RPCLatestRevision(ctx context.Context, t rhp.TransportClient, fcid types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
-	return rhp.RPCLatestRevision(ctx, t, fcid)
-}
-
-func (c *hostClient) RPCReplenishAccounts(ctx context.Context, t rhp.TransportClient, params rhp.RPCReplenishAccountsParams, state consensus.State, signer rhp.ContractSigner) (rhp.RPCReplenishAccountsResult, error) {
-	return rhp.RPCReplenishAccounts(ctx, t, params, state, signer)
-}
 
 // NewFunder creates a new Funder.
 func NewFunder(cm ChainManager, dialer hosts.Dialer, signer rhp.ContractSigner) *Funder {
