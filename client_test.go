@@ -167,7 +167,6 @@ func TestDownloadTimeout(t *testing.T) {
 	if !errors.Is(err, indexd.ErrNotEnoughShards) {
 		t.Fatalf("expected ErrNotEnoughShards, got %v", err)
 	}
-
 }
 
 func BenchmarkUpload(b *testing.B) {

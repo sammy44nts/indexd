@@ -47,11 +47,13 @@ type (
 	// A DownloadOption configures the download behavior
 	DownloadOption func(*downloadOption)
 
+	// A SlabSector represents a sector in a slab
 	SlabSector struct {
 		Root    types.Hash256
 		HostKey types.PublicKey
 	}
 
+	// A Slab represents a collection of erasure-coded sectors
 	Slab struct {
 		SectorKey  [32]byte
 		MinSectors uint8
@@ -60,6 +62,8 @@ type (
 		Sectors    []SlabSector
 	}
 
+	// An Object represents a collection of slabs that are associated with a
+	// specific key.
 	Object struct {
 		Key   string
 		Slabs []Slab
@@ -102,7 +106,7 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 	for i := range shards {
 		// encrypt the shard before upload
 		nonce[0] = byte(i)
-		c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce[:])
+		c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce)
 		c.XORKeyStream(shards[i], shards[i])
 		go func(ctx context.Context, shard []byte, index int) {
 			sector := (*[proto4.SectorSize]byte)(shard)
@@ -172,7 +176,7 @@ func (s *SDK) downloadSlab(ctx context.Context, slab Slab, timeout time.Duration
 			data, err := downloadShard(ctx, sector.Root, sector.HostKey, s.dialer, timeout)
 			if err == nil {
 				shards[i] = data[:]
-				if new := successful.Add(1); new >= uint32(slab.MinSectors) {
+				if v := successful.Add(1); v >= uint32(slab.MinSectors) {
 					// got enough pieces to recover
 					cancel()
 				}
@@ -331,7 +335,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 			nonce := make([]byte, 24)
 			for i := range shards {
 				nonce[0] = byte(i)
-				c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce[:])
+				c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce)
 				c.XORKeyStream(shards[i], shards[i]) // decrypt shard in place
 			}
 			enc.ReconstructData(shards)
