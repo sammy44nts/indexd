@@ -109,13 +109,12 @@ func (h *Host) SiamuxAddr() string {
 }
 
 // NewManager creates a new host manager.
-func NewManager(dialer rhp.Dialer, syncer Syncer, store Store, opts ...Option) (*HostManager, error) {
+func NewManager(syncer Syncer, store Store, opts ...Option) (*HostManager, error) {
 	m := &HostManager{
 		announcementMaxAge: time.Hour * 24 * 365,
 		scanFrequency:      time.Hour,
 		scanInterval:       time.Hour * 24,
 
-		dialer:        dialer,
 		onlineChecker: &onlineChecker{addresses: fallbackSites, syncer: syncer},
 		resolver:      &net.Resolver{},
 		scanner:       &scanner{},
@@ -179,12 +178,6 @@ func (m *HostManager) UsabilitySettings(ctx context.Context) (UsabilitySettings,
 func (m *HostManager) UpdateUsabilitySettings(ctx context.Context, us UsabilitySettings) error {
 	// perhaps this should reset next_scan to NOW() on all hosts that succeeded their last scan?
 	return m.store.UpdateUsabilitySettings(ctx, us)
-}
-
-// DialHost dials the host with the given public key and address. It returns a
-// host client that is capable of interacting with the host.
-func (m *HostManager) DialHost(ctx context.Context, hk types.PublicKey, addr string) (any, error) {
-	return m.dialer.Dial(ctx, hk, addr)
 }
 
 // ScanHost scans the host with given host key and returns it with updated

@@ -55,7 +55,7 @@ func newHostManagerMock(store *storeMock) *hmMock {
 
 // DialHost returns a mock host client for the given host key. If the host key
 // is not already known, a new host client mock is created and returned.
-func (h *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (any, error) {
+func (h *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
 	return h.HostClient(hostKey), nil
 }
 
@@ -221,7 +221,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
 	wallet := &walletMock{}
-	contracts, err := NewManager(renterKey, amMock, cmMock, hmMock, store, &syncerMock{}, wallet)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, hmMock, &syncerMock{}, wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	}
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
-	contracts, err := NewManager(renterKey, amMock, cmMock, hmMock, store, &syncerMock{}, wMock)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, hmMock, &syncerMock{}, wMock)
 	if err != nil {
 		t.Fatal(err)
 	}

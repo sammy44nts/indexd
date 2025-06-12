@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -44,16 +45,29 @@ var (
 )
 
 type (
-	// Dialer is an interface for dialing a host.
-	Dialer interface {
-		Dial(ctx context.Context, hostKey types.PublicKey, addr string) (*HostClient, error)
-	}
-
 	// ChainManager defines an interface to access the chain state as well as
 	// interact with the transaction pool.
 	ChainManager interface {
 		TipState() consensus.State
 		rhp.TxPool
+	}
+
+	// Client defines an interface that allows interacting with a host using the
+	// RPC methods defined in the RHP.
+	Client interface {
+		io.Closer
+		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error)
+		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
+		FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error)
+		SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error)
+		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
+		RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error)
+		ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (rhp.RPCReplenishAccountsResult, int, error)
+	}
+
+	// Dialer is an interface for dialing a host.
+	Dialer interface {
+		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (Client, error)
 	}
 
 	// RevisionStore defines an interface that allows fetching and updating a

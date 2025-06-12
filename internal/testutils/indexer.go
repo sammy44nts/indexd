@@ -47,17 +47,16 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	wm := NewWallet(t, c, walletKey)
 
 	syncer := NewSyncer(t, c.genesis.ID(), c.cm)
-	signer := contracts.NewFormContractSigner(wm, walletKey)
-	dialer := rhp.NewSiamuxDialer(c.cm, store, signer, log)
-
-	hm, err := hosts.NewManager(dialer, syncer, store, hosts.WithLogger(log.Named("hosts")), hosts.WithScanFrequency(500*time.Millisecond), hosts.WithScanInterval(time.Second))
+	hm, err := hosts.NewManager(syncer, store, hosts.WithLogger(log.Named("hosts")), hosts.WithScanFrequency(500*time.Millisecond), hosts.WithScanInterval(time.Second))
 	if err != nil {
 		t.Fatalf("failed to create host manager: %v", err)
 	}
 
-	am := accounts.NewManager(store, accounts.NewFunder(c.cm, hm), accounts.WithLogger(log.Named("accounts")))
+	signer := contracts.NewFormContractSigner(wm, walletKey)
+	dialer := rhp.NewSiamuxDialer(c.cm, store, signer, log)
+	am := accounts.NewManager(store, accounts.NewFunder(c.cm, dialer), accounts.WithLogger(log.Named("accounts")))
 
-	contracts, err := contracts.NewManager(walletKey.PublicKey(), am, c.cm, hm, store, syncer, wm, contracts.WithLogger(log.Named("contracts")))
+	contracts, err := contracts.NewManager(walletKey.PublicKey(), am, c.cm, store, dialer, hm, syncer, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}

@@ -72,7 +72,7 @@ func (cm *ContractManager) performSectorPinningOnHost(ctx context.Context, host 
 
 	// refresh prices if necessary
 	if time.Until(host.Settings.Prices.ValidUntil) < 30*time.Minute {
-		host, err := cm.hm.ScanHost(ctx, host.PublicKey)
+		host, err := cm.scanner.ScanHost(ctx, host.PublicKey)
 		if err != nil {
 			return fmt.Errorf("failed to scan host: %w", err)
 		} else if !host.IsGood() {

@@ -21,9 +21,9 @@ type (
 		TipState() consensus.State
 	}
 
-	// HostManager defines an interface to dial a host and get a client.
-	HostManager interface {
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (any, error)
+	// Dialer defines an interface to dial a host and get a client.
+	Dialer interface {
+		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
 	}
 
 	// HostClient defines an interface for replenishing accounts on a host.
@@ -34,16 +34,29 @@ type (
 
 	// Funder dials a host and replenish a set of ephemeral accounts.
 	Funder struct {
-		cm ChainManager
-		hm HostManager
+		cm     ChainManager
+		dialer Dialer
 	}
 )
 
+type wrapper struct {
+	d rhp.Dialer
+}
+
+// DialHost dials the host and returns a HostClient.
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addr)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 // NewFunder creates a new Funder.
-func NewFunder(cm ChainManager, hm HostManager) *Funder {
+func NewFunder(cm ChainManager, d rhp.Dialer) *Funder {
 	return &Funder{
-		cm: cm,
-		hm: hm,
+		cm:     cm,
+		dialer: &wrapper{d: d},
 	}
 }
 
@@ -65,7 +78,7 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, contractIDs 
 	}
 
 	// dial the host
-	raw, err := f.hm.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	raw, err := f.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to dial host %s: %w", host.PublicKey, err)
 	}

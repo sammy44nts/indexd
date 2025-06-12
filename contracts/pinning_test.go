@@ -258,7 +258,7 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 	hmMock.settings[hk2] = h2.Settings
 
 	// prepare contract manager
-	cm, err := NewManager(types.PublicKey{}, nil, &chainManagerMock{}, hmMock, store, nil, nil)
+	cm, err := newContractManager(types.PublicKey{}, nil, &chainManagerMock{}, store, hmMock, hmMock, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

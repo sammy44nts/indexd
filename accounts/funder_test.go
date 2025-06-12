@@ -16,7 +16,7 @@ import (
 
 type hmMock struct{}
 
-func (m *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (any, error) {
+func (m *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
 	return &hostClientMock{}, nil
 }
 
@@ -51,7 +51,7 @@ func (*hostClientMock) ReplenishAccounts(ctx context.Context, contractID types.F
 // TestFunder is a unit test that checks the various edge cases in FundAccounts
 func TestFunder(t *testing.T) {
 	// prepare funder
-	f := NewFunder(&cmMock{}, &hmMock{})
+	f := &Funder{cm: &cmMock{}, dialer: &hmMock{}}
 
 	// prepare accounts
 	accounts := []HostAccount{

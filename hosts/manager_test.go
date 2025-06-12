@@ -14,7 +14,6 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/syncer"
-	"go.sia.tech/indexd/rhp"
 	"go.uber.org/zap"
 )
 
@@ -23,12 +22,6 @@ var cancelledCtx = func() context.Context {
 	cancel()
 	return ctx
 }()
-
-type mockDialer struct{}
-
-func (d *mockDialer) Dial(ctx context.Context, hostKey types.PublicKey, addr string) (*rhp.HostClient, error) {
-	return nil, nil
-}
 
 // mockStore is a mock that implements the Store interface.
 type mockStore struct {
@@ -109,10 +102,9 @@ func TestHostManager(t *testing.T) {
 	db := &mockStore{hosts: make(map[types.PublicKey]Host)}
 
 	syncer := &mockSyncer{peers: []*syncer.Peer{{}}}
-	dialer := &mockDialer{}
 
 	// create host manager
-	mgr, err := NewManager(dialer, syncer, db, WithAnnouncementMaxAge(time.Minute))
+	mgr, err := NewManager(syncer, db, WithAnnouncementMaxAge(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

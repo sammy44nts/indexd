@@ -19,7 +19,7 @@ func TestBroadcastContractRevisions(t *testing.T) {
 	walletMock := &walletMock{}
 	store := &storeMock{}
 
-	contracts, err := NewManager(types.PublicKey{}, nil, cmMock, nil, store, syncerMock, walletMock)
+	contracts, err := NewManager(types.PublicKey{}, nil, cmMock, store, nil, nil, syncerMock, walletMock)
 	if err != nil {
 		t.Fatal(err)
 	}

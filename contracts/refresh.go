@@ -63,7 +63,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 
 	// scan host for valid price settings and make sure it's still usable
 	scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	host, err = cm.hm.ScanHost(scanCtx, host.PublicKey)
+	host, err = cm.scanner.ScanHost(scanCtx, host.PublicKey)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("failed to scan host: %w", err)

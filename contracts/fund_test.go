@@ -80,7 +80,7 @@ func TestPerformAccountFunding(t *testing.T) {
 	amMock := &accountsManagerMock{}
 	cmMock := &chainManagerMock{}
 	store := newStoreMock()
-	cm, err := NewManager(types.PublicKey{}, amMock, cmMock, nil, store, nil, nil)
+	cm, err := NewManager(types.PublicKey{}, amMock, cmMock, store, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -164,7 +164,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 
 		// scan host for valid price settings
 		scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		host, err := cm.hm.ScanHost(scanCtx, candidates[i].PublicKey)
+		host, err := cm.scanner.ScanHost(scanCtx, candidates[i].PublicKey)
 		cancel()
 		if err != nil {
 			hostLog.Warn("failed to scan host", zap.Error(err))

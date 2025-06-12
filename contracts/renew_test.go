@@ -104,7 +104,7 @@ func TestPerformContractRenewals(t *testing.T) {
 	}
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
-	contracts, err := NewManager(renterKey, amMock, cmMock, hmMock, store, &syncerMock{}, wMock)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, hmMock, &syncerMock{}, wMock)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,10 +31,10 @@ func NewSiamuxDialer(cm ChainManager, store RevisionStore, signer rhp.FormContra
 	}
 }
 
-// Dial dials the host and returns a Client that can be used to interact with
-// the host. It uses the SiaMux protocol to establish a connection and returns a
-// host client that exposes the RPC methods defined in the RHP.
-func (d *siamuxDialer) Dial(ctx context.Context, hk types.PublicKey, addr string) (*HostClient, error) {
+// DialHost dials the host and returns a Client that can be used to interact
+// with the host. It uses the SiaMux protocol to establish a connection and
+// returns a host client that exposes the RPC methods defined in the RHP.
+func (d *siamuxDialer) DialHost(ctx context.Context, hk types.PublicKey, addr string) (Client, error) {
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
