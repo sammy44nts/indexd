@@ -1,4 +1,4 @@
-package indexd
+package sdk
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,10 +24,12 @@ type (
 		dataShards   uint8
 		parityShards uint8
 		hostTimeout  time.Duration
+		maxInflight  int
 	}
 
 	downloadOption struct {
 		hostTimeout time.Duration
+		maxInflight int
 	}
 
 	// A HostDialer is an interface for writing and reading sectors to/from hosts.
@@ -47,19 +50,19 @@ type (
 	// A DownloadOption configures the download behavior
 	DownloadOption func(*downloadOption)
 
-	// A SlabSector represents a sector in a slab
-	SlabSector struct {
+	// A Shard represents a sector in a slab
+	Shard struct {
 		Root    types.Hash256
 		HostKey types.PublicKey
 	}
 
 	// A Slab represents a collection of erasure-coded sectors
 	Slab struct {
-		SectorKey  [32]byte
-		MinSectors uint8
-		Offset     uint32
-		Length     uint32
-		Sectors    []SlabSector
+		SectorKey [32]byte
+		MinShards uint8
+		Offset    uint32
+		Length    uint32
+		Shards    []Shard
 	}
 
 	// An Object represents a collection of slabs that are associated with a
@@ -82,33 +85,52 @@ var (
 	// ErrNotEnoughShards is returned when not enough shards were
 	// uploaded or downloaded to satisfy the minimum required shards.
 	ErrNotEnoughShards = errors.New("not enough shards")
+
+	// ErrNoMoreHosts is returned when there are no more hosts
+	// available to attempt to upload a shard
+	ErrNoMoreHosts = errors.New("no more hosts available")
 )
 
-func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][]byte, dataShards, parityShards uint8, timeout time.Duration) (Slab, error) {
+func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][]byte, dataShards uint8, maxInFlight int, timeout time.Duration) (Slab, error) {
 	if len(shards) == 0 {
 		return Slab{}, errors.New("no shards to upload")
+	} else if len(shards) < int(dataShards) {
+		return Slab{}, fmt.Errorf("not enough shards to upload: %d, required: %d", len(shards), dataShards)
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	slab := Slab{
-		SectorKey:  encryptionKey,
-		MinSectors: dataShards,
-		Sectors:    make([]SlabSector, len(shards)),
+		SectorKey: encryptionKey,
+		MinShards: dataShards,
+		Shards:    make([]Shard, len(shards)),
 	}
 
 	var hostsMu sync.Mutex
 	hosts := shuffle(s.dialer.Hosts())
-	if len(hosts) < int(dataShards+parityShards) {
-		return Slab{}, fmt.Errorf("not enough hosts available: %d, required: %d", len(hosts), dataShards+parityShards)
+	if len(hosts) < len(shards) {
+		return Slab{}, fmt.Errorf("not enough hosts available: %d, required: %d", len(hosts), len(shards))
 	}
 
 	errCh := make(chan error, len(shards))
 	nonce := make([]byte, 24)
+	sema := make(chan struct{}, maxInFlight)
 	for i := range shards {
 		// encrypt the shard before upload
 		nonce[0] = byte(i)
 		c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce)
 		c.XORKeyStream(shards[i], shards[i])
+
+		select {
+		case <-ctx.Done():
+			return Slab{}, ctx.Err()
+		case sema <- struct{}{}:
+			// limit number of concurrent requests
+		}
+
 		go func(ctx context.Context, shard []byte, index int) {
+			defer func() { <-sema }() // release semaphore
 			sector := (*[proto4.SectorSize]byte)(shard)
 			for {
 				select {
@@ -119,7 +141,7 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 
 				hostsMu.Lock()
 				if len(hosts) == 0 {
-					errCh <- errors.New("no hosts available")
+					errCh <- ErrNoMoreHosts
 					hostsMu.Unlock()
 					return
 				}
@@ -129,7 +151,7 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 
 				root, err := uploadShard(ctx, sector, hostKey, s.dialer, timeout) // error can be ignored, hosts will be retried until none are left and the upload fails.
 				if err == nil {
-					slab.Sectors[index] = SlabSector{
+					slab.Shards[index] = Shard{
 						HostKey: hostKey,
 						Root:    root,
 					}
@@ -139,54 +161,54 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 			}
 		}(ctx, shards[i], i)
 	}
-
-	var completed uint8
 	for range len(shards) {
 		select {
 		case <-ctx.Done():
 			return Slab{}, ctx.Err()
 		case err := <-errCh:
-			if err == nil {
-				completed++
+			if err != nil {
+				return Slab{}, fmt.Errorf("failed to upload shard: %w", err)
 			}
 		}
-	}
-
-	// redundancy is guaranteed to be at least 2x; 80% of shards
-	// being present is more than enough to repair.
-	minShards := uint8(float64(dataShards+parityShards) * 0.8)
-	if completed < minShards {
-		return Slab{}, fmt.Errorf("upload failed %d successful, %d required: %w", completed, minShards, ErrNotEnoughShards)
 	}
 	return slab, nil
 }
 
-func (s *SDK) downloadSlab(ctx context.Context, slab Slab, timeout time.Duration) ([][]byte, error) {
+func (s *SDK) downloadSlab(ctx context.Context, slab Slab, maxInflight int, timeout time.Duration) ([][]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var successful atomic.Uint32
 	var wg sync.WaitGroup
-	shards := make([][]byte, len(slab.Sectors))
-	for i, sector := range slab.Sectors {
+	shards := make([][]byte, len(slab.Shards))
+	sema := make(chan struct{}, maxInflight)
+top:
+	for i, shard := range slab.Shards {
+		select {
+		case <-ctx.Done():
+			break top
+		case sema <- struct{}{}:
+			// limit number of concurrent requests
+		}
 		wg.Add(1)
-		go func(ctx context.Context, sector SlabSector, i int) {
+		go func(ctx context.Context, shard Shard, i int) {
+			defer func() { <-sema }() // release semaphore
 			defer wg.Done()
-
-			data, err := downloadShard(ctx, sector.Root, sector.HostKey, s.dialer, timeout)
-			if err == nil {
-				shards[i] = data[:]
-				if v := successful.Add(1); v >= uint32(slab.MinSectors) {
-					// got enough pieces to recover
-					cancel()
-				}
+			data, err := downloadShard(ctx, shard.Root, shard.HostKey, s.dialer, timeout)
+			if err != nil {
+				return
 			}
-		}(ctx, sector, i)
+			shards[i] = data[:]
+			if v := successful.Add(1); v >= uint32(slab.MinShards) {
+				// got enough pieces to recover
+				cancel()
+			}
+		}(ctx, shard, i)
 	}
 
 	wg.Wait()
-	if successful.Load() < uint32(slab.MinSectors) {
-		return nil, ErrNotEnoughShards
+	if n := successful.Load(); n < uint32(slab.MinShards) {
+		return nil, fmt.Errorf("retrieved %d shards, minimum required: %d: %w", n, slab.MinShards, ErrNotEnoughShards)
 	}
 	return shards, nil
 }
@@ -199,6 +221,7 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 		dataShards:   10,
 		parityShards: 20,
 		hostTimeout:  4 * time.Second, // ~10 Mbps
+		maxInflight:  30,
 	}
 	for _, opt := range opts {
 		opt(&uo)
@@ -250,6 +273,7 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 		}
 	}()
 
+	// TODO: cleanup on failure
 	var pinned []Slab
 	for i := 0; ; i++ {
 		select {
@@ -266,7 +290,7 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 			} else if work.err != nil {
 				return nil, work.err
 			}
-			slab, err := s.uploadSlab(ctx, shardKey, shards, uo.dataShards, uo.parityShards, uo.hostTimeout)
+			slab, err := s.uploadSlab(ctx, shardKey, shards, uo.dataShards, uo.maxInflight, uo.hostTimeout)
 			if err != nil {
 				return nil, fmt.Errorf("failed to upload slab %d: %w", i, err)
 			}
@@ -281,19 +305,20 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 //
 // TODO: support seeks
 func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts ...DownloadOption) error {
-	do := downloadOption{
-		hostTimeout: 4 * time.Second, // ~10 Mbps
-	}
-	for _, opt := range opts {
-		opt(&do)
-	}
-
 	if len(metadata) == 0 {
 		return errors.New("no slabs to download")
 	}
 
-	dataShards := int(metadata[0].MinSectors)
-	parityShards := len(metadata[0].Sectors) - dataShards
+	dataShards := int(metadata[0].MinShards)
+	parityShards := len(metadata[0].Shards) - dataShards
+
+	do := downloadOption{
+		hostTimeout: 4 * time.Second, // ~10 Mbps
+		maxInflight: min(runtime.NumCPU(), dataShards+(dataShards/2)),
+	}
+	for _, opt := range opts {
+		opt(&do)
+	}
 
 	enc, err := reedsolomon.New(dataShards, parityShards)
 	if err != nil {
@@ -307,7 +332,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 	workCh := make(chan work, 1)
 	go func(ctx context.Context, slabs []Slab) {
 		for i, slab := range metadata {
-			shards, err := s.downloadSlab(ctx, slab, do.hostTimeout)
+			shards, err := s.downloadSlab(ctx, slab, do.maxInflight, do.hostTimeout)
 			if err != nil {
 				workCh <- work{err: fmt.Errorf("failed to download slab %d: %w", i, err)}
 				return
@@ -339,7 +364,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 				c.XORKeyStream(shards[i], shards[i]) // decrypt shard in place
 			}
 			enc.ReconstructData(shards)
-			if err := stripedJoin(w, shards[:slab.MinSectors], int(slab.Length)); err != nil {
+			if err := stripedJoin(w, shards[:slab.MinShards], int(slab.Length)); err != nil {
 				return fmt.Errorf("failed to write slab %d: %w", i, err)
 			}
 		}
@@ -384,7 +409,6 @@ func stripedJoin(dst io.Writer, dataShards [][]byte, writeLen int) error {
 func downloadShard(ctx context.Context, root types.Hash256, hostKey types.PublicKey, dialer HostDialer, timeout time.Duration) (*[proto4.SectorSize]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
 	return dialer.ReadSector(ctx, hostKey, root)
 }
 
@@ -455,12 +479,30 @@ func WithUploadHostTimeout(timeout time.Duration) UploadOption {
 	}
 }
 
+// WithUploadInflight sets the maximum number of concurrent shard uploads.
+// This is useful to reduce bandwidth consumption, but will decrease
+// performance.
+func WithUploadInflight(maxInflight int) UploadOption {
+	return func(uo *uploadOption) {
+		uo.maxInflight = maxInflight
+	}
+}
+
 // WithDownloadHostTimeout sets the timeout for reading sectors
 // from individual hosts. This avoids long hangs when a host is unresponsive
 // or slow. The default is 4 seconds, worst case around 300Mbps.
 func WithDownloadHostTimeout(timeout time.Duration) DownloadOption {
 	return func(do *downloadOption) {
 		do.hostTimeout = timeout
+	}
+}
+
+// WithDownloadInflight sets the maximum number of concurrent shard
+// downloads. This is useful to reduce bandwidth waste, but may
+// decrease performance.
+func WithDownloadInflight(maxInflight int) DownloadOption {
+	return func(do *downloadOption) {
+		do.maxInflight = maxInflight
 	}
 }
 
