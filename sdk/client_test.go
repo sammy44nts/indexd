@@ -55,7 +55,7 @@ func (m *mockHostDialer) WriteSector(ctx context.Context, hostKey types.PublicKe
 		panic("host not found: " + hostKey.String()) // developer error
 	}
 
-	// simulate timeout
+	// simulate i/o
 	if err := m.delay(ctx, hostKey); err != nil {
 		return types.Hash256{}, err
 	}
@@ -93,17 +93,23 @@ func (m *mockHostDialer) ReadSector(ctx context.Context, hostKey types.PublicKey
 	return &sector, nil
 }
 
+func (m *mockHostDialer) ResetSlowHosts() {
+	m.delayMu.Lock()
+	defer m.delayMu.Unlock()
+	m.slowHosts = make(map[types.PublicKey]time.Duration)
+}
+
 func (m *mockHostDialer) SetSlowHosts(n int, d time.Duration) {
 	m.delayMu.Lock()
 	defer m.delayMu.Unlock()
 
-	if n > len(m.hosts) {
-		n = len(m.hosts)
-	}
-	m.slowHosts = make(map[types.PublicKey]time.Duration)
-	hosts := slices.Collect(maps.Keys(m.hosts))
-	for _, key := range hosts[:n] {
-		m.slowHosts[key] = d
+	var set int
+	for hostKey := range maps.Keys(m.hosts) {
+		if set >= n {
+			break // already set enough hosts
+		}
+		set++
+		m.slowHosts[hostKey] = d
 	}
 }
 
@@ -154,7 +160,7 @@ func TestUpload(t *testing.T) {
 	data := frand.Bytes(4096)
 
 	t.Run("timeout", func(t *testing.T) {
-		// make enough hosts slow to fail
+		// make enough hosts timeout to fail
 		dialer.SetSlowHosts(21, time.Second)
 		_, err := s.Upload(context.Background(), bytes.NewReader(data), sdk.WithUploadHostTimeout(100*time.Millisecond))
 		if !errors.Is(err, sdk.ErrNoMoreHosts) {
@@ -163,8 +169,8 @@ func TestUpload(t *testing.T) {
 	})
 
 	t.Run("slow", func(t *testing.T) {
-		// make most of the hosts slow but not enough to fail
-		// the upload
+		// make most of the hosts slow,
+		// but not enough to fail to upload
 		dialer.SetSlowHosts(20, time.Second)
 		slabs, err := s.Upload(context.Background(), bytes.NewReader(data), sdk.WithUploadHostTimeout(100*time.Millisecond))
 		if err != nil {
@@ -219,11 +225,13 @@ func BenchmarkUpload(b *testing.B) {
 	appKey := types.GeneratePrivateKey()
 	data := frand.Bytes(benchmarkSize)
 
-	benchMatrix := func(b *testing.B, slow, inflight int) {
+	benchMatrix := func(b *testing.B, slow, timeout, inflight int) {
 		b.Helper()
-		b.Run(fmt.Sprintf("slow %d inflight %d", slow, inflight), func(b *testing.B) {
-			dialer := newMockDialer(50)
-			dialer.SetSlowHosts(slow, 30*time.Second)
+		b.Run(fmt.Sprintf("slow %d timeout %d inflight %d", slow, timeout, inflight), func(b *testing.B) {
+			dialer := newMockDialer(30 + timeout) // increase the chance that a timeout will affect us without failing the test
+			dialer.ResetSlowHosts()
+			dialer.SetSlowHosts(slow, time.Second)       // slow, but not too slow
+			dialer.SetSlowHosts(timeout, 30*time.Second) // longer than the default timeout
 
 			s := sdk.NewSDK("", appKey, dialer)
 
@@ -239,11 +247,15 @@ func BenchmarkUpload(b *testing.B) {
 		})
 	}
 
-	inflight := []int{1, 3, 5, 10, 20, 30}
-	slow := []int{0, 1, 3, 5} // testing more variants of slow is not very useful
+	inflight := []int{runtime.NumCPU(), 5, 10, 20, 30}
+	// testing more variants is not particularly useful
+	slow := []int{0, 1, 3, 5}
+	timeout := []int{0, 1, 3, 5}
 	for _, s := range slow {
-		for _, i := range inflight {
-			benchMatrix(b, s, i)
+		for _, t := range timeout {
+			for _, i := range inflight {
+				benchMatrix(b, s, t, i)
+			}
 		}
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -314,7 +313,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 
 	do := downloadOption{
 		hostTimeout: 4 * time.Second, // ~10 Mbps
-		maxInflight: min(runtime.NumCPU(), dataShards+(dataShards/2)),
+		maxInflight: 10,
 	}
 	for _, opt := range opts {
 		opt(&do)
