@@ -3,14 +3,24 @@ package slabs
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
+)
+
+type (
+	// Shard represents a sector present on a host.
+	Shard struct {
+		Root    types.Hash256
+		HostKey types.PublicKey
+	}
 )
 
 func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Logger) error {
@@ -45,7 +55,11 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Log
 		}
 	}
 
-	// TODO: make sure prices are up-to-date
+	// maintenance settings
+	ms, err := m.store.MaintenanceSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch maintenance settings: %w", err)
+	}
 
 	var wg sync.WaitGroup
 	for _, slab := range slabs {
@@ -53,7 +67,7 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Log
 		go func() {
 			defer wg.Done()
 
-			if err := m.migrateSlab(ctx, slab, logger); err != nil {
+			if err := m.migrateSlab(ctx, slab, availableHosts, availableContracts, ms.Period, logger); err != nil {
 				logger.Error("failed to migrate slab", zap.Error(err))
 				return
 			}
@@ -63,14 +77,44 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Log
 	return nil
 }
 
-func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, l *zap.Logger) error {
+func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, hosts []hosts.Host, contracts []contracts.Contract, period uint64, l *zap.Logger) error {
 	logger := l.Named(slab.ID.String())
 
-	if true {
-		panic("migrate")
+	indices, hosts := contractsForRepair(slab, hosts, contracts, period)
+	if len(indices) == 0 {
+		logger.Debug("tried to migrate slab but no indices require migration")
+		return nil
 	}
 
-	logger.Debug("successfully migrated slab")
+	// generous timeout for repairing a slab
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	shards, err := downloadSlab(ctx, m.client, slab)
+	if err != nil {
+		return fmt.Errorf("failed to download slab %s: %w", slab.ID, err)
+	}
+
+	toMigrate := shards[:0]
+	for _, i := range indices {
+		toMigrate = append(toMigrate, shards[i])
+	}
+
+	migratedShards, err := uploadShards(ctx, m.client, toMigrate, hosts)
+	if err != nil {
+		return fmt.Errorf("failed to upload migrated shards for slab %s: %w", slab.ID, err)
+	} else if len(migratedShards) == 0 {
+		logger.Debug("no shards were migrated")
+		return nil
+	}
+
+	for _, shard := range migratedShards {
+		if _, err := m.store.MigrateSector(ctx, shard.Root, shard.HostKey); err != nil {
+			return fmt.Errorf("failed to migrate sector %s: %w", shard.Root, err)
+		}
+	}
+
+	logger.Debug("successfully migrated slab", zap.Int("toMigrate", len(toMigrate)), zap.Int("migrated", len(migratedShards)))
 	return nil
 }
 
@@ -140,4 +184,12 @@ LOOP:
 		usedHost[contract.HostKey] = struct{}{}
 	}
 	return toMigrate, remainingHosts
+}
+
+func downloadSlab(ctx context.Context, client HostClient, slab Slab) ([][]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func uploadShards(ctx context.Context, client HostClient, shards [][]byte, hosts []hosts.Host) ([]Shard, error) {
+	return nil, errors.New("not implemented")
 }

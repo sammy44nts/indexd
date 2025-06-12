@@ -2,11 +2,13 @@ package slabs
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 )
 
@@ -32,6 +34,10 @@ func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey) err
 	return nil
 }
 
+func (s *mockStore) Contracts(ctx context.Context, offset, limit int, opts ...contracts.ContractQueryOpt) ([]contracts.Contract, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *mockStore) FailingSectors(ctx context.Context, hostKey types.PublicKey, minChecks, limit int) ([]types.Hash256, error) {
 	var roots []types.Hash256
 	for root, failures := range s.failedChecks[hostKey] {
@@ -48,6 +54,10 @@ func (s *mockStore) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 
 func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error) {
 	panic("not implemented")
+}
+
+func (s *mockStore) MaintenanceSettings(ctx context.Context) (contracts.MaintenanceSettings, error) {
+	return contracts.MaintenanceSettings{}, errors.New("not implemented")
 }
 
 func (s *mockStore) MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error {
@@ -67,6 +77,10 @@ func (s *mockStore) MarkSectorsLost(ctx context.Context, hostKey types.PublicKey
 		s.lostSectors[hostKey][root] = struct{}{}
 	}
 	return nil
+}
+
+func (s *mockStore) MigrateSector(ctx context.Context, root types.Hash256, hostKey types.PublicKey) (bool, error) {
+	return false, errors.New("not implemented")
 }
 
 func (s *mockStore) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error) {
@@ -93,6 +107,10 @@ func (s *mockStore) SectorsForIntegrityCheck(ctx context.Context, hostKey types.
 
 func (s *mockStore) Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error) {
 	panic("not implemented")
+}
+
+func (s *mockStore) UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (Slab, error) {
+	return Slab{}, ErrSlabNotFound
 }
 
 type mockAccountManager struct {

@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -31,11 +34,12 @@ type (
 		serviceAccount    proto.Account
 		serviceAccountKey types.PrivateKey
 
-		am    AccountManager
-		hm    HostManager
-		store Store
-		tg    *threadgroup.ThreadGroup
-		log   *zap.Logger
+		client HostClient
+		am     AccountManager
+		hm     HostManager
+		store  Store
+		tg     *threadgroup.ThreadGroup
+		log    *zap.Logger
 	}
 
 	// AccountManager defines the SlabManager's dependencies on the account
@@ -45,6 +49,13 @@ type (
 		ResetAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) error
 		ServiceAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) (types.Currency, error)
 		DebitServiceAccount(ctx context.Context, hostKey types.PublicKey, account proto.Account, amount types.Currency) error
+	}
+
+	// HostClient defines the dependencies required to upload and download
+	// sectors to and from hosts.
+	HostClient interface {
+		ReadSector(ctx context.Context, prices proto.HostPrices, token proto.AccountToken, w io.Writer, root types.Hash256, offset, length uint64) (rhp.RPCReadSectorResult, error)
+		WriteSector(ctx context.Context, prices proto.HostPrices, token proto.AccountToken, data io.Reader, length uint64) (rhp.RPCWriteSectorResult, error)
 	}
 
 	// HostManager defines the minimal interface of HostManager functionality
@@ -57,14 +68,18 @@ type (
 	// in the database.
 	Store interface {
 		AddAccount(ctx context.Context, ak types.PublicKey) error
+		Contracts(ctx context.Context, offset, limit int, queryOpts ...contracts.ContractQueryOpt) ([]contracts.Contract, error)
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error)
+		MaintenanceSettings(ctx context.Context) (contracts.MaintenanceSettings, error)
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
+		MigrateSector(ctx context.Context, root types.Hash256, hostKey types.PublicKey) (bool, error)
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
 		RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
+		UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (Slab, error)
 	}
 )
 
@@ -79,8 +94,8 @@ func WithLogger(l *zap.Logger) Option {
 }
 
 // NewManager creates a new slab manager.
-func NewManager(am AccountManager, hm HostManager, store Store, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	m, err := newSlabManager(am, hm, store, serviceAccount, opts...)
+func NewManager(am AccountManager, client HostClient, hm HostManager, store Store, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+	m, err := newSlabManager(am, client, hm, store, serviceAccount, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +122,7 @@ func NewManager(am AccountManager, hm HostManager, store Store, serviceAccount t
 				m.log.Error("failed to perform integrity checks", zap.Error(err))
 			}
 
-			if err := m.performSlabMigrations(); err != nil {
+			if err := m.performSlabMigrations(ctx); err != nil {
 				m.log.Error("failed to perform slab migrations", zap.Error(err))
 			}
 		}
@@ -116,7 +131,7 @@ func NewManager(am AccountManager, hm HostManager, store Store, serviceAccount t
 	return m, nil
 }
 
-func newSlabManager(am AccountManager, hm HostManager, store Store, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func newSlabManager(am AccountManager, client HostClient, hm HostManager, store Store, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		integrityCheckInterval:       7 * 24 * time.Hour,
 		failedIntegrityCheckInterval: 6 * time.Hour,
@@ -125,11 +140,12 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, serviceAccou
 		serviceAccount:    proto.Account(serviceAccount.PublicKey()),
 		serviceAccountKey: serviceAccount,
 
-		am:    am,
-		hm:    hm,
-		store: store,
-		tg:    threadgroup.New(),
-		log:   zap.NewNop(),
+		am:     am,
+		client: client,
+		hm:     hm,
+		store:  store,
+		tg:     threadgroup.New(),
+		log:    zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -217,12 +233,31 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 	return nil
 }
 
-func (m *SlabManager) performSlabMigrations() error {
+func (m *SlabManager) performSlabMigrations(ctx context.Context) error {
 	start := time.Now()
 	logger := m.log.Named("migrations")
 	logger.Debug("starting slab migrations", zap.Time("start", start))
 
-	// TODO: implement
+	const slabsPerBatch = 10
+
+	for {
+		// fetch a batch of unhealthy slabs
+		var toMigrate []Slab
+		for {
+			slab, err := m.store.UnhealthySlab(ctx, start)
+			if errors.Is(err, ErrSlabNotFound) {
+				break // no more slabs to repair
+			} else if err != nil {
+				return fmt.Errorf("failed to fetch unhealthy slab: %w", err)
+			}
+			toMigrate = append(toMigrate, slab)
+		}
+		if len(toMigrate) == 0 {
+			break // nothing to do
+		} else if err := m.migrateSlabs(ctx, toMigrate, logger); err != nil {
+			return fmt.Errorf("failed to migrate slabs: %w", err)
+		}
+	}
 
 	logger.Debug("finished slab migrations", zap.Duration("elapsed", time.Since(start)))
 	return nil
