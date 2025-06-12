@@ -200,7 +200,6 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 				if err != nil {
 					logger.With(zap.Stringer("hostKey", hostKey)).Error("failed to perform integrity checks for host", zap.Error(err))
 				}
-
 			}(host)
 		}
 		wg.Wait()

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/core/rhp/v4"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -203,7 +202,7 @@ func (m *HostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, f
 	// optimistally call the function with the host
 	if err := fn(host); err == nil {
 		return nil
-	} else if err != nil && !strings.Contains(err.Error(), rhp.ErrPricesExpired.Error()) {
+	} else if err != nil && !strings.Contains(err.Error(), proto4.ErrPricesExpired.Error()) {
 		return err
 	}
 	logger.Debug("host has outdated prices, rescan")
