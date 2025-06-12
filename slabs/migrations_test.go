@@ -96,29 +96,28 @@ func TestContractsForRepair(t *testing.T) {
 			},
 		},
 	}
-	_ = slab
 
 	// helper to assert result of contractsForRepair
-	assertResult := func(availableHosts []hosts.Host, availableContracts []contracts.Contract, expectedRoots, expectedContracts []int) {
+	assertResult := func(availableHosts []hosts.Host, availableContracts []contracts.Contract, expectedRoots, expectedHosts []int) {
 		t.Helper()
 		toRepair, toUse := contractsForRepair(slab, availableHosts, availableContracts, 100)
 		if len(toRepair) != len(expectedRoots) {
 			t.Fatalf("expected %d roots to repair, got %d: %v", len(expectedRoots), len(toRepair), toRepair)
-		} else if len(toUse) != len(expectedContracts) {
-			t.Fatalf("expected %d contracts to use, got %d: %v", len(expectedContracts), len(toUse), toUse)
+		} else if len(toUse) != len(expectedHosts) {
+			t.Fatalf("expected %d hosts to use, got %d: %v", len(expectedHosts), len(toUse), toUse)
 		}
 		for i := range toRepair {
 			if toRepair[i] != expectedRoots[i] {
 				t.Fatalf("expected root %d to repair, got %d", expectedRoots[i], toRepair[i])
 			}
 		}
-		expectedContractsMap := make(map[types.FileContractID]struct{})
-		for i := range expectedContracts {
-			expectedContractsMap[types.FileContractID{byte(expectedContracts[i])}] = struct{}{}
+		expectedHostsMap := make(map[types.PublicKey]struct{})
+		for i := range expectedHosts {
+			expectedHostsMap[types.PublicKey{byte(expectedHosts[i])}] = struct{}{}
 		}
 		for i := range toUse {
-			if _, ok := expectedContractsMap[toUse[i].ID]; !ok {
-				t.Fatalf("contract %v is unexpected", toUse[i].ID)
+			if _, ok := expectedHostsMap[toUse[i].PublicKey]; !ok {
+				t.Fatalf("host %v is unexpected", toUse[i].PublicKey)
 			}
 		}
 	}
@@ -162,5 +161,5 @@ func TestContractsForRepair(t *testing.T) {
 	// should use them
 	allHosts = append(allHosts, goodHost2, goodHost3)
 	allContracts = append(allContracts, cGoodHost2, cGoodHost3)
-	assertResult(allHosts, allContracts, []int{1, 2}, []int{8, 9})
+	assertResult(allHosts, allContracts, []int{1, 2}, []int{7, 8})
 }

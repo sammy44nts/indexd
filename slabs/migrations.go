@@ -1,14 +1,82 @@
 package slabs
 
 import (
+	"context"
+	"encoding/hex"
+	"fmt"
+	"sync"
+
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
+	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
+
+func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Logger) error {
+	logger := l.Named(hex.EncodeToString(frand.Bytes(16))) // unique id per batch
+
+	// fetch all available contracts
+	var availableContracts []contracts.Contract
+	const batchSize = 50
+	for offset := 0; ; offset += batchSize {
+		batch, err := m.store.Contracts(ctx, offset, batchSize,
+			contracts.WithRevisable(true), contracts.WithGood(true))
+		if err != nil {
+			return fmt.Errorf("failed to fetch available contracts: %w", err)
+		}
+		availableContracts = append(availableContracts, batch...)
+		if len(batch) < batchSize {
+			break
+		}
+	}
+
+	// fetch all available hosts
+	var availableHosts []hosts.Host
+	for offset := 0; ; offset += batchSize {
+		batch, err := m.store.Hosts(ctx, 0, 0, hosts.WithUsable(true),
+			hosts.WithBlocked(false), hosts.WithActiveContracts(true))
+		if err != nil {
+			return fmt.Errorf("failed to fetch available hosts: %w", err)
+		}
+		availableHosts = append(availableHosts, batch...)
+		if len(batch) < batchSize {
+			break
+		}
+	}
+
+	// TODO: make sure prices are up-to-date
+
+	var wg sync.WaitGroup
+	for _, slab := range slabs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			if err := m.migrateSlab(ctx, slab, logger); err != nil {
+				logger.Error("failed to migrate slab", zap.Error(err))
+				return
+			}
+		}()
+	}
+	wg.Wait()
+	return nil
+}
+
+func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, l *zap.Logger) error {
+	logger := l.Named(slab.ID.String())
+
+	if true {
+		panic("migrate")
+	}
+
+	logger.Debug("successfully migrated slab")
+	return nil
+}
 
 // contractsForRepair filters the sectors of a slab and returns the indices of the sectors that
 // require migration together with the contracts to use for them.
-func contractsForRepair(slab Slab, availableHosts []hosts.Host, availableContracts []contracts.Contract, period uint64) ([]int, []contracts.Contract) {
+func contractsForRepair(slab Slab, availableHosts []hosts.Host, availableContracts []contracts.Contract, period uint64) ([]int, []hosts.Host) {
 	// prepare a map of good hosts
 	hostsMap := make(map[types.PublicKey]hosts.Host)
 	for _, host := range availableHosts {
@@ -53,16 +121,23 @@ func contractsForRepair(slab Slab, availableHosts []hosts.Host, availableContrac
 		}
 	}
 
-	// return all contracts that are good, not in use and are not stored on hosts
-	var remainingContracts []contracts.Contract
+	// return all hosts with contracts that are good, not in use and are not
+	// stored on bad hosts
+	var remainingHosts []hosts.Host
+	usedHost := make(map[types.PublicKey]struct{})
 LOOP:
 	for _, contract := range goodContractMap {
-		for _, network := range hostsMap[contract.HostKey].Networks {
+		h := hostsMap[contract.HostKey]
+		for _, network := range h.Networks {
 			if _, ok := usedCIDRs[network.String()]; ok {
 				continue LOOP
 			}
 		}
-		remainingContracts = append(remainingContracts, contract)
+		if _, ok := usedHost[contract.HostKey]; ok {
+			continue LOOP
+		}
+		remainingHosts = append(remainingHosts, h)
+		usedHost[contract.HostKey] = struct{}{}
 	}
-	return toMigrate, remainingContracts
+	return toMigrate, remainingHosts
 }
