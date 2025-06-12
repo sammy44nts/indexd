@@ -78,13 +78,9 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, contractIDs 
 	}
 
 	// dial the host
-	raw, err := f.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	client, err := f.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to dial host %s: %w", host.PublicKey, err)
-	}
-	client, ok := raw.(HostClient)
-	if !ok {
-		return 0, 0, fmt.Errorf("host client does not implement HostClient interface: %T", raw)
 	}
 	defer client.Close()
 

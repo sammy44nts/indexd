@@ -160,7 +160,7 @@ func (s *storeMock) UnpinnedSectors(ctx context.Context, hostKey types.PublicKey
 
 func TestPerformSectorPinningOnHost(t *testing.T) {
 	store := newStoreMock()
-	hmMock := newHostManagerMock()
+	dialerMock := newDialerMock()
 
 	// prepare two hosts
 	hk1 := types.PublicKey{1}
@@ -250,8 +250,8 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 	h1Mock.missingSectors[r4] = struct{}{} // indicate that root 4 is missing
 	h2Mock := newHostClientMock()
 
-	hmMock.clients[hk1] = h1Mock
-	hmMock.clients[hk2] = h2Mock
+	dialerMock.clients[hk1] = h1Mock
+	dialerMock.clients[hk2] = h2Mock
 
 	// prepare scanner
 	scanner := store.Scanner()
@@ -259,7 +259,7 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 	scanner.settings[hk2] = h2.Settings
 
 	// prepare contract manager
-	cm, err := newContractManager(types.PublicKey{}, nil, &chainManagerMock{}, store, hmMock, scanner, nil, nil)
+	cm, err := newContractManager(types.PublicKey{}, nil, &chainManagerMock{}, store, dialerMock, scanner, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -178,7 +178,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 
 		allowance, collateral := initialContractFunding(host.Settings.Prices, host.Settings.MaxCollateral, period)
 		formationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		hc, err := cm.dialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
+		hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
 		if err != nil {
 			cancel()
 			return fmt.Errorf("failed to dial host: %w", err)

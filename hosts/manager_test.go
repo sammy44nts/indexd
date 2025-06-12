@@ -101,10 +101,8 @@ func (c *mockClient) Settings(ctx context.Context, hk types.PublicKey, addr stri
 func TestHostManager(t *testing.T) {
 	db := &mockStore{hosts: make(map[types.PublicKey]Host)}
 
-	syncer := &mockSyncer{peers: []*syncer.Peer{{}}}
-
 	// create host manager
-	mgr, err := NewManager(syncer, db, WithAnnouncementMaxAge(time.Minute))
+	mgr, err := NewManager(&mockSyncer{peers: []*syncer.Peer{{}}}, db, WithAnnouncementMaxAge(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

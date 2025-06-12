@@ -348,18 +348,6 @@ func (cm *ContractManager) blockBadHosts(ctx context.Context) error {
 	return nil
 }
 
-func (cm *ContractManager) dialHost(ctx context.Context, hk types.PublicKey, addr string) (HostClient, error) {
-	raw, err := cm.dialer.DialHost(ctx, hk, addr)
-	if err != nil {
-		return nil, err
-	}
-	hc, ok := raw.(HostClient)
-	if !ok {
-		panic(fmt.Sprintf("host client %T does not implement HostClient interface", raw)) // developer error
-	}
-	return hc, nil
-}
-
 func (cm *ContractManager) performAccountFunding(ctx context.Context, log *zap.Logger) error {
 	start := time.Now()
 	log = log.Named("accounts")

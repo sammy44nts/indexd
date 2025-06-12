@@ -87,7 +87,7 @@ func (cm *ContractManager) performContractPruningOnHost(ctx context.Context, hos
 	}
 
 	// dial the host
-	client, err := cm.dialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
 	if err != nil {
 		return fmt.Errorf("failed to dial host: %w", err)
 	}

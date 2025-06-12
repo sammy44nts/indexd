@@ -38,24 +38,24 @@ type formContractCall struct {
 	params   proto.RPCFormContractParams
 }
 
-type hmMock struct {
+type dialerMock struct {
 	clients map[types.PublicKey]*hostClientMock
 }
 
-func newHostManagerMock() *hmMock {
-	return &hmMock{
+func newDialerMock() *dialerMock {
+	return &dialerMock{
 		clients: make(map[types.PublicKey]*hostClientMock),
 	}
 }
 
 // DialHost returns a mock host client for the given host key. If the host key
 // is not already known, a new host client mock is created and returned.
-func (h *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+func (h *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
 	return h.HostClient(hostKey), nil
 }
 
 // HostClient returns the mock host client for the given host key.
-func (h *hmMock) HostClient(hk types.PublicKey) *hostClientMock {
+func (h *dialerMock) HostClient(hk types.PublicKey) *hostClientMock {
 	if _, ok := h.clients[hk]; !ok {
 		h.clients[hk] = newHostClientMock()
 	}
@@ -159,7 +159,7 @@ func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (hosts.H
 func TestPerformContractFormationWithoutContracts(t *testing.T) {
 	amMock := &accountsManagerMock{}
 	cmMock := newChainManagerMock()
-	hmMock := newHostManagerMock()
+	dialerMock := newDialerMock()
 	blockHeight := cmMock.TipState().Index.Height
 
 	const (
@@ -238,7 +238,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
 	wallet := &walletMock{}
-	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, scanner, &syncerMock{}, wallet)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, dialerMock, scanner, &syncerMock{}, wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 
 	assertFormation := func(h hosts.Host) {
 		t.Helper()
-		call := hmMock.HostClient(h.PublicKey).Calls()[0]
+		call := dialerMock.HostClient(h.PublicKey).Calls()[0]
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
@@ -275,7 +275,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 	// assert that we attempted to form contracts with the right hosts,
 	// settings and params
 	var nCalls int
-	for _, calls := range hmMock.clients {
+	for _, calls := range dialerMock.clients {
 		nCalls += len(calls.formCalls)
 	}
 	if nCalls != wanted {
@@ -316,7 +316,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 func TestPerformContractFormationWithContracts(t *testing.T) {
 	amMock := &accountsManagerMock{}
 	cmMock := newChainManagerMock()
-	hmMock := newHostManagerMock()
+	dialerMock := newDialerMock()
 	wMock := &walletMock{}
 
 	blockHeight := cmMock.TipState().Index.Height
@@ -407,7 +407,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	}
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
-	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, scanner, &syncerMock{}, wMock)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, dialerMock, scanner, &syncerMock{}, wMock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 
 	assertFormation := func(h hosts.Host) {
 		t.Helper()
-		call := hmMock.HostClient(h.PublicKey).Calls()[0]
+		call := dialerMock.HostClient(h.PublicKey).Calls()[0]
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
@@ -444,7 +444,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	// assert that we attempted to form contracts with the right hosts,
 	// settings and params
 	var nCalls int
-	for _, calls := range hmMock.clients {
+	for _, calls := range dialerMock.clients {
 		nCalls += len(calls.formCalls)
 	}
 	if nCalls != wanted-1 {

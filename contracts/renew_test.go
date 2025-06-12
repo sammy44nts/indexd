@@ -45,7 +45,7 @@ func (c *hostClientMock) RenewContract(ctx context.Context, settings proto.HostS
 func TestPerformContractRenewals(t *testing.T) {
 	amMock := &accountsManagerMock{}
 	cmMock := newChainManagerMock()
-	hmMock := newHostManagerMock()
+	dialerMock := newDialerMock()
 	wMock := &walletMock{}
 	badSettings := proto.HostSettings{}
 
@@ -106,7 +106,7 @@ func TestPerformContractRenewals(t *testing.T) {
 	}
 
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
-	contracts, err := newContractManager(renterKey, amMock, cmMock, store, hmMock, scanner, &syncerMock{}, wMock)
+	contracts, err := newContractManager(renterKey, amMock, cmMock, store, dialerMock, scanner, &syncerMock{}, wMock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,9 +125,9 @@ func TestPerformContractRenewals(t *testing.T) {
 	// perform renewals when no contract is ready for it
 	if err := contracts.performContractRenewals(context.Background(), period, renewWindow, zap.NewNop()); err != nil {
 		t.Fatal(err)
-	} else if len(hmMock.HostClient(good.PublicKey).renewCalls) != 0 {
+	} else if len(dialerMock.HostClient(good.PublicKey).renewCalls) != 0 {
 		t.Fatal("expected good host to not be dialed")
-	} else if len(hmMock.HostClient(bad.PublicKey).renewCalls) != 0 {
+	} else if len(dialerMock.HostClient(bad.PublicKey).renewCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
 
@@ -136,12 +136,12 @@ func TestPerformContractRenewals(t *testing.T) {
 
 	if err := contracts.performContractRenewals(context.Background(), period, renewWindow, zap.NewNop()); err != nil {
 		t.Fatal(err)
-	} else if len(hmMock.HostClient(good.PublicKey).renewCalls) != 1 {
-		t.Fatalf("expected one renewal, got %v", len(hmMock.HostClient(good.PublicKey).renewCalls))
-	} else if len(hmMock.HostClient(bad.PublicKey).renewCalls) != 0 {
+	} else if len(dialerMock.HostClient(good.PublicKey).renewCalls) != 1 {
+		t.Fatalf("expected one renewal, got %v", len(dialerMock.HostClient(good.PublicKey).renewCalls))
+	} else if len(dialerMock.HostClient(bad.PublicKey).renewCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
-	assertRenewal(types.FileContractID{1}, blockHeight+period+renewWindow, hmMock.HostClient(good.PublicKey).renewCalls[0])
+	assertRenewal(types.FileContractID{1}, blockHeight+period+renewWindow, dialerMock.HostClient(good.PublicKey).renewCalls[0])
 
 	// assert renewal made it into the store
 	if len(store.contracts) != 4 {
@@ -173,9 +173,9 @@ func TestPerformContractRenewals(t *testing.T) {
 	// assert consecutive calls don't keep renewing the same contract
 	if err := contracts.performContractRenewals(context.Background(), period, renewWindow, zap.NewNop()); err != nil {
 		t.Fatal(err)
-	} else if len(hmMock.HostClient(good.PublicKey).renewCalls) != 1 {
-		t.Fatalf("expected one renewal, got %v", len(hmMock.HostClient(good.PublicKey).renewCalls))
-	} else if len(hmMock.HostClient(bad.PublicKey).renewCalls) != 0 {
+	} else if len(dialerMock.HostClient(good.PublicKey).renewCalls) != 1 {
+		t.Fatalf("expected one renewal, got %v", len(dialerMock.HostClient(good.PublicKey).renewCalls))
+	} else if len(dialerMock.HostClient(bad.PublicKey).renewCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
 }

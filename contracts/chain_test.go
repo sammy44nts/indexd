@@ -406,6 +406,8 @@ func (cm *chainManagerMock) AddV2PoolTransactions(basis types.ChainIndex, txns [
 }
 
 func (cm *chainManagerMock) TipState() consensus.State {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	return cm.state
 }
 

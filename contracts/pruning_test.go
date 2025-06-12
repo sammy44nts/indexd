@@ -130,7 +130,7 @@ func (c *hostClientMock) FreeSectors(ctx context.Context, hostPrices proto.HostP
 
 func TestPerformContractPruningOnHost(t *testing.T) {
 	store := newStoreMock()
-	hmMock := newHostManagerMock()
+	dialerMock := newDialerMock()
 
 	// h1 is good
 	hk1 := types.PublicKey{1}
@@ -235,10 +235,10 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	h5Mock := newHostClientMock()
 	h5Mock.failsRPCs = true
 
-	hmMock.clients[hk1] = h1Mock
-	hmMock.clients[hk2] = h2Mock
-	hmMock.clients[hk4] = h4Mock
-	hmMock.clients[hk5] = h5Mock
+	dialerMock.clients[hk1] = h1Mock
+	dialerMock.clients[hk2] = h2Mock
+	dialerMock.clients[hk4] = h4Mock
+	dialerMock.clients[hk5] = h5Mock
 
 	// prepare roots
 	h1Mock.sectorRoots[fcid1] = []types.Hash256{r1, r2, r3}
@@ -269,7 +269,7 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	scanner.settings[hk5] = h5.Settings
 
 	// prepare contract manager
-	cm, err := newContractManager(types.PublicKey{}, nil, &chainManagerMock{}, store, hmMock, scanner, nil, nil)
+	cm, err := newContractManager(types.PublicKey{}, nil, &chainManagerMock{}, store, dialerMock, scanner, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}

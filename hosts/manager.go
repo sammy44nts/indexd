@@ -15,7 +15,6 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
-	"go.sia.tech/indexd/rhp"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -48,7 +47,6 @@ type (
 		scanFrequency      time.Duration
 		scanInterval       time.Duration
 
-		dialer        rhp.Dialer
 		onlineChecker OnlineChecker
 		resolver      Resolver
 		scanner       Scanner
