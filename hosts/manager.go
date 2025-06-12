@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
+	"go.sia.tech/core/rhp/v4"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -38,6 +40,10 @@ const (
 
 var (
 	errNodeOffline = errors.New("node is offline")
+
+	// ErrBadHost is returned when a host can't be interacted with due to being
+	// considered bad.
+	ErrBadHost = errors.New("host is bad")
 )
 
 type (
@@ -178,53 +184,40 @@ func (m *HostManager) UpdateUsabilitySettings(ctx context.Context, us UsabilityS
 	return m.store.UpdateUsabilitySettings(ctx, us)
 }
 
-// ScanHost scans the host with given host key and returns it with updated
-// settings and checks.
-func (m *HostManager) ScanHost(ctx context.Context, hk types.PublicKey) (Host, error) {
+// WithScannedHost calls the given function with the Host with the given host
+// key. If the call fails due to the host's price table being outdated, it will
+// scan the host and try again. If the host is bad, it returns ErrBadHost.
+// NOTE: It's important that the function passed to WithScannedHost can be
+// called twice.
+func (m *HostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h Host) error) error {
 	logger := m.log.With(zap.Stringer("hk", hk))
 
+	// fetch host
 	host, err := m.store.Host(ctx, hk)
 	if err != nil {
-		return Host{}, fmt.Errorf("failed to get host, %w", err)
+		return fmt.Errorf("failed to get host, %w", err)
+	} else if !host.IsGood() {
+		return fmt.Errorf("%w: blocked=%t, usable=%t, networks=%d", ErrBadHost, host.Blocked, host.Usability.Usable(), len(host.Networks))
 	}
 
-	scanCtx, cancel := context.WithTimeout(ctx, scanTimeout)
-	defer cancel()
+	// optimistally call the function with the host
+	if err := fn(host); err == nil {
+		return nil
+	} else if err != nil && !strings.Contains(err.Error(), rhp.ErrPricesExpired.Error()) {
+		return err
+	}
+	logger.Debug("host has outdated prices, rescan")
 
-	addrs, networks, err := resolveHost(scanCtx, m.resolver, host.Addresses, logger)
+	// scan the host if the prices were outdated
+	host, err = m.scanHost(ctx, hk)
 	if err != nil {
-		return Host{}, fmt.Errorf("failed to resolve host, %w", err)
+		return fmt.Errorf("failed to scan host, %w", err)
+	} else if !host.IsGood() {
+		return ErrBadHost
 	}
 
-	settings, err := fetchSettings(scanCtx, m.scanner, hk, addrs, logger)
-	if err != nil {
-		return Host{}, fmt.Errorf("failed to fetch settings, %w", err)
-	}
-
-	consecutiveFailures := host.ConsecutiveFailedScans
-	success := settings != (proto4.HostSettings{})
-	if !success && !m.onlineChecker.IsOnline() {
-		return Host{}, errNodeOffline
-	} else if !success {
-		consecutiveFailures++
-	}
-
-	nextScan := calculateNextScanTime(
-		time.Now(),
-		success,
-		consecutiveFailures,
-		m.scanInterval,
-		scanIntervalOffsetHours,
-		scanExponentialBackoffHours,
-		scanExponentialBackoffMaxHours,
-	)
-
-	err = m.store.UpdateHost(ctx, hk, networks, settings, success, nextScan)
-	if err != nil {
-		return Host{}, fmt.Errorf("failed to update host, %w", err)
-	}
-
-	return m.store.Host(ctx, hk)
+	// try again
+	return fn(host)
 }
 
 // UpdateChainState updates the host announcements in the database.
@@ -278,6 +271,55 @@ func (m *HostManager) pruneHosts(ctx context.Context) {
 	}
 }
 
+// scanHost scans the host with given host key and returns it with updated
+// settings and checks.
+func (m *HostManager) scanHost(ctx context.Context, hk types.PublicKey) (Host, error) {
+	logger := m.log.With(zap.Stringer("hk", hk))
+
+	host, err := m.store.Host(ctx, hk)
+	if err != nil {
+		return Host{}, fmt.Errorf("failed to get host, %w", err)
+	}
+
+	scanCtx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
+
+	addrs, networks, err := resolveHost(scanCtx, m.resolver, host.Addresses, logger)
+	if err != nil {
+		return Host{}, fmt.Errorf("failed to resolve host, %w", err)
+	}
+
+	settings, err := fetchSettings(scanCtx, m.scanner, hk, addrs, logger)
+	if err != nil {
+		return Host{}, fmt.Errorf("failed to fetch settings, %w", err)
+	}
+
+	consecutiveFailures := host.ConsecutiveFailedScans
+	success := settings != (proto4.HostSettings{})
+	if !success && !m.onlineChecker.IsOnline() {
+		return Host{}, errNodeOffline
+	} else if !success {
+		consecutiveFailures++
+	}
+
+	nextScan := calculateNextScanTime(
+		time.Now(),
+		success,
+		consecutiveFailures,
+		m.scanInterval,
+		scanIntervalOffsetHours,
+		scanExponentialBackoffHours,
+		scanExponentialBackoffMaxHours,
+	)
+
+	err = m.store.UpdateHost(ctx, hk, networks, settings, success, nextScan)
+	if err != nil {
+		return Host{}, fmt.Errorf("failed to update host, %w", err)
+	}
+
+	return m.store.Host(ctx, hk)
+}
+
 func (m *HostManager) scanHosts(ctx context.Context) {
 	start := time.Now()
 
@@ -310,7 +352,7 @@ func (m *HostManager) scanHosts(ctx context.Context) {
 				wg.Done()
 			}()
 
-			if _, err := m.ScanHost(ctx, hk); errors.Is(err, context.Canceled) {
+			if _, err := m.scanHost(ctx, hk); errors.Is(err, context.Canceled) {
 				return
 			} else if errors.Is(err, errNodeOffline) {
 				once.Do(func() { m.log.Warn("indexer is offline, skipping scans") })

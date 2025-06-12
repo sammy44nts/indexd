@@ -155,14 +155,18 @@ func (s *storeMock) Scanner() *scannerMock {
 
 // ScanHost returns the preconfigured settings for the host or no settings to
 // simulate a failing scan. Upon success, the underlying store is updated.
-func (s *scannerMock) ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error) {
+func (s *scannerMock) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error {
 	settings, ok := s.settings[hk]
 	if !ok {
-		return hosts.Host{}, hosts.ErrNotFound
+		return hosts.ErrNotFound
 	} else if err := s.store.UpdateHostSettings(hk, settings); err != nil {
-		return hosts.Host{}, err
+		return err
 	}
-	return s.store.Host(ctx, hk)
+	h, err := s.store.Host(ctx, hk)
+	if err != nil {
+		return err
+	}
+	return fn(h)
 }
 
 // TestPerformContractFormationWithoutContracts tests the

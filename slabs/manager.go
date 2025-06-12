@@ -50,7 +50,7 @@ type (
 	// HostManager defines the minimal interface of HostManager functionality
 	// the SlabManager requires.
 	HostManager interface {
-		ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error)
+		WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error
 	}
 
 	// Store defines an interface to store and update slab related information
@@ -183,31 +183,24 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 					wg.Done()
 				}()
 
-				// fetch good price table
-				host, err := m.hm.ScanHost(ctx, hostKey)
+				err = m.hm.WithScannedHost(ctx, host, func(host hosts.Host) error {
+					// create verifier
+					verifier, err := newSectorVerifier(ctx, host.SiamuxAddr(), host.PublicKey, host.Settings.Prices)
+					if err != nil {
+						// NOTE: If we can't dial the host we don't mark sectors as lost.
+						// Instead we leave it up to the scan code to determine whether the host
+						// is offline.
+						return err
+					}
+					defer verifier.Close()
+
+					m.performIntegrityChecksForHost(ctx, verifier, logger)
+					return nil
+				})
 				if err != nil {
-					logger.With(zap.Stringer("hostKey", hostKey)).Error("failed to scan host", zap.Error(err))
-					return
+					logger.With(zap.Stringer("hostKey", hostKey)).Error("failed to perform integrity checks for host", zap.Error(err))
 				}
 
-				// ignore hosts that are not usable
-				if !host.IsGood() {
-					logger.With(zap.Stringer("hostKey", hostKey)).Debug("skipping host since it's not usable")
-					return
-				}
-
-				// create verifier
-				verifier, err := newSectorVerifier(ctx, host.SiamuxAddr(), host.PublicKey, host.Settings.Prices)
-				if err != nil {
-					// NOTE: If we can't dial the host we don't mark sectors as lost.
-					// Instead we leave it up to the scan code to determine whether the host
-					// is offline.
-					logger.With(zap.Stringer("hostKey", host.PublicKey)).Warn("failed to create sector verifier", zap.Error(err))
-					return
-				}
-				defer verifier.Close()
-
-				m.performIntegrityChecksForHost(ctx, verifier, logger)
 			}(host)
 		}
 		wg.Wait()

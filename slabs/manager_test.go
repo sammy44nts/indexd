@@ -147,10 +147,12 @@ func newMockHostManager() *mockhostManager {
 	}
 }
 
-func (mock *mockhostManager) ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error) {
+func (mock *mockhostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error {
 	host, ok := mock.hosts[hk]
 	if !ok {
-		return hosts.Host{}, hosts.ErrNotFound
+		return hosts.ErrNotFound
+	} else if !host.IsGood() {
+		return hosts.ErrBadHost
 	}
-	return host, nil
+	return fn(host)
 }

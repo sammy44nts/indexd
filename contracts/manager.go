@@ -62,7 +62,7 @@ type (
 	// HostManager defines the minimal interface of HostManager functionality
 	// the ContractManager requires.
 	HostManager interface {
-		ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error)
+		WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error
 	}
 
 	// Store is the minimal interface of Store functionality the ContractManager

@@ -3,11 +3,11 @@ package contracts
 import (
 	"context"
 	"fmt"
-	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
 
@@ -79,43 +79,24 @@ func (cm *ContractManager) performContractRenewals(ctx context.Context, period, 
 func (cm *ContractManager) renewContract(ctx context.Context, contract Contract, proofHeight uint64, log *zap.Logger) error {
 	contractLog := log.With(zap.Stringer("hostKey", contract.HostKey), zap.Stringer("contractID", contract.ID))
 
-	// fetch corresponding host and check if it's theoretically usable
-	host, err := cm.store.Host(ctx, contract.HostKey)
-	if err != nil {
-		return fmt.Errorf("failed to fetch host: %w", err)
-	} else if !host.Usability.Usable() {
-		contractLog.Debug("host is not usable")
-		return nil
-	}
+	return cm.scanner.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
+		hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
+		if err != nil {
+			contractLog.Debug("failed to dial host", zap.Error(err))
+			return nil
+		}
+		defer hc.Close()
+		res, err := hc.RenewContract(ctx, host.Settings, contract.ID, proofHeight)
+		if err != nil {
+			contractLog.Debug("failed to renew", zap.Error(err))
+			return nil
+		}
+		renewed := res.Contract
+		minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
 
-	// scan host for valid price settings and make sure it's still usable
-	scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	host, err = cm.scanner.ScanHost(scanCtx, host.PublicKey)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("failed to scan host: %w", err)
-	} else if !host.Usability.Usable() {
-		contractLog.Debug("host is not usable after scan")
+		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, types.ZeroCurrency); err != nil {
+			return fmt.Errorf("failed to store renewed contract: %w", err)
+		}
 		return nil
-	}
-
-	hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
-	if err != nil {
-		contractLog.Debug("failed to dial host", zap.Error(err))
-		return nil
-	}
-	defer hc.Close()
-	res, err := hc.RenewContract(ctx, host.Settings, contract.ID, proofHeight)
-	if err != nil {
-		contractLog.Debug("failed to renew", zap.Error(err))
-		return nil
-	}
-	renewed := res.Contract
-	minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
-
-	if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, types.ZeroCurrency); err != nil {
-		return fmt.Errorf("failed to store renewed contract: %w", err)
-	}
-
-	return nil
+	})
 }
