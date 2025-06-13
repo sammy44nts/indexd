@@ -110,7 +110,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	signer := contracts.NewFormContractSigner(wm, walletKey)
 	dialer := rhp.NewSiamuxDialer(cm, store, signer, log)
-	am := accounts.NewManager(store, accounts.NewFunder(cm, dialer), accounts.WithLogger(log.Named("accounts")))
+	am := accounts.NewManager(store, accounts.NewFunder(dialer), accounts.WithLogger(log.Named("accounts")))
 	defer am.Close()
 
 	contracts, err := contracts.NewManager(walletKey.PublicKey(), am, cm, store, dialer, hm, s, wm, contracts.WithLogger(log.Named("contracts")))

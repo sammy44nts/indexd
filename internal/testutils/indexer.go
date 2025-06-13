@@ -54,7 +54,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 
 	signer := contracts.NewFormContractSigner(wm, walletKey)
 	dialer := rhp.NewSiamuxDialer(c.cm, store, signer, log)
-	am := accounts.NewManager(store, accounts.NewFunder(c.cm, dialer), accounts.WithLogger(log.Named("accounts")))
+	am := accounts.NewManager(store, accounts.NewFunder(dialer), accounts.WithLogger(log.Named("accounts")))
 
 	contracts, err := contracts.NewManager(walletKey.PublicKey(), am, c.cm, store, dialer, hm, syncer, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {

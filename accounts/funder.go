@@ -34,7 +34,6 @@ type (
 
 	// Funder dials a host and replenish a set of ephemeral accounts.
 	Funder struct {
-		cm     ChainManager
 		dialer Dialer
 	}
 )
@@ -53,9 +52,8 @@ func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr st
 }
 
 // NewFunder creates a new Funder.
-func NewFunder(cm ChainManager, d rhp.Dialer) *Funder {
+func NewFunder(d rhp.Dialer) *Funder {
 	return &Funder{
-		cm:     cm,
 		dialer: &wrapper{d: d},
 	}
 }

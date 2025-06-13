@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"go.sia.tech/core/consensus"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
@@ -14,15 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
-type hmMock struct{}
+type dialerMock struct{}
 
-func (m *hmMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+func (m *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
 	return &hostClientMock{}, nil
 }
-
-type cmMock struct{}
-
-func (cmMock) TipState() consensus.State { return consensus.State{} }
 
 type hostClientMock struct{}
 
@@ -51,7 +46,7 @@ func (*hostClientMock) ReplenishAccounts(ctx context.Context, contractID types.F
 // TestFunder is a unit test that checks the various edge cases in FundAccounts
 func TestFunder(t *testing.T) {
 	// prepare funder
-	f := &Funder{cm: &cmMock{}, dialer: &hmMock{}}
+	f := &Funder{dialer: &dialerMock{}}
 
 	// prepare accounts
 	accounts := []HostAccount{
