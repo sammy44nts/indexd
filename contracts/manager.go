@@ -148,7 +148,7 @@ type (
 		store Store
 
 		dialer    dialer
-		scanner   HostManager
+		hm        HostManager
 		renterKey types.PublicKey
 
 		triggerFundingChan chan struct{}
@@ -200,8 +200,8 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 		dialer:    dialer,
 		renterKey: renterKey,
 
-		scanner: scanner,
-		store:   store,
+		hm:    scanner,
+		store: store,
 
 		triggerFundingChan: make(chan struct{}, 1),
 

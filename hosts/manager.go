@@ -212,7 +212,7 @@ func (m *HostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, f
 	if err != nil {
 		return fmt.Errorf("failed to scan host, %w", err)
 	} else if !host.IsGood() {
-		return ErrBadHost
+		return fmt.Errorf("%w: blocked=%t, usable=%t, networks=%d", ErrBadHost, host.Blocked, host.Usability.Usable(), len(host.Networks))
 	}
 
 	// try again
@@ -275,20 +275,20 @@ func (m *HostManager) pruneHosts(ctx context.Context) {
 func (m *HostManager) scanHost(ctx context.Context, hk types.PublicKey) (Host, error) {
 	logger := m.log.With(zap.Stringer("hk", hk))
 
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
+
 	host, err := m.store.Host(ctx, hk)
 	if err != nil {
 		return Host{}, fmt.Errorf("failed to get host, %w", err)
 	}
 
-	scanCtx, cancel := context.WithTimeout(ctx, scanTimeout)
-	defer cancel()
-
-	addrs, networks, err := resolveHost(scanCtx, m.resolver, host.Addresses, logger)
+	addrs, networks, err := resolveHost(ctx, m.resolver, host.Addresses, logger)
 	if err != nil {
 		return Host{}, fmt.Errorf("failed to resolve host, %w", err)
 	}
 
-	settings, err := fetchSettings(scanCtx, m.scanner, hk, addrs, logger)
+	settings, err := fetchSettings(ctx, m.scanner, hk, addrs, logger)
 	if err != nil {
 		return Host{}, fmt.Errorf("failed to fetch settings, %w", err)
 	}

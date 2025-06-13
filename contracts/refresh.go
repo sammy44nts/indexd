@@ -74,7 +74,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		zap.Bool("outOfCollateral", contract.OutOfCollateral()),
 	)
 
-	return cm.scanner.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
+	return cm.hm.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
 		var additionalAllowance, additionalCollateral types.Currency
 		if contract.OutOfFunds() {
 			additionalAllowance = contract.InitialAllowance.Mul64(11).Div64(10) // add 10%

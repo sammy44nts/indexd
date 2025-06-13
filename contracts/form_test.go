@@ -133,7 +133,7 @@ func (c *hostClientMock) LatestRevision(ctx context.Context, contractID types.Fi
 	return resp, nil
 }
 
-type scannerMock struct {
+type hostManagerMock struct {
 	settings map[types.PublicKey]proto.HostSettings
 
 	store *storeMock
@@ -142,8 +142,8 @@ type scannerMock struct {
 // Scanner is a convenience method to create a scanner from a store mock. The
 // scanner contains all the settings of the hosts from the mocked store and will
 // be updating the store upon scanning.
-func (s *storeMock) Scanner() *scannerMock {
-	scannerMock := &scannerMock{
+func (s *storeMock) Scanner() *hostManagerMock {
+	scannerMock := &hostManagerMock{
 		store:    s,
 		settings: map[types.PublicKey]proto.HostSettings{},
 	}
@@ -153,9 +153,10 @@ func (s *storeMock) Scanner() *scannerMock {
 	return scannerMock
 }
 
-// ScanHost returns the preconfigured settings for the host or no settings to
-// simulate a failing scan. Upon success, the underlying store is updated.
-func (s *scannerMock) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error {
+// WithScannedHost simulates a scan by fetching the preconfigured settings of a
+// host and if successful, updates the host's settings in the store, fetches the
+// updated host and calls the provided method with the host.
+func (s *hostManagerMock) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error {
 	settings, ok := s.settings[hk]
 	if !ok {
 		return hosts.ErrNotFound

@@ -79,7 +79,7 @@ func (cm *ContractManager) performContractRenewals(ctx context.Context, period, 
 func (cm *ContractManager) renewContract(ctx context.Context, contract Contract, proofHeight uint64, log *zap.Logger) error {
 	contractLog := log.With(zap.Stringer("hostKey", contract.HostKey), zap.Stringer("contractID", contract.ID))
 
-	return cm.scanner.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
+	return cm.hm.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
 		hc, err := cm.dialer.Dial(ctx, host.PublicKey, host.SiamuxAddr())
 		if err != nil {
 			contractLog.Debug("failed to dial host", zap.Error(err))
