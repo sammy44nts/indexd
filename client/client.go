@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 
 	"go.sia.tech/core/consensus"
 	proto "go.sia.tech/core/rhp/v4"
@@ -43,37 +42,15 @@ type (
 		TipState() consensus.State
 		rhp.TxPool
 	}
-
-	// Dialer defines an interface that allows dialing a host.
-	Dialer[T any] interface {
-		// DialHost dials the host and returns a Client that can be used to
-		// interact with the host. It uses the SiaMux protocol to establish a
-		// connection and returns a host client that exposes the RPC methods
-		// defined in the RHP.
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (T, error)
-	}
-
-	// client defines an interface that allows interacting with a host using the
-	// RPC methods defined in the RHP.
-	client interface {
-		io.Closer
-		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error)
-		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
-		FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error)
-		SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error)
-		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
-		RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error)
-		ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (rhp.RPCReplenishAccountsResult, int, error)
-	}
 )
 
-// hostClient is a client that can be used to interact with a host using the RHP
+// HostClient is a client that can be used to interact with a host using the RHP
 // methods. It provides methods to form contracts, append sectors, free sectors,
 // get sector roots, refresh and renew contracts, and replenish accounts. It
 // uses a transport client to communicate with the host and a signer to sign the
 // contract revisions. The client is expected to be closed when no longer
 // needed.
-type hostClient struct {
+type HostClient struct {
 	hostKey types.PublicKey
 
 	client rhp.TransportClient
@@ -86,8 +63,8 @@ type hostClient struct {
 // newHostClient creates a new HostClient that can be used to interact with a
 // host using the RHP methods. The client is expected to be closed when no
 // longer needed.
-func newHostClient(hk types.PublicKey, cm ChainManager, client rhp.TransportClient, signer rhp.FormContractSigner, log *zap.Logger) client {
-	return &hostClient{
+func newHostClient(hk types.PublicKey, cm ChainManager, client rhp.TransportClient, signer rhp.FormContractSigner, log *zap.Logger) *HostClient {
+	return &HostClient{
 		hostKey: hk,
 
 		client: client,
@@ -99,7 +76,7 @@ func newHostClient(hk types.PublicKey, cm ChainManager, client rhp.TransportClie
 }
 
 // AppendSectors appends the given sectors to the contract.
-func (c *hostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
+func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
 	// sanity check
 	if len(sectors) > proto.MaxSectorBatchSize {
 		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("too many sectors, %d > %d", len(sectors), proto.MaxSectorBatchSize) // developer error
@@ -123,12 +100,12 @@ func (c *hostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPri
 }
 
 // Close closes the underlying transport client.
-func (c *hostClient) Close() error {
+func (c *HostClient) Close() error {
 	return c.client.Close()
 }
 
 // FormContract forms a new contract with the host.
-func (c *hostClient) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
+func (c *HostClient) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
 	res, err := rhp.RPCFormContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, c.hostKey, settings.WalletAddress, params)
 	if err != nil {
 		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to form contract: %w", err)
@@ -138,7 +115,7 @@ func (c *hostClient) FormContract(ctx context.Context, settings proto.HostSettin
 }
 
 // SectorRoots returns the sector roots for a contract.
-func (c *hostClient) SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
+func (c *HostClient) SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
 	// fetch revision and check if it meets the requirements
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, contractID)
 	if err != nil {
@@ -155,7 +132,7 @@ func (c *hostClient) SectorRoots(ctx context.Context, hostPrices proto.HostPrice
 }
 
 // FreeSectors frees the specified sectors in the contract.
-func (c *hostClient) FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
+func (c *HostClient) FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
 	// fetch revision and check if it meets the requirements
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, contractID)
 	if err != nil {
@@ -172,7 +149,7 @@ func (c *hostClient) FreeSectors(ctx context.Context, hostPrices proto.HostPrice
 }
 
 // RefreshContract refreshes the contract with the host.
-func (c *hostClient) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+func (c *HostClient) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, params.ContractID)
 	if err != nil {
 		return rhp.RPCRefreshContractResult{}, fmt.Errorf("failed to fetch latest revision: %w", err)
@@ -194,7 +171,7 @@ func (c *hostClient) RefreshContract(ctx context.Context, settings proto.HostSet
 }
 
 // RenewContract renews the contract with the host.
-func (c *hostClient) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
+func (c *HostClient) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
 	rev, err := rhp.RPCLatestRevision(ctx, c.client, contractID)
 	if err != nil {
 		return rhp.RPCRenewContractResult{}, fmt.Errorf("failed to fetch latest revision: %w", err)
@@ -223,7 +200,7 @@ func (c *hostClient) RenewContract(ctx context.Context, settings proto.HostSetti
 }
 
 // ReplenishAccounts replenishes the accounts in the contract to the target value.
-func (c *hostClient) ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (res rhp.RPCReplenishAccountsResult, funded int, _ error) {
+func (c *HostClient) ReplenishAccounts(ctx context.Context, contractID types.FileContractID, accounts []proto.Account, target types.Currency) (res rhp.RPCReplenishAccountsResult, funded int, _ error) {
 	rev, err := c.LatestRevision(ctx, contractID)
 	if err != nil {
 		return rhp.RPCReplenishAccountsResult{}, 0, fmt.Errorf("failed to fetch latest revision: %w", err)
@@ -251,6 +228,6 @@ func (c *hostClient) ReplenishAccounts(ctx context.Context, contractID types.Fil
 }
 
 // LatestRevision retrieves the latest revision of a contract from the host.
-func (c *hostClient) LatestRevision(ctx context.Context, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
+func (c *HostClient) LatestRevision(ctx context.Context, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
 	return rhp.RPCLatestRevision(ctx, c.client, contractID)
 }

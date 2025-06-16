@@ -23,15 +23,34 @@ type (
 		ReplenishAccounts(context.Context, types.FileContractID, []proto.Account, types.Currency) (rhp.RPCReplenishAccountsResult, int, error)
 	}
 
+	// Dialer defines an interface for dialing the host and returning a host client. This client can be used to
+	// interact with the host using the RHP methods. The client is expected to be closed when no longer needed.
+	Dialer interface {
+		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
+	}
+
 	// Funder dials a host and replenish a set of ephemeral accounts.
 	Funder struct {
-		dialer client.Dialer[HostClient]
+		dialer Dialer
 	}
 )
 
+type wrapper struct {
+	d *client.SiamuxDialer
+}
+
+// DialHost dials the host and returns a HostClient.
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addr)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 // NewFunder creates a new Funder.
-func NewFunder(dialer client.Dialer[HostClient]) *Funder {
-	return &Funder{dialer: dialer}
+func NewFunder(dialer *client.SiamuxDialer) *Funder {
+	return &Funder{dialer: &wrapper{d: dialer}}
 }
 
 // FundAccounts tops up the provided accounts to the target balance using the
