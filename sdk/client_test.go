@@ -160,8 +160,9 @@ func TestUpload(t *testing.T) {
 	data := frand.Bytes(4096)
 
 	t.Run("timeout", func(t *testing.T) {
+		dialer.ResetSlowHosts()
 		// make enough hosts timeout to fail
-		dialer.SetSlowHosts(21, time.Second)
+		dialer.SetSlowHosts(30, time.Second)
 		_, err := s.Upload(context.Background(), bytes.NewReader(data), sdk.WithUploadHostTimeout(100*time.Millisecond))
 		if !errors.Is(err, sdk.ErrNoMoreHosts) {
 			t.Fatalf("expected ErrNoMoreHosts, got %v", err)
@@ -169,6 +170,7 @@ func TestUpload(t *testing.T) {
 	})
 
 	t.Run("slow", func(t *testing.T) {
+		dialer.ResetSlowHosts()
 		// make most of the hosts slow,
 		// but not enough to fail to upload
 		dialer.SetSlowHosts(20, time.Second)
@@ -200,6 +202,7 @@ func TestDownload(t *testing.T) {
 	}
 
 	t.Run("timeout", func(t *testing.T) {
+		dialer.ResetSlowHosts()
 		// make enough hosts timeout to fail to download
 		dialer.SetSlowHosts(21, time.Second)
 		buf := bytes.NewBuffer(nil)
@@ -210,6 +213,7 @@ func TestDownload(t *testing.T) {
 	})
 
 	t.Run("slow", func(t *testing.T) {
+		dialer.ResetSlowHosts()
 		// make most of the hosts timeout
 		dialer.SetSlowHosts(20, time.Second)
 		buf := bytes.NewBuffer(nil)
