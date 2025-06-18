@@ -166,7 +166,12 @@ top:
 			token := m.migrationAccount.Token(m.migrationAccountKey, hostKey)
 			result, err := client.ReadSector(ctx, settings.Prices, token, buf, sector.Root, 0, rhp.SectorSize)
 			if err != nil && strings.Contains(err.Error(), rhp.ErrSectorNotFound.Error()) {
-				// TODO: mark sector lost
+				if err := m.store.MarkSectorsLost(ctx, hostKey, []types.Hash256{sector.Root}); err != nil {
+					sectorLogger.Error("failed to mark sector as lost", zap.Error(err))
+				} else {
+					sectorLogger.Debug("marked sector as lost")
+				}
+				return
 			} else if err != nil {
 				sectorLogger.Debug("failed to read sector")
 				return

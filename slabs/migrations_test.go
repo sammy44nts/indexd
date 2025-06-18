@@ -3,7 +3,6 @@ package slabs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net"
@@ -286,6 +285,13 @@ func TestDownloadSlab(t *testing.T) {
 	fundAccount(hk2)
 	fundAccount(hk3)
 
+	resetTimeouts := func() {
+		sm.shardTimeout = 30 * time.Second
+		for _, client := range dialer.clients {
+			client.delay = 0
+		}
+	}
+
 	// assert that passing no hosts results in not enough shards being downloaded
 	t.Run("no enough hosts", func(t *testing.T) {
 		_, err := sm.downloadSlab(context.Background(), slab, nil, zap.NewNop())
@@ -307,6 +313,7 @@ func TestDownloadSlab(t *testing.T) {
 
 	// assert that if the cheapest host times out, we still succeed.
 	t.Run("success with delay", func(t *testing.T) {
+		defer resetTimeouts()
 		sm.shardTimeout = 100 * time.Millisecond
 		dialer.clients[hk3].delay = time.Second
 		sectors, err := sm.downloadSlab(context.Background(), slab, allHosts, zap.NewNop())
@@ -317,12 +324,26 @@ func TestDownloadSlab(t *testing.T) {
 		}
 	})
 
+	// assert that a host losing a sector will mark the sector as lost
+	t.Run("success with lost sector", func(t *testing.T) {
+		dialer.clients[hk1].sectors = make(map[types.Hash256][proto.SectorSize]byte)
+		sectors, err := sm.downloadSlab(context.Background(), slab, allHosts, zap.NewNop())
+		if err != nil {
+			t.Fatal(err)
+		} else if !reflect.DeepEqual(sectors, [][]byte{nil, sector2[:], sector3[:]}) {
+			t.Fatal("downloaded sectors do not match expected sectors")
+		} else if sectors := store.lostSectors[hk1]; len(sectors) != 1 {
+			t.Fatalf("expected 1 lost sector for host %v, got %d", hk1, len(store.lostSectors[hk1]))
+		} else if _, ok := sectors[proto.SectorRoot(&sector1)]; !ok {
+			t.Fatalf("expected sector %v to be marked as lost, but it wasn't", proto.SectorRoot(&sector1))
+		}
+	})
+
 	// assert that after the downloads, each host has the right remaining
 	// balance
 	assertBalance := func(host hosts.Host, nSectors uint64) {
 		t.Helper()
 		cost := host.Settings.Prices.RPCReadSectorCost(proto.SectorSize).RenterCost().Mul64(nSectors)
-		fmt.Println("hüfe", host.PublicKey, host.Settings.Prices.RPCReadSectorCost(proto.SectorSize).RenterCost())
 		balance, err := sm.am.ServiceAccountBalance(context.Background(), host.PublicKey, sm.migrationAccount)
 		if err != nil {
 			t.Fatal(err)
@@ -331,6 +352,6 @@ func TestDownloadSlab(t *testing.T) {
 		}
 	}
 	assertBalance(host1, 2)
-	assertBalance(host2, 1)
-	assertBalance(host3, 1)
+	assertBalance(host2, 2)
+	assertBalance(host3, 2)
 }
