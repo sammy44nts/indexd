@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ type (
 
 	// Store is a persistent store for the chain subscriber.
 	Store interface {
+		ResetChainState(ctx context.Context) error
 		UpdateChainState(ctx context.Context, fn func(tx UpdateTx) error) error
 		LastScannedIndex(context.Context) (types.ChainIndex, error)
 	}
@@ -163,7 +165,13 @@ func (s *Subscriber) Sync(ctx context.Context) error {
 		}
 
 		rus, aus, err := s.cm.UpdatesSince(index, s.updateBatchSize)
-		if err != nil {
+		if err != nil && strings.Contains(err.Error(), "missing block at index") {
+			s.log.Warn("missing block at index, resetting chain state")
+			if err := s.store.ResetChainState(ctx); err != nil {
+				return fmt.Errorf("failed to reset consensus state: %w", err)
+			}
+			return nil
+		} else if err != nil {
 			return fmt.Errorf("failed to fetch updates since %v: %w", index, err)
 		} else if len(rus) == 0 && len(aus) == 0 {
 			break

@@ -40,15 +40,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer store.Close()
 
-	// ensure deleting the database forces a resync
-	chainPath := filepath.Join(cfg.Directory, "consensus.db")
-	if _, err := os.Stat(chainPath); os.IsNotExist(err) {
-		if err := store.ResetChainState(context.Background()); err != nil {
-			return fmt.Errorf("failed to reset chain state: %w", err)
-		}
-	}
-
-	bdb, err := coreutils.OpenBoltChainDB(chainPath)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 	if err != nil {
 		return fmt.Errorf("failed to open consensus database: %w", err)
 	}
