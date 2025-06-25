@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"testing"
@@ -23,6 +24,22 @@ import (
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
+)
+
+var (
+	testMaintenanceSettings = contracts.MaintenanceSettings{
+		Enabled:         true,
+		Period:          144,
+		RenewWindow:     72,
+		WantedContracts: 6,
+	}
+
+	testUsabilitySettings = hosts.UsabilitySettings{
+		MinCollateral:   types.NewCurrency64(1),
+		MaxEgressPrice:  types.NewCurrency64(math.MaxUint64),
+		MaxIngressPrice: types.NewCurrency64(math.MaxUint64),
+		MaxStoragePrice: types.NewCurrency64(math.MaxUint64),
+	}
 )
 
 // Indexer is a test utility combining an indexer, an http client for the
@@ -121,6 +138,14 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 			t.Errorf("failed to close store: %v", err)
 		}
 	})
+
+	// update settings
+	if err := store.UpdateMaintenanceSettings(context.Background(), testMaintenanceSettings); err != nil {
+		t.Fatal(err)
+	} else if err := store.UpdateUsabilitySettings(context.Background(), testUsabilitySettings); err != nil {
+		t.Fatal(err)
+	}
+
 	return &Indexer{
 		Client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
 

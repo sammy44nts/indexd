@@ -272,6 +272,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 
 		// contract formed successfully
 		addHost(host)
+		hostLog.Debug("formed contract", zap.Stringer("contractID", contract.ID))
 	}
 
 	return nil

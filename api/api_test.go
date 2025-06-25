@@ -3,7 +3,6 @@ package api_test
 import (
 	"context"
 	"errors"
-	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -113,30 +112,6 @@ func TestContractsAPI(t *testing.T) {
 
 	// create indexer
 	indexer := testutils.NewIndexer(t, c, logger)
-	cs, err := indexer.SettingsContracts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs.Enabled = true
-	cs.Period = 144
-	cs.RenewWindow = 72
-	err = indexer.SettingsContractsUpdate(context.Background(), cs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	hs, err := indexer.SettingsHosts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	hs.MaxEgressPrice = types.NewCurrency64(math.MaxUint64)
-	hs.MaxIngressPrice = types.NewCurrency64(math.MaxUint64)
-	hs.MaxStoragePrice = types.NewCurrency64(math.MaxUint64)
-	hs.MinCollateral = types.NewCurrency64(1)
-	err = indexer.SettingsHostsUpdate(context.Background(), hs)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// fund host and indexer wallet
 	c.MineBlocks(t, h.WalletAddress(), 1)
@@ -151,8 +126,7 @@ func TestContractsAPI(t *testing.T) {
 
 	// mine a block and assert it got scanned
 	c.MineBlocks(t, types.Address{}, 1)
-	_, err = indexer.Host(context.Background(), h.PublicKey())
-	if err != nil {
+	if _, err := indexer.Host(context.Background(), h.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
@@ -200,8 +174,14 @@ func TestContractsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// mine until contracts get renewed
+	// figure out the renew height
+	cs, err := indexer.SettingsContracts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	renewHeight := contract.ProofHeight - cs.RenewWindow + 1
+
+	// mine until contracts get renewed
 	ci, err := indexer.Tip()
 	if err != nil {
 		t.Fatal(err)
