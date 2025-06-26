@@ -136,10 +136,10 @@ CREATE TABLE global_settings (
 
     -- host manager settings
     hosts_min_protocol_version BYTEA NOT NULL DEFAULT '\x010000', -- used for host checks
-    hosts_min_collateral NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
-    hosts_max_storage_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte / block
-    hosts_max_ingress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
-    hosts_max_egress_price NUMERIC(50,0) NOT NULL DEFAULT 0, -- hastings / byte
+    hosts_min_collateral NUMERIC(50,0) NOT NULL DEFAULT ((100 * POWER(10,24)) / POWER(10,12) / 4320), -- 100 SC / TB month
+    hosts_max_storage_price NUMERIC(50,0) NOT NULL DEFAULT ((3000 * POWER(10,24)) / POWER(10,12) / 4320),-- 3000 SC / TB / month
+    hosts_max_ingress_price NUMERIC(50,0) NOT NULL DEFAULT ((3000 * POWER(10,24)) / POWER(10,12)),-- 3000 SC / TB
+    hosts_max_egress_price NUMERIC(50,0) NOT NULL DEFAULT ((3000 * POWER(10,24)) / POWER(10,12)), -- 3000 SC / TB
 
     -- pin manager settings
     pins_currency VARCHAR(3) NOT NULL DEFAULT '',
