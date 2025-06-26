@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	blocksPerMonth = 144 * 31
+	blocksPerMonth = 144 * 30
 	oneTB          = 1e12
 )
 

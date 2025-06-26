@@ -271,12 +271,16 @@ func TestHostsAPI(t *testing.T) {
 		t.Fatal("expected h1 to be scanned successfully")
 	} else if !h1.LastFailedScan.IsZero() {
 		t.Fatal("expected h1 to not have failed scans")
+	} else if !h1.Usability.Usable() {
+		t.Fatal("expected h1 to be usable", h1.Usability)
 	} else if h2, err := indexer.Host(context.Background(), h2.PublicKey()); err != nil {
 		t.Fatal(err)
 	} else if h2.LastSuccessfulScan.IsZero() {
 		t.Fatal("expected h2 to be scanned successfully")
 	} else if !h2.LastFailedScan.IsZero() {
 		t.Fatal("expected h2 to not have failed scans")
+	} else if !h2.Usability.Usable() {
+		t.Fatal("expected h2 to be usable", h2.Usability)
 	}
 
 	// assert blocklist is empty and unblocking unknown host is noop
