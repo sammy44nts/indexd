@@ -43,15 +43,9 @@ func (m *mockHostDialer) delay(ctx context.Context, hostKey types.PublicKey) err
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
 	case <-time.After(delay):
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		return nil
 	}
+	return ctx.Err()
 }
 
 // WriteSector implements the [sdk.HostDialer] interface.
