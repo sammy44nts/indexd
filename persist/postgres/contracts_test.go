@@ -1105,6 +1105,58 @@ func TestMarkUnrenewableContractsBad(t *testing.T) {
 	assertContractGood(false)
 }
 
+func TestUpdateContractRevision(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	hk := store.addTestHost(t)
+	contractID := store.addTestContract(t, hk)
+
+	revision, renewed, err := store.ContractRevision(context.Background(), contractID)
+	if err != nil {
+		t.Fatal(err)
+	} else if renewed {
+		t.Fatal("expected contract to not be renewed")
+	}
+	expectedRevision := newTestRevision(hk)
+	if revision != expectedRevision {
+		t.Fatalf("expected revision to be %v, got %v", expectedRevision, revision)
+	}
+
+	update := revision
+	update.Capacity *= 2
+	update.Filesize *= 2
+	update.RevisionNumber++
+	update.RenterOutput.Value = types.NewCurrency64(1000)
+	update.MissedHostValue = types.NewCurrency64(100)
+
+	if err := store.UpdateContractRevision(context.Background(), contractID, update); err != nil {
+		t.Fatal(err)
+	} else if revision, renewed, err := store.ContractRevision(context.Background(), contractID); err != nil {
+		t.Fatal(err)
+	} else if renewed {
+		t.Fatal("expected contract to not be renewed")
+	} else if revision != update {
+		t.Fatalf("expected revision to be %v, got %v", update, revision)
+	}
+
+	if err := store.AddRenewedContract(context.Background(), contractID, types.FileContractID{2}, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+		t.Fatal(err)
+	} else if revision, renewed, err := store.ContractRevision(context.Background(), contractID); err != nil {
+		t.Fatal(err)
+	} else if !renewed {
+		t.Fatal("expected contract to be renewed")
+	} else if revision != update {
+		t.Fatalf("expected revision to be %v, got %v", update, revision)
+	}
+
+	// assert [contracts.ErrNotFound] is returned for non-existing contract
+	if _, _, err := store.ContractRevision(context.Background(), types.FileContractID{}); !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("expected ErrContractNotFound, got %v", err)
+	} else if err := store.UpdateContractRevision(context.Background(), types.FileContractID{}, newTestRevision(types.PublicKey{})); !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("expected ErrContractNotFound, got %v", err)
+	}
+}
+
 func TestMarkBroadcastAttempt(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
@@ -1318,6 +1370,20 @@ func BenchmarkContracts(b *testing.B) {
 		for b.Loop() {
 			_, err := store.ContractsForPruning(context.Background(), hosts[frand.Intn(len(hosts))])
 			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("contracts_revisions", func(b *testing.B) {
+		for b.Loop() {
+			contractID := contractIDs[frand.Intn(len(contractIDs))]
+			revision, _, err := store.ContractRevision(context.Background(), contractID)
+			if err != nil {
+				b.Fatal(err)
+			}
+			revision.RevisionNumber++
+			if err := store.UpdateContractRevision(context.Background(), contractID, revision); err != nil {
 				b.Fatal(err)
 			}
 		}
