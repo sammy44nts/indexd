@@ -161,7 +161,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}()
 
-	appAPIListener, err := startLocalhostListener(cfg.AdminAPI.Address, log.Named("api.application.listener"))
+	appAPIListener, err := startLocalhostListener(cfg.ApplicationAPI.Address, log.Named("api.application.listener"))
 	if err != nil {
 		return fmt.Errorf("failed to start application API listener: %w", err)
 	}

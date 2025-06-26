@@ -97,7 +97,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("failed to listen on http address: %v", err)
+		t.Fatalf("failed to start admin API listener: %v", err)
 	}
 
 	go func() {
