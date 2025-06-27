@@ -71,7 +71,7 @@ func (m *mockHostDialer) WriteSector(ctx context.Context, hostKey types.PublicKe
 }
 
 // ReadSector implements the [sdk.HostDialer] interface.
-func (m *mockHostDialer) ReadSector(ctx context.Context, hostKey types.PublicKey, sectorRoot types.Hash256) (*[proto4.SectorSize]byte, error) {
+func (m *mockHostDialer) ReadSector(ctx context.Context, hostKey types.PublicKey, sectorRoot types.Hash256, offset, length uint64) ([]byte, error) {
 	// simulate timeout
 	if err := m.delay(ctx, hostKey); err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (m *mockHostDialer) ReadSector(ctx context.Context, hostKey types.PublicKey
 	if !ok {
 		return nil, errors.New("sector not found")
 	}
-	return &sector, nil
+	return sector[offset : offset+length], nil
 }
 
 func (m *mockHostDialer) ResetSlowHosts() {
@@ -132,23 +132,38 @@ func TestRoundtrip(t *testing.T) {
 
 	s := sdk.NewSDK("", appKey, dialer)
 
-	data := frand.Bytes(4096)
-	slabs, err := s.Upload(context.Background(), bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("failed to upload: %v", err)
-	} else if len(slabs) != 1 {
-		t.Fatalf("expected 1 slab, got %d", len(slabs))
-	} else if slabs[0].Length != uint32(len(data)) {
-		t.Fatalf("expected slab length %d, got %d", len(data), slabs[0].Length)
+	testUpload := func(t *testing.T, size int) func(t *testing.T) {
+		t.Helper()
+
+		return func(t *testing.T) {
+			data := frand.Bytes(size)
+			slabs, err := s.Upload(context.Background(), bytes.NewReader(data))
+			if err != nil {
+				t.Fatalf("failed to upload: %v", err)
+			} else if len(slabs) == 0 {
+				t.Fatal("expected at least one slab")
+			}
+
+			buf := bytes.NewBuffer(nil)
+			if err := s.Download(context.Background(), buf, slabs); err != nil {
+				t.Fatalf("failed to download: %v", err)
+			}
+
+			if !bytes.Equal(buf.Bytes(), data) {
+				t.Fatal("data mismatch")
+			}
+		}
 	}
 
-	buf := bytes.NewBuffer(nil)
-	if err := s.Download(context.Background(), buf, slabs); err != nil {
-		t.Fatal(err)
+	sizes := []int{
+		100,
+		1024,  // 1 KiB
+		4096,  // 4 KiB
+		1e6,   // 1 MB
+		100e6, // 100 MB
 	}
-
-	if !bytes.Equal(buf.Bytes(), data) {
-		t.Fatal("data mismatch")
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("size %d", size), testUpload(t, size))
 	}
 }
 

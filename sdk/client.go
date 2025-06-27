@@ -40,7 +40,7 @@ type (
 		// WriteSector writes a sector to the host identified by the public key.
 		WriteSector(context.Context, types.PublicKey, *[proto4.SectorSize]byte) (types.Hash256, error)
 		// ReadSector reads a sector from the host identified by the public key.
-		ReadSector(context.Context, types.PublicKey, types.Hash256) (*[proto4.SectorSize]byte, error)
+		ReadSector(ctx context.Context, hostKey types.PublicKey, root types.Hash256, offset, length uint64) ([]byte, error)
 	}
 
 	// An UploadOption configures the upload behavior
@@ -193,7 +193,8 @@ top:
 		go func(ctx context.Context, shard Shard, i int) {
 			defer func() { <-sema }() // release semaphore
 			defer wg.Done()
-			data, err := downloadShard(ctx, shard.Root, shard.HostKey, s.dialer, timeout)
+			offset, length := sectorRegion(slab.MinShards, slab.Offset, slab.Length)
+			data, err := downloadShard(ctx, shard.Root, shard.HostKey, s.dialer, offset, length, timeout)
 			if err != nil {
 				return
 			}
@@ -404,11 +405,21 @@ func stripedJoin(dst io.Writer, dataShards [][]byte, writeLen int) error {
 	return nil
 }
 
+func sectorRegion(minShards uint8, so, sl uint32) (offset, length uint64) {
+	minChunkSize := proto4.LeafSize * uint32(minShards)
+	start := (so / minChunkSize) * proto4.LeafSize
+	end := ((so + sl) / minChunkSize) * proto4.LeafSize
+	if (so+sl)%minChunkSize != 0 {
+		end += proto4.LeafSize
+	}
+	return uint64(start), uint64(end - start)
+}
+
 // downloadShard reads a sector from a host
-func downloadShard(ctx context.Context, root types.Hash256, hostKey types.PublicKey, dialer HostDialer, timeout time.Duration) (*[proto4.SectorSize]byte, error) {
+func downloadShard(ctx context.Context, root types.Hash256, hostKey types.PublicKey, dialer HostDialer, offset, length uint64, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return dialer.ReadSector(ctx, hostKey, root)
+	return dialer.ReadSector(ctx, hostKey, root, offset, length)
 }
 
 // uploadShard uploads a shard to a host
