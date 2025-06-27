@@ -43,6 +43,17 @@ func TestPeerStore(t *testing.T) {
 		t.Fatal("unexpected address", peers[0].Address)
 	}
 
+	addr = "1.2.3.4:9881"
+	if err := db.AddPeer(addr); err != nil {
+		t.Fatal(err)
+	} else if peers, err := db.Peers(); err != nil {
+		t.Fatal("unexpected error", err)
+	} else if len(peers) != 2 {
+		t.Fatal("unexpected number of peers", len(peers))
+	} else if peers[1].Address != addr {
+		t.Fatal("unexpected address", peers[1].Address)
+	}
+
 	lastConnect := time.Now().Add(-time.Minute).Truncate(time.Second)
 	syncedBlocks := uint64(15)
 	syncDuration := 5 * time.Second
