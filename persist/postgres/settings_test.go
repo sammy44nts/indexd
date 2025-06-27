@@ -51,13 +51,7 @@ func TestHostSettings(t *testing.T) {
 	us, err := db.UsabilitySettings(context.Background())
 	if err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(us, hosts.UsabilitySettings{
-		MinProtocolVersion: [3]uint8{1, 0, 0},
-		MinCollateral:      types.Siacoins(100).Div64(1e12).Div64(30 * 144),
-		MaxEgressPrice:     types.Siacoins(3000).Div64(1e12),
-		MaxIngressPrice:    types.Siacoins(3000).Div64(1e12),
-		MaxStoragePrice:    types.Siacoins(3000).Div64(1e12).Div64(30 * 144),
-	}) {
+	} else if !reflect.DeepEqual(us, hosts.DefaultUsabilitySettings) {
 		t.Fatalf("unexpected settings: \n%+v", us)
 	}
 
