@@ -66,6 +66,7 @@ WITH globals AS (
 		hosts_max_ingress_price,
 		hosts_max_egress_price,
 		(get_byte(hosts_min_protocol_version, 0) << 16) + (get_byte(hosts_min_protocol_version, 1) << 8) + (get_byte(hosts_min_protocol_version, 2)) AS host_min_version,
+		250000::NUMERIC AS sectors_per_tb,
 		1E12::NUMERIC AS one_tb,
 		1E24::NUMERIC AS one_sc
 	FROM global_settings
@@ -96,7 +97,7 @@ WITH globals AS (
 	has_settings AND settings_storage_price <= globals.hosts_max_storage_price,
 	has_settings AND settings_ingress_price <= globals.hosts_max_ingress_price,
 	has_settings AND settings_egress_price <= globals.hosts_max_egress_price,
-	has_settings AND settings_free_sector_price <= globals.one_sc / globals.one_tb
+	has_settings AND settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 FROM hosts CROSS JOIN globals;`, sqlPublicKey(hk)))
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
@@ -141,6 +142,7 @@ WITH globals AS (
         hosts_max_ingress_price,
 		hosts_max_egress_price,
 		(get_byte(hosts_min_protocol_version, 0) << 16) + (get_byte(hosts_min_protocol_version, 1) << 8) + (get_byte(hosts_min_protocol_version, 2)) AS host_min_version,
+		250000::NUMERIC AS sectors_per_tb,
 		1E12::NUMERIC AS one_tb,
 		1E24::NUMERIC AS one_sc
     FROM global_settings
@@ -170,7 +172,7 @@ WITH globals AS (
 	has_settings AND settings_storage_price <= globals.hosts_max_storage_price,
 	has_settings AND settings_ingress_price <= globals.hosts_max_ingress_price,
 	has_settings AND settings_egress_price <= globals.hosts_max_egress_price,
-	has_settings AND settings_free_sector_price <= globals.one_sc / globals.one_tb
+	has_settings AND settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 FROM hosts CROSS JOIN globals
 WHERE
 	-- good host filter
@@ -188,7 +190,7 @@ WHERE
 		settings_storage_price <= globals.hosts_max_storage_price AND
 		settings_ingress_price <= globals.hosts_max_ingress_price AND
 		settings_egress_price <= globals.hosts_max_egress_price AND
-		settings_free_sector_price <= globals.one_sc / globals.one_tb
+		settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 		)
 	))
 	-- blocked host filter
