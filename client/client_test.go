@@ -1,4 +1,4 @@
-package rhp
+package client
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func TestWithRevision(t *testing.T) {
 		renewed:   make(map[types.FileContractID]bool),
 	}
 	cm := &mockChainManager{}
-	c := NewHostClient(types.PublicKey{}, cm, nil, nil, db, zap.NewNop())
+	c := newHostClient(types.PublicKey{}, cm, nil, nil, db, zap.NewNop())
 
 	db.renewed[types.FileContractID{1}] = true                                                              // renewed
 	db.revisions[types.FileContractID{2}] = types.V2FileContract{ProofHeight: revisionSubmissionBuffer + 1} // not revisable

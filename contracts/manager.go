@@ -96,9 +96,9 @@ type (
 		PrunableContractRoots(ctx context.Context, contractID types.FileContractID, roots []types.Hash256) ([]types.Hash256, error)
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
+		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		UpdateContractRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract) error
 		UpdateNextPrune(ctx context.Context, contractID types.FileContractID, nextPrune time.Time) error
-		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 	}
 
 	// Syncer is the minimal interface of Syncer functionality the
@@ -150,12 +150,12 @@ type (
 		am AccountManager
 		cm ChainManager
 
-		dialer  Dialer
-		scanner Scanner
-
 		s     Syncer
 		w     Wallet
 		store Store
+
+		dialer  Dialer
+		scanner Scanner
 
 		renterKey types.PublicKey
 
@@ -215,15 +215,14 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 		am: accountManager,
 		cm: chainManager,
 
+		s:     syncer,
+		w:     wallet,
+		store: store,
+
 		scanner: scanner,
 		dialer:  dialer,
 
-		s: syncer,
-		w: wallet,
-
 		renterKey: renterKey,
-
-		store: store,
 
 		triggerFundingChan: make(chan struct{}, 1),
 

@@ -72,16 +72,14 @@ type hostClientMock struct {
 	renewCalls        []renewContractCall
 	sectorRootsCalls  []sectorRootsCall
 
-	sectorRoots     map[types.FileContractID][]types.Hash256
-	latestRevisions map[types.FileContractID]types.V2FileContract
-	missingSectors  map[types.Hash256]struct{}
+	sectorRoots    map[types.FileContractID][]types.Hash256
+	missingSectors map[types.Hash256]struct{}
 }
 
 func newHostClientMock() *hostClientMock {
 	return &hostClientMock{
-		sectorRoots:     make(map[types.FileContractID][]types.Hash256),
-		latestRevisions: make(map[types.FileContractID]types.V2FileContract),
-		missingSectors:  make(map[types.Hash256]struct{}),
+		sectorRoots:    make(map[types.FileContractID][]types.Hash256),
+		missingSectors: make(map[types.Hash256]struct{}),
 	}
 }
 
