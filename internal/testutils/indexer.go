@@ -133,11 +133,6 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		}
 	})
 
-	// update maintenance settings
-	if err := store.UpdateMaintenanceSettings(context.Background(), testMaintenanceSettings); err != nil {
-		t.Fatal(err)
-	}
-
 	return &Indexer{
 		Client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
 
