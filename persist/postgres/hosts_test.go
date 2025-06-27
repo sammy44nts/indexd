@@ -234,7 +234,7 @@ func TestHostChecks(t *testing.T) {
 			EgressPrice:     settingMaxEgressPrice.Add(oneH),
 			Collateral:      settingMinCollataral.Sub(oneH),
 			FreeSectorPrice: oneSC.Div64(oneTB).Add(oneH),
-			ValidUntil:      time.Now().Add(59 * time.Minute).Round(time.Microsecond),
+			ValidUntil:      time.Now().Add(14 * time.Minute).Round(time.Microsecond),
 			TipHeight:       frand.Uint64n(1e3),
 		},
 	}, true, time.Now())
@@ -263,7 +263,7 @@ func TestHostChecks(t *testing.T) {
 	hs := h.Settings
 
 	// adjust recent uptime so we pass the check
-	if _, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .91`); err != nil {
+	if _, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .9`); err != nil {
 		t.Fatal(err)
 	}
 	assertCheckOK("Uptime")
@@ -425,11 +425,6 @@ func TestHosts(t *testing.T) {
 	hk2 := addHost(2, false, false, true) // bad, pending contract
 	hk3 := addHost(3, true, true, false)  // good, blocked, no contract
 	hk4 := addHost(4, false, true, false) //  bad, blocked, no contract
-
-	// make sure the hosts have a good uptime
-	if _, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .91`); err != nil {
-		t.Fatal(err)
-	}
 
 	assertHosts := func(hks []types.PublicKey, offset, limit int, queryOpts ...hosts.HostQueryOpt) {
 		t.Helper()
@@ -614,7 +609,16 @@ func TestHostsRecentUptime(t *testing.T) {
 	// add a host
 	hk = db.addTestHost(t)
 
-	// assert default uptime
+	// manually override the default uptime to .894, this very specific value
+	// gives us the uptime properties that are laid out in the spec, for the
+	// time being though the recent uptime defaults to 0.9 to ensure host pass
+	// uptime checks by default
+	_, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .894`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// assert uptime
 	if uptime() != .894 {
 		t.Fatal("unexpected", uptime())
 	}
@@ -651,7 +655,7 @@ func TestHostsRecentUptime(t *testing.T) {
 	}
 
 	// assert uptime is halved after the the half life
-	_, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .999999999`)
+	_, err = db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .999999999`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,6 +30,18 @@ const (
 	fundTimeout = 2 * time.Minute
 )
 
+var (
+	// DefaultMaintenanceSettings are the default settings for contract
+	// maintenance. These settings are configured in the database as defaults
+	// when the global settings are initialized.
+	DefaultMaintenanceSettings = MaintenanceSettings{
+		Enabled:         false,
+		Period:          144 * 7 * 6, // 6 weeks
+		RenewWindow:     144 * 7 * 2, // 2 weeks
+		WantedContracts: 50,
+	}
+)
+
 type (
 	// AccountManager defines an interface that allows funding accounts on the
 	// host using a given set of contracts.

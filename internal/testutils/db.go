@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.sia.tech/indexd/contracts"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/persist/postgres"
 	"go.uber.org/zap"
 )
@@ -40,9 +42,15 @@ func NewDB(t testing.TB, log *zap.Logger) *postgres.Store {
 	ci.Database = dbName
 
 	// connect
-	store, err := postgres.Connect(context.Background(), ci, log.Named("postgres"))
+	log = log.Named("postgres")
+	pool, err = postgres.Connect(context.Background(), ci, log)
 	if err != nil {
 		t.Fatalf("failed to connect to postgres database: %v", err)
+	}
+
+	store, err := postgres.NewStore(context.Background(), pool, contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
 	}
 	return store
 }

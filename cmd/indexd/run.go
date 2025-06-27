@@ -35,9 +35,13 @@ import (
 )
 
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) error {
-	store, err := postgres.Connect(ctx, cfg.Database, log.Named("postgres"))
+	pool, err := postgres.Connect(ctx, cfg.Database, log.Named("postgres"))
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres database: %w", err)
+	}
+	store, err := postgres.NewStore(ctx, pool, contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log.Named("postgres"))
+	if err != nil {
+		return fmt.Errorf("failed to create postgres store: %w", err)
 	}
 	defer store.Close()
 
