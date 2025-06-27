@@ -137,11 +137,12 @@ func TestRoundtrip(t *testing.T) {
 
 		return func(t *testing.T) {
 			data := frand.Bytes(size)
+			numSlabs := 1 + size/(10*proto4.SectorSize)
 			slabs, err := s.Upload(context.Background(), bytes.NewReader(data))
 			if err != nil {
 				t.Fatalf("failed to upload: %v", err)
-			} else if len(slabs) == 0 {
-				t.Fatal("expected at least one slab")
+			} else if len(slabs) != numSlabs {
+				t.Fatalf("expected %d slabs for size %d, got %d", numSlabs, size, len(slabs))
 			}
 
 			buf := bytes.NewBuffer(nil)
