@@ -65,7 +65,7 @@ type (
 		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
 	}
 
-	// Scanner defines the minimal interface of Scanner functionality
+	// HostManager defines the minimal interface of HostManager functionality
 	// the ContractManager requires.
 	HostManager interface {
 		WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error
