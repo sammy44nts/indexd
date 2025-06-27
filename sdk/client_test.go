@@ -89,7 +89,7 @@ func (m *mockHostDialer) ReadSector(ctx context.Context, hostKey types.PublicKey
 	if !ok {
 		return nil, errors.New("sector not found")
 	}
-	return sector[offset : offset+length], nil
+	return slices.Clone(sector[offset : offset+length]), nil
 }
 
 func (m *mockHostDialer) ResetSlowHosts() {
