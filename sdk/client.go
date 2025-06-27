@@ -177,6 +177,8 @@ func (s *SDK) downloadSlab(ctx context.Context, slab Slab, maxInflight int, time
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	offset, length := sectorRegion(slab.MinShards, slab.Offset, slab.Length)
+
 	var successful atomic.Uint32
 	var wg sync.WaitGroup
 	shards := make([][]byte, len(slab.Shards))
@@ -190,20 +192,21 @@ top:
 			// limit number of concurrent requests
 		}
 		wg.Add(1)
-		go func(ctx context.Context, shard Shard, i int) {
+		go func(ctx context.Context, shard Shard, offset, length uint64, i int) {
 			defer func() { <-sema }() // release semaphore
 			defer wg.Done()
-			offset, length := sectorRegion(slab.MinShards, slab.Offset, slab.Length)
 			data, err := downloadShard(ctx, shard.Root, shard.HostKey, s.dialer, offset, length, timeout)
 			if err != nil {
 				return
+			} else if len(data) != int(length) {
+				return
 			}
-			shards[i] = data[:]
+			shards[i] = data
 			if v := successful.Add(1); v >= uint32(slab.MinShards) {
 				// got enough pieces to recover
 				cancel()
 			}
-		}(ctx, shard, i)
+		}(ctx, shard, offset, length, i)
 	}
 
 	wg.Wait()
