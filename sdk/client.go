@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,6 +28,13 @@ type (
 	downloadOption struct {
 		hostTimeout time.Duration
 		maxInflight int
+	}
+
+	slabUploadWork struct {
+		shards        [][]byte
+		length        uint32
+		encryptionKey [32]byte
+		err           error
 	}
 
 	// A HostDialer is an interface for writing and reading sectors to/from hosts.
@@ -220,6 +226,9 @@ top:
 //
 // Returns the metadata of the slabs that were pinned
 func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]Slab, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	uo := uploadOption{
 		dataShards:   10,
 		parityShards: 20,
@@ -234,47 +243,13 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 		return nil, errors.New("redundancy must be at least 2x")
 	}
 
-	type work struct {
-		length        int
-		shards        [][]byte
-		encryptionKey [32]byte
-		err           error
+	enc, err := reedsolomon.New(int(uo.dataShards), int(uo.parityShards))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create encoder: %w", err)
 	}
-	workCh := make(chan work, 1)
-	go func() {
-		enc, err := reedsolomon.New(int(uo.dataShards), int(uo.parityShards))
-		if err != nil {
-			workCh <- work{err: fmt.Errorf("failed to create erasure coder: %w", err)}
-			return
-		}
-		slabBuf := make([]byte, proto4.SectorSize*int(uo.dataShards))
-		for i := 0; ; i++ {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			n, err := readAtMost(r, slabBuf)
-			if n == 0 && errors.Is(err, io.EOF) {
-				workCh <- work{err: io.EOF} // signal done with EOF
-				break
-			} else if err != nil && !errors.Is(err, io.EOF) {
-				workCh <- work{err: fmt.Errorf("failed to read slab %d: %w", i, err)}
-				return
-			}
-			shards := make([][]byte, uo.dataShards+uo.parityShards)
-			for i := range shards {
-				shards[i] = make([]byte, proto4.SectorSize)
-			}
-			stripedSplit(slabBuf, shards[:uo.dataShards])
-			if err := enc.Encode(shards); err != nil {
-				workCh <- work{err: fmt.Errorf("failed to encode slab %d shards: %w", i, err)}
-				return
-			}
-			encryptionKey := types.HashBytes(append(s.appKey[:], slabBuf[:n]...))
-			workCh <- work{length: n, encryptionKey: encryptionKey, shards: shards}
-		}
-	}()
+
+	slabCh := make(chan slabUploadWork, 1)
+	go processSlabs(ctx, enc, uo, r, s.appKey, slabCh)
 
 	// TODO: cleanup on failure
 	var pinned []Slab
@@ -282,7 +257,7 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case work := <-workCh:
+		case work := <-slabCh:
 			err := work.err
 			shards := work.shards
 			shardKey := work.encryptionKey
@@ -374,17 +349,6 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 	}
 }
 
-// stripedSplit splits data into striped data shards, which must have sufficient
-// capacity.
-func stripedSplit(data []byte, dataShards [][]byte) {
-	buf := bytes.NewBuffer(data)
-	for off := 0; buf.Len() > 0; off += proto4.LeafSize {
-		for _, shard := range dataShards {
-			copy(shard[off:], buf.Next(proto4.LeafSize))
-		}
-	}
-}
-
 // stripedJoin joins the striped data shards, writing them to dst. The first 'skip'
 // bytes of the recovered data are skipped, and 'writeLen' bytes are written in
 // total.
@@ -406,6 +370,26 @@ func stripedJoin(dst io.Writer, dataShards [][]byte, writeLen int) error {
 		}
 	}
 	return nil
+}
+
+// stripedSplit reads the shards of a slab from the given reader and stripes
+// it across the provided shards. The shards must have been allocated with
+// `make([][]byte, numShards)` and each shard must have a length of
+// `proto4.SectorSize` bytes. The function returns the total number of bytes
+// read, which is the sum of the lengths of all shards.
+func stripedSplit(r io.Reader, shards [][]byte) (length uint32, err error) {
+	for i := 0; i < proto4.SectorSize; i += proto4.LeafSize {
+		for j := range shards {
+			n, err := io.ReadFull(r, shards[j][i:i+proto4.LeafSize])
+			if errors.Is(err, io.EOF) {
+				return length, nil // no more data to read
+			} else if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return 0, fmt.Errorf("failed to read shard %d: %w", i, err)
+			}
+			length += uint32(n)
+		}
+	}
+	return length, nil
 }
 
 func sectorRegion(minShards uint8, so, sl uint32) (offset, length uint64) {
@@ -445,32 +429,50 @@ func uploadShard(ctx context.Context, sector *[proto4.SectorSize]byte, hostKey t
 	return uploaded, nil
 }
 
+// processSlabs reads slabs from the provided reader, encodes them using the
+// provided Reed-Solomon encoder, and sends the encoded shards to the provided
+// channel. Slabs are processed in a loop until EOF is reached.
+
+// The encryption key is derived for each slab by hashing the app key slab's raw data.
+func processSlabs(ctx context.Context, enc reedsolomon.Encoder, uo uploadOption, r io.Reader, appKey types.PrivateKey, ch chan<- slabUploadWork) {
+	h := types.NewHasher()
+	for i := 0; ; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		h.Reset()
+		h.E.Write(appKey[:]) // write app key to hasher
+		shards := make([][]byte, uo.dataShards+uo.parityShards)
+		for i := range shards {
+			shards[i] = make([]byte, proto4.SectorSize)
+		}
+		tr := io.TeeReader(r, h.E)
+		n, err := stripedSplit(tr, shards[:uo.dataShards])
+		if err != nil {
+			ch <- slabUploadWork{err: fmt.Errorf("failed to read slab %d: %w", i, err)}
+			return
+		} else if n == 0 {
+			ch <- slabUploadWork{err: io.EOF} // signal done with EOF
+			return
+		}
+
+		if err := enc.Encode(shards); err != nil {
+			ch <- slabUploadWork{err: fmt.Errorf("failed to encode slab %d shards: %w", i, err)}
+			return
+		}
+		encryptionKey := h.Sum()
+		ch <- slabUploadWork{length: n, encryptionKey: encryptionKey, shards: shards}
+	}
+}
+
 // shuffle shuffles the elements of a slice in place and returns it.
 func shuffle[T any, S ~[]T](s S) S {
 	frand.Shuffle(len(s), func(i, j int) {
 		s[i], s[j] = s[j], s[i]
 	})
 	return s
-}
-
-// readAtMost reads from the reader until the buffer is filled,
-// no data is read, an error is returned, or EOF is reached.
-//
-// It is different from io.ReadFull, which returns [io.ErrUnexpectedEOF]
-// if the reader returns less data than requested. This is so EOF can be
-// used as a signal to gracefully close the slab loop in Upload.
-func readAtMost(r io.Reader, buf []byte) (int, error) {
-	var n int
-	for n < len(buf) {
-		m, err := r.Read(buf[n:])
-		n += m
-		if err != nil {
-			return n, err
-		} else if m == 0 {
-			return n, io.EOF
-		}
-	}
-	return n, nil
 }
 
 // WithRedundancy sets the number of data and parity shards for the upload.

@@ -174,6 +174,16 @@ func TestUpload(t *testing.T) {
 	s := sdk.NewSDK("", appKey, dialer)
 	data := frand.Bytes(4096)
 
+	expectedSectorKey := types.HashBytes(append(appKey[:], data...))
+	slabs, err := s.Upload(context.Background(), bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("failed to upload: %v", err)
+	} else if len(slabs) != 1 {
+		t.Fatalf("expected 1 slab, got %d", len(slabs))
+	} else if slabs[0].SectorKey != expectedSectorKey {
+		t.Fatalf("expected slab key %s, got %s", expectedSectorKey, slabs[0].SectorKey)
+	}
+
 	t.Run("timeout", func(t *testing.T) {
 		dialer.ResetSlowHosts()
 		// make enough hosts timeout to fail
@@ -237,6 +247,25 @@ func TestDownload(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func BenchmarkUploadDefault(b *testing.B) {
+	const benchmarkSize = 256 * 1000 * 1000 // 256 MB
+	appKey := types.GeneratePrivateKey()
+	data := frand.Bytes(benchmarkSize)
+
+	dialer := newMockDialer(30)
+	s := sdk.NewSDK("", appKey, dialer)
+
+	r := bytes.NewReader(data)
+	b.SetBytes(benchmarkSize)
+	b.ResetTimer()
+	for b.Loop() {
+		r.Reset(data)
+		if _, err := s.Upload(context.Background(), r); err != nil {
+			b.Fatalf("failed to upload: %v", err)
+		}
+	}
 }
 
 func BenchmarkUpload(b *testing.B) {
