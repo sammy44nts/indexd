@@ -183,6 +183,7 @@ func TestHostChecks(t *testing.T) {
 	oneSC := types.Siacoins(1)
 	oneH := types.NewCurrency64(1)
 	oneTB := uint64(1e12)
+	sectorsPerTB := uint64(250000)
 	settingPeriod := uint64(6084)
 	settingMinCollataral := types.Siacoins(1).Div64(oneTB)
 	settingMaxStoragePrice := types.Siacoins(2).Div64(oneTB)
@@ -233,7 +234,7 @@ func TestHostChecks(t *testing.T) {
 			IngressPrice:    settingMaxIngressPrice.Add(oneH),
 			EgressPrice:     settingMaxEgressPrice.Add(oneH),
 			Collateral:      settingMinCollataral.Sub(oneH),
-			FreeSectorPrice: oneSC.Div64(oneTB).Add(oneH),
+			FreeSectorPrice: oneSC.Div64(sectorsPerTB).Add(oneH),
 			ValidUntil:      time.Now().Add(14 * time.Minute).Round(time.Microsecond),
 			TipHeight:       frand.Uint64n(1e3),
 		},
@@ -320,7 +321,7 @@ func TestHostChecks(t *testing.T) {
 	assertCheckOK("IngressPrice")
 
 	// adjust free sector price so we pass the check
-	hs.Prices.FreeSectorPrice = oneSC.Div64(oneTB)
+	hs.Prices.FreeSectorPrice = oneSC.Div64(sectorsPerTB)
 	_ = db.UpdateHost(context.Background(), hk, testNetworks, hs, true, time.Now())
 	assertCheckOK("FreeSectorPrice")
 
@@ -610,9 +611,8 @@ func TestHostsRecentUptime(t *testing.T) {
 	hk = db.addTestHost(t)
 
 	// manually override the default uptime to .894, this very specific value
-	// gives us the uptime properties that are laid out in the spec, for the
-	// time being though the recent uptime defaults to 0.9 to ensure host pass
-	// uptime checks by default
+	// gives us the uptime properties that are laid out in the spec. The recent
+	// uptime defaults to 0.9 to ensure hosts pass uptime checks by default.
 	_, err := db.pool.Exec(context.Background(), `UPDATE hosts SET recent_uptime = .894`)
 	if err != nil {
 		t.Fatal(err)

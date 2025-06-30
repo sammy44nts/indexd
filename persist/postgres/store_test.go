@@ -52,12 +52,7 @@ func initPostgres(t testing.TB, log *zap.Logger) *Store {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	log = log.Named("postgres")
-	pool, err := Connect(ctx, connectionInfoFromEnv(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := NewStore(ctx, pool, contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log)
+	db, err := NewStore(ctx, connectionInfoFromEnv(), contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log.Named("postgres"))
 	if err != nil {
 		t.Fatal(err)
 	}
