@@ -159,7 +159,8 @@ type (
 
 		renterKey types.PublicKey
 
-		triggerFundingChan chan struct{}
+		triggerFundingChan     chan struct{}
+		triggerMaintenanceChan chan struct{}
 
 		log     *zap.Logger
 		shuffle func(int, func(i, j int))
@@ -224,7 +225,8 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 
 		renterKey: renterKey,
 
-		triggerFundingChan: make(chan struct{}, 1),
+		triggerFundingChan:     make(chan struct{}, 1),
+		triggerMaintenanceChan: make(chan struct{}, 1),
 
 		log:     zap.NewNop(),
 		shuffle: frand.Shuffle,
@@ -248,6 +250,14 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 func (cm *ContractManager) TriggerAccountFunding() {
 	select {
 	case cm.triggerFundingChan <- struct{}{}:
+	default:
+	}
+}
+
+// TriggerMaintenance triggers the maintenance loop to run immediately.
+func (cm *ContractManager) TriggerMaintenance() {
+	select {
+	case cm.triggerMaintenanceChan <- struct{}{}:
 	default:
 	}
 }
@@ -281,6 +291,12 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 				log.Error("account funding failed", zap.Error(err))
 			}
 			continue
+		case <-cm.triggerMaintenanceChan:
+			// reset ticker
+			ticker.Stop()
+			ticker = time.NewTicker(cm.maintenanceFrequency)
+
+			log.Debug("triggering maintenance")
 		case <-ticker.C:
 		}
 
