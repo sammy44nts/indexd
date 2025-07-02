@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -190,4 +191,14 @@ func validateOffsetLimit(offset, limit int) error {
 		return errors.New("limit can not be negative")
 	}
 	return nil
+}
+
+// RandomAlertID returns a randomly generated ID.
+func RandomAlertID() types.Hash256 {
+	return frand.Entropy256()
+}
+
+// IDForHost returns an ID representing an action on a host.
+func IDForHost(alertID [32]byte, hk types.PublicKey) types.Hash256 {
+	return types.HashBytes(append(alertID[:], hk[:]...))
 }

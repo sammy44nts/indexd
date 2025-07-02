@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	"go.sia.tech/indexd/alerts"
 	"go.uber.org/zap"
 )
 
@@ -59,6 +60,10 @@ type (
 	}
 )
 
+var (
+	alertLostSectorsID = alerts.RandomAlertID() // constant until restarted
+)
+
 func newSectorVerifier(ctx context.Context, hostAddr string, hostKey types.PublicKey, prices proto.HostPrices) (*sectorVerifier, error) {
 	tc, err := siamux.Dial(ctx, hostAddr, hostKey)
 	if err != nil {
@@ -84,6 +89,20 @@ func (v *sectorVerifier) Prices() proto.HostPrices {
 
 func (v *sectorVerifier) VerifySector(ctx context.Context, root types.Hash256) (rhp.RPCVerifySectorResult, error) {
 	return rhp.RPCVerifySector(ctx, v.tc, v.prices, v.serviceAccount.Token(v.serviceAccountKey, v.hostKey), root)
+}
+
+func newLostSectorsAlert(hk types.PublicKey, lostSectors int) alerts.Alert {
+	return alerts.Alert{
+		ID:       alerts.IDForHost(alertLostSectorsID, hk),
+		Severity: alerts.SeverityWarning,
+		Message:  "Host has lost sectors",
+		Data: map[string]interface{}{
+			"lostSectors": lostSectors,
+			"hostKey":     hk.String(),
+			"hint":        "The host has reported that it can't serve at least one sector. Consider blocking this host through the blocklist feature. If you think this was a mistake and you want to ignore this warning for now you can reset the lost sector count",
+		},
+		Timestamp: time.Now(),
+	}
 }
 
 func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, verifier SectorVerifier, logger *zap.Logger) {
@@ -130,6 +149,10 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, verifie
 		err = func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
+
+			if err := m.alerter.RegisterAlert(newLostSectorsAlert(verifier.HostKey(), len(lost))); err != nil {
+				return fmt.Errorf("failed to register lost sector alert: %w", err)
+			}
 
 			// update lost, failed and successful sectors
 			if err := m.store.MarkSectorsLost(ctx, verifier.HostKey(), lost); err != nil {

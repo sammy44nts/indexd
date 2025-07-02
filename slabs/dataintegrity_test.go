@@ -9,6 +9,7 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -51,7 +52,8 @@ func TestVerifySectors(t *testing.T) {
 	am := newMockAccountManager(store)
 	hm := newMockHostManager()
 	account := types.GeneratePrivateKey()
-	sm, err := newSlabManager(am, hm, store, nil, account, account)
+	alerter := alerts.NewManager()
+	sm, err := newSlabManager(am, hm, store, nil, alerter, account, account)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,8 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	am := newMockAccountManager(store)
 	hm := newMockHostManager()
 	account := types.GeneratePrivateKey()
-	sm, err := newSlabManager(am, hm, store, nil, account, account)
+	alerter := alerts.NewManager()
+	sm, err := newSlabManager(am, hm, store, nil, alerter, account, account)
 	if err != nil {
 		t.Fatal(err)
 	}

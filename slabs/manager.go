@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -37,12 +38,13 @@ type (
 
 		shardTimeout time.Duration
 
-		am     AccountManager
-		dialer Dialer
-		hm     HostManager
-		store  Store
-		tg     *threadgroup.ThreadGroup
-		log    *zap.Logger
+		am      AccountManager
+		dialer  Dialer
+		hm      HostManager
+		store   Store
+		alerter AlertsManager
+		tg      *threadgroup.ThreadGroup
+		log     *zap.Logger
 	}
 
 	// AccountManager defines the SlabManager's dependencies on the account
@@ -86,6 +88,11 @@ type (
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
 	}
+
+	// AlertsManager defines an interface to register and dismiss alerts.
+	AlertsManager interface {
+		RegisterAlert(alert alerts.Alert) error
+	}
 )
 
 // An Option is a functional option for the SlabManager.
@@ -99,8 +106,8 @@ func WithLogger(l *zap.Logger) Option {
 }
 
 // NewManager creates a new slab manager.
-func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	m, err := newSlabManager(am, hm, store, dialer, migrationAccount, serviceAccount, opts...)
+func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+	m, err := newSlabManager(am, hm, store, dialer, alerter, migrationAccount, serviceAccount, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +143,7 @@ func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, m
 	return m, nil
 }
 
-func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		integrityCheckInterval:       7 * 24 * time.Hour,
 		failedIntegrityCheckInterval: 6 * time.Hour,
@@ -150,12 +157,13 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 
 		shardTimeout: 30 * time.Second,
 
-		am:     am,
-		dialer: dialer,
-		hm:     hm,
-		store:  store,
-		tg:     threadgroup.New(),
-		log:    zap.NewNop(),
+		am:      am,
+		dialer:  dialer,
+		hm:      hm,
+		store:   store,
+		alerter: alerter,
+		tg:      threadgroup.New(),
+		log:     zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(m)
