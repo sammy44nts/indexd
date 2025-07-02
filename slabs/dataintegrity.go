@@ -150,10 +150,6 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, verifie
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
-			if err := m.alerter.RegisterAlert(newLostSectorsAlert(verifier.HostKey(), len(lost))); err != nil {
-				return fmt.Errorf("failed to register lost sector alert: %w", err)
-			}
-
 			// update lost, failed and successful sectors
 			if err := m.store.MarkSectorsLost(ctx, verifier.HostKey(), lost); err != nil {
 				hostLogger.Error("failed to mark sectors as lost", zap.Error(err))
@@ -166,6 +162,9 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, verifie
 			if err := m.store.RecordIntegrityCheck(ctx, true, time.Now().Add(m.integrityCheckInterval), verifier.HostKey(), success); err != nil {
 				hostLogger.Error("failed to record integrity check for successful sectors", zap.Error(err))
 				return fmt.Errorf("failed to record integrity check for successful sectors: %w", err)
+			}
+			if err := m.alerter.RegisterAlert(newLostSectorsAlert(verifier.HostKey(), len(lost))); err != nil {
+				return fmt.Errorf("failed to register lost sector alert: %w", err)
 			}
 
 			// fetch sector roots for sectors that have now failed the check 5+
