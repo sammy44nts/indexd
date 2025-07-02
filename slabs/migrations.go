@@ -88,21 +88,22 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Log
 func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, hosts []hosts.Host, contracts []contracts.Contract, period uint64, l *zap.Logger) error {
 	logger := l.Named(slab.ID.String())
 
-	indices, hosts := contractsForRepair(slab, hosts, contracts, period)
+	indices, hosts := hostsForRepair(slab, hosts, contracts, period)
 	if len(indices) == 0 {
 		logger.Debug("tried to migrate slab but no indices require migration")
 		return nil
 	}
 
-	// generous timeout for repairing a slab
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
+	// download enough shards to reconstruct the slab's shards
 	shards, err := m.downloadShards(ctx, slab, hosts, logger)
 	if err != nil {
 		return fmt.Errorf("failed to download slab %s: %w", slab.ID, err)
 	}
 
+	// reconstruct the missing shards
 	rs, err := reedsolomon.New(int(slab.MinShards), len(slab.Sectors)-int(slab.MinShards))
 	if err != nil {
 		return fmt.Errorf("failed to create reedsolomon encoder: %w", err)
@@ -114,13 +115,25 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, hosts []hosts.
 	if err := rs.ReconstructSome(shards, toReconstruct); err != nil {
 		return fmt.Errorf("failed to reconstruct shards for slab %s: %w", slab.ID, err)
 	}
+
+	// ignore any shards that don't require repairs
 	for i := range shards {
 		if !toReconstruct[i] {
 			shards[i] = nil
 		}
 	}
 
+	// upload the missing shards
 	migratedShards, err := m.uploadShards(ctx, shards, hosts)
+
+	// update the database with the new locations for the migrated shards
+	for _, shard := range migratedShards {
+		if _, err := m.store.MigrateSector(ctx, shard.Root, shard.HostKey); err != nil {
+			return fmt.Errorf("failed to migrate sector %s: %w", shard.Root, err)
+		}
+	}
+
+	// return an error if the slab wasn't fully repaired
 	if err != nil {
 		return fmt.Errorf("failed to upload migrated shards for slab %s: %w", slab.ID, err)
 	} else if len(migratedShards) == 0 {
@@ -128,19 +141,14 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slab Slab, hosts []hosts.
 		return nil
 	}
 
-	for _, shard := range migratedShards {
-		if _, err := m.store.MigrateSector(ctx, shard.Root, shard.HostKey); err != nil {
-			return fmt.Errorf("failed to migrate sector %s: %w", shard.Root, err)
-		}
-	}
-
 	logger.Debug("successfully migrated slab", zap.Int("toMigrate", len(indices)), zap.Int("migrated", len(migratedShards)))
 	return nil
 }
 
-// contractsForRepair filters the sectors of a slab and returns the indices of the sectors that
-// require migration together with the contracts to use for them.
-func contractsForRepair(slab Slab, availableHosts []hosts.Host, availableContracts []contracts.Contract, period uint64) ([]int, []hosts.Host) {
+// hostsForRepair filters the sectors of a slab and returns the indices of the
+// sectors that require migration together with potential hosts to migrate them
+// to.
+func hostsForRepair(slab Slab, availableHosts []hosts.Host, availableContracts []contracts.Contract, period uint64) ([]int, []hosts.Host) {
 	// prepare a map of good hosts
 	hostsMap := make(map[types.PublicKey]hosts.Host)
 	for _, host := range availableHosts {
@@ -344,6 +352,16 @@ top:
 	return shards, nil
 }
 
+// uploadShards uploads any non-nil shards to the given hosts. If not all shards
+// were migrated, an error is returned but any finished shards will still be
+// returned and should be tracked in the database.
+//
+// NOTE: uploadShards expects that all the hosts are good hosts returned by
+// 'hostsForRepair'. So we don't duplicate any check here apart from the CIDR
+// check.
 func (m *SlabManager) uploadShards(ctx context.Context, shards [][]byte, hosts []hosts.Host) ([]Shard, error) {
+	usedCIDRs := make(map[string]struct{})
+	_ = usedCIDRs // todo
+
 	return nil, errors.New("not implemented")
 }

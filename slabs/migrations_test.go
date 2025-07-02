@@ -32,7 +32,7 @@ var goodSettings = proto.HostSettings{
 	MaxCollateral:       types.Siacoins(1000),
 }
 
-func TestContractsForRepair(t *testing.T) {
+func TestHostsForRepair(t *testing.T) {
 	newHost := func(i byte, usable, blocked, networks bool) hosts.Host {
 		h := hosts.Host{
 			Blocked:   blocked,
@@ -109,7 +109,7 @@ func TestContractsForRepair(t *testing.T) {
 	// helper to assert result of contractsForRepair
 	assertResult := func(availableHosts []hosts.Host, availableContracts []contracts.Contract, expectedRoots, expectedHosts []int) {
 		t.Helper()
-		toRepair, toUse := contractsForRepair(slab, availableHosts, availableContracts, 100)
+		toRepair, toUse := hostsForRepair(slab, availableHosts, availableContracts, 100)
 		if len(toRepair) != len(expectedRoots) {
 			t.Fatalf("expected %d roots to repair, got %d: %v", len(expectedRoots), len(toRepair), toRepair)
 		} else if len(toUse) != len(expectedHosts) {
