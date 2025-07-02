@@ -39,9 +39,9 @@ func NewApplicationAPI(hostname string, store AccountStore, opts ...AppOption) h
 		},
 	}
 
-	wrapped := make(map[string]jape.Handler)
+	signed := make(map[string]jape.Handler)
 	for path, handler := range handlers {
-		wrapped[path] = func(jc jape.Context) {
+		signed[path] = func(jc jape.Context) {
 			pk, ok := checkSignedURLAuth(jc, hostname, store)
 			if !ok {
 				return
@@ -49,5 +49,5 @@ func NewApplicationAPI(hostname string, store AccountStore, opts ...AppOption) h
 			handler(jc, pk)
 		}
 	}
-	return jape.Mux(wrapped)
+	return jape.Mux(signed)
 }
