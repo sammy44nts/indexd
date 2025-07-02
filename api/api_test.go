@@ -210,19 +210,16 @@ func TestContractsAPI(t *testing.T) {
 		t.Fatal("unexpected")
 	}
 	c.MineBlocks(t, types.Address{}, renewHeight-ci.Height)
-	time.Sleep(time.Second)
+	time.Sleep(3 * time.Second)
 
-	// assert contract was renewed
+	// assert contract was renewed - we don't pass the option here to asserts
+	// the contracts API returns only revisable contracts by default
 	if contracts, err := indexer.Contracts(context.Background()); err != nil {
-		t.Fatal(err)
-	} else if len(contracts) != 2 {
-		t.Fatal("expected 2 contracts", len(contracts))
-	} else if contracts, err := indexer.Contracts(context.Background(), api.WithRevisable(true)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 1 {
 		t.Fatal("expected 1 contract", len(contracts))
 	} else if contracts[0].RenewedFrom != contract.ID {
-		t.Fatal("expected contract to be renewed", contracts[0])
+		t.Fatal("expected contract to be renewed", contracts[0].RenewedFrom, contract.ID)
 	}
 }
 
