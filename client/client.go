@@ -105,11 +105,11 @@ func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPri
 
 	// append sectors
 	var res rhp.RPCAppendSectorsResult
-	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (types.V2FileContract, error) {
+	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
 		if revision.Filesize > maxContractSize {
 			return types.V2FileContract{}, fmt.Errorf("contract is too large, %d > %d", revision.Filesize, maxContractSize)
 		}
-		res, err := rhp.RPCAppendSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, rhp.ContractRevision{ID: contractID, Revision: revision}, sectors)
+		res, err = rhp.RPCAppendSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, rhp.ContractRevision{ID: contractID, Revision: revision}, sectors)
 		if err != nil {
 			return types.V2FileContract{}, fmt.Errorf("failed to append sectors: %w", err)
 		}
@@ -139,8 +139,8 @@ func (c *HostClient) FormContract(ctx context.Context, settings proto.HostSettin
 // SectorRoots returns the sector roots for a contract.
 func (c *HostClient) SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
 	var res rhp.RPCSectorRootsResult
-	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (types.V2FileContract, error) {
-		res, err := rhp.RPCSectorRoots(ctx, c.client, c.cm.TipState(), hostPrices, c.signer, rhp.ContractRevision{ID: contractID, Revision: revision}, offset, length)
+	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
+		res, err = rhp.RPCSectorRoots(ctx, c.client, c.cm.TipState(), hostPrices, c.signer, rhp.ContractRevision{ID: contractID, Revision: revision}, offset, length)
 		if err != nil {
 			return types.V2FileContract{}, fmt.Errorf("failed to fetch sector roots: %w", err)
 		}
@@ -154,8 +154,8 @@ func (c *HostClient) SectorRoots(ctx context.Context, hostPrices proto.HostPrice
 // FreeSectors frees the specified sectors in the contract.
 func (c *HostClient) FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
 	var res rhp.RPCFreeSectorsResult
-	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (types.V2FileContract, error) {
-		res, err := rhp.RPCFreeSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, rhp.ContractRevision{ID: contractID, Revision: revision}, indices)
+	if err := c.withRevision(ctx, contractID, func(revision types.V2FileContract) (_ types.V2FileContract, err error) {
+		res, err = rhp.RPCFreeSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, rhp.ContractRevision{ID: contractID, Revision: revision}, indices)
 		if err != nil {
 			return types.V2FileContract{}, fmt.Errorf("failed to free sectors: %w", err)
 		}
@@ -202,7 +202,7 @@ func (c *HostClient) RenewContract(ctx context.Context, settings proto.HostSetti
 		if err != nil {
 			return types.V2FileContract{}, err
 		}
-		return revision, nil // return the original revision
+		return revision, nil // return the renewed revision
 	}); err != nil {
 		return rhp.RPCRenewContractResult{}, fmt.Errorf("failed to renew contract: %w", err)
 	}
