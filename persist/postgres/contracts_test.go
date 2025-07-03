@@ -85,6 +85,18 @@ func TestContracts(t *testing.T) {
 	} else if css[0].ID != fcid1 {
 		t.Fatalf("expected contract %v, got %v", fcid1, css[0].ID)
 	}
+
+	// assert WithRevisable(true) takes into account renewed_to
+	fcid4 := types.FileContractID{4}
+	if err := store.AddRenewedContract(context.Background(), fcid1, fcid4, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+		t.Fatal(err)
+	} else if css, err := store.Contracts(context.Background(), 0, 10, contracts.WithRevisable(true), contracts.WithGood(true)); err != nil {
+		t.Fatal(err)
+	} else if len(css) != 1 {
+		t.Fatal("expected 1 contract, got", len(css))
+	} else if css[0].ID != fcid4 {
+		t.Fatalf("expected contract %v, got %v", fcid4, css[0].ID)
+	}
 }
 
 func TestContractElement(t *testing.T) {
