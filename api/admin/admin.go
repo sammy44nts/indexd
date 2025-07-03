@@ -107,7 +107,7 @@ type (
 )
 
 type (
-	adminAPI struct {
+	admin struct {
 		debug     bool
 		chain     ChainManager
 		contracts ContractManager
@@ -126,7 +126,7 @@ type (
 // This is different from the application API, which users, or rather their
 // applications, can use to pin slabs.
 func NewAPI(chain ChainManager, contracts ContractManager, hosts HostManager, syncer Syncer, wallet Wallet, store Store, opts ...Option) http.Handler {
-	a := &adminAPI{
+	a := &admin{
 		chain:     chain,
 		contracts: contracts,
 		hosts:     hosts,
@@ -184,7 +184,7 @@ func NewAPI(chain ChainManager, contracts ContractManager, hosts HostManager, sy
 	return jape.Mux(routes)
 }
 
-func (a *adminAPI) checkServerError(jc jape.Context, context string, err error) bool {
+func (a *admin) checkServerError(jc jape.Context, context string, err error) bool {
 	if err != nil {
 		jc.Error(err, http.StatusInternalServerError)
 		a.log.Warn(context, zap.Error(err))
@@ -192,7 +192,7 @@ func (a *adminAPI) checkServerError(jc jape.Context, context string, err error) 
 	return err == nil
 }
 
-func (a *adminAPI) handleGETPProf(jc jape.Context) {
+func (a *admin) handleGETPProf(jc jape.Context) {
 	var handler string
 	if err := jc.DecodeParam("handler", &handler); err != nil {
 		return
@@ -212,7 +212,7 @@ func (a *adminAPI) handleGETPProf(jc jape.Context) {
 	}
 }
 
-func (a *adminAPI) handlePOSTTrigger(jc jape.Context) {
+func (a *admin) handlePOSTTrigger(jc jape.Context) {
 	var action string
 	if jc.DecodeParam("action", &action) != nil {
 		return
@@ -233,7 +233,7 @@ func (a *adminAPI) handlePOSTTrigger(jc jape.Context) {
 	jc.Encode(nil)
 }
 
-func (a *adminAPI) handleGETAccounts(jc jape.Context) {
+func (a *admin) handleGETAccounts(jc jape.Context) {
 	offset, limit, ok := parseOffsetLimit(jc)
 	if !ok {
 		return
@@ -246,7 +246,7 @@ func (a *adminAPI) handleGETAccounts(jc jape.Context) {
 	jc.Encode(accounts)
 }
 
-func (a *adminAPI) handlePOSTAccount(jc jape.Context) {
+func (a *admin) handlePOSTAccount(jc jape.Context) {
 	var ak types.PublicKey
 	if jc.DecodeParam("accountkey", &ak) != nil {
 		return
@@ -265,7 +265,7 @@ func (a *adminAPI) handlePOSTAccount(jc jape.Context) {
 	jc.Encode(nil)
 }
 
-func (a *adminAPI) handlePUTAccount(jc jape.Context) {
+func (a *admin) handlePUTAccount(jc jape.Context) {
 	var ak types.PublicKey
 	if jc.DecodeParam("accountkey", &ak) != nil {
 		return
@@ -302,7 +302,7 @@ func (a *adminAPI) handlePUTAccount(jc jape.Context) {
 	jc.Encode(nil)
 }
 
-func (a *adminAPI) handleDELETEAccount(jc jape.Context) {
+func (a *admin) handleDELETEAccount(jc jape.Context) {
 	var ak types.PublicKey
 	if jc.DecodeParam("accountkey", &ak) != nil {
 		return
@@ -317,7 +317,7 @@ func (a *adminAPI) handleDELETEAccount(jc jape.Context) {
 	}
 }
 
-func (a *adminAPI) handleGETState(jc jape.Context) {
+func (a *admin) handleGETState(jc jape.Context) {
 	ci, err := a.store.LastScannedIndex(jc.Request.Context())
 	if jc.Check("failed to get last scanned index", err) != nil {
 		return
@@ -335,7 +335,7 @@ func (a *adminAPI) handleGETState(jc jape.Context) {
 	})
 }
 
-func (a *adminAPI) handleGETExplorerSiacoinExchangeRate(jc jape.Context) {
+func (a *admin) handleGETExplorerSiacoinExchangeRate(jc jape.Context) {
 	if a.explorer == nil {
 		jc.Error(explorer.ErrDisabled, http.StatusServiceUnavailable)
 		return
@@ -354,7 +354,7 @@ func (a *adminAPI) handleGETExplorerSiacoinExchangeRate(jc jape.Context) {
 	jc.Encode(rate)
 }
 
-func (a *adminAPI) handleGETHost(jc jape.Context) {
+func (a *admin) handleGETHost(jc jape.Context) {
 	var hk types.PublicKey
 	if jc.DecodeParam("hostkey", &hk) != nil {
 		return
@@ -369,7 +369,7 @@ func (a *adminAPI) handleGETHost(jc jape.Context) {
 	jc.Encode(host)
 }
 
-func (a *adminAPI) handleGETHosts(jc jape.Context) {
+func (a *admin) handleGETHosts(jc jape.Context) {
 	offset, limit, ok := parseOffsetLimit(jc)
 	if !ok {
 		return
@@ -405,7 +405,7 @@ func (a *adminAPI) handleGETHosts(jc jape.Context) {
 	jc.Encode(hosts)
 }
 
-func (a *adminAPI) handleGETHostsBlocklist(jc jape.Context) {
+func (a *admin) handleGETHostsBlocklist(jc jape.Context) {
 	offset, limit, ok := parseOffsetLimit(jc)
 	if !ok {
 		return
@@ -417,7 +417,7 @@ func (a *adminAPI) handleGETHostsBlocklist(jc jape.Context) {
 	jc.Encode(hosts)
 }
 
-func (a *adminAPI) handlePUTHostsBlocklist(jc jape.Context) {
+func (a *admin) handlePUTHostsBlocklist(jc jape.Context) {
 	var hosts HostsBlocklistRequest
 	if jc.Decode(&hosts) != nil {
 		return
@@ -425,7 +425,7 @@ func (a *adminAPI) handlePUTHostsBlocklist(jc jape.Context) {
 	jc.Check("failed to add host keys to blocklist", a.store.BlockHosts(jc.Request.Context(), hosts.HostKeys, hosts.Reason))
 }
 
-func (a *adminAPI) handleDELETEHostsBlocklist(jc jape.Context) {
+func (a *admin) handleDELETEHostsBlocklist(jc jape.Context) {
 	var hk types.PublicKey
 	if jc.DecodeParam("hostkey", &hk) != nil {
 		return
@@ -433,7 +433,7 @@ func (a *adminAPI) handleDELETEHostsBlocklist(jc jape.Context) {
 	jc.Check("failed to unblock host", a.store.UnblockHost(jc.Request.Context(), hk))
 }
 
-func (a *adminAPI) handleGETSettingsContracts(jc jape.Context) {
+func (a *admin) handleGETSettingsContracts(jc jape.Context) {
 	ms, err := a.store.MaintenanceSettings(jc.Request.Context())
 	if jc.Check("failed to get contract settings", err) != nil {
 		return
@@ -441,7 +441,7 @@ func (a *adminAPI) handleGETSettingsContracts(jc jape.Context) {
 	jc.Encode(ms)
 }
 
-func (a *adminAPI) handlePUTSettingsContracts(jc jape.Context) {
+func (a *admin) handlePUTSettingsContracts(jc jape.Context) {
 	var ms contracts.MaintenanceSettings
 	if jc.Decode(&ms) != nil {
 		return
@@ -449,7 +449,7 @@ func (a *adminAPI) handlePUTSettingsContracts(jc jape.Context) {
 	jc.Check("failed to update contract settings", a.store.UpdateMaintenanceSettings(jc.Request.Context(), ms))
 }
 
-func (a *adminAPI) handleGETSettingsHosts(jc jape.Context) {
+func (a *admin) handleGETSettingsHosts(jc jape.Context) {
 	s, err := a.store.UsabilitySettings(jc.Request.Context())
 	if jc.Check("failed to get host settings", err) != nil {
 		return
@@ -457,7 +457,7 @@ func (a *adminAPI) handleGETSettingsHosts(jc jape.Context) {
 	jc.Encode(s)
 }
 
-func (a *adminAPI) handlePUTSettingsHosts(jc jape.Context) {
+func (a *admin) handlePUTSettingsHosts(jc jape.Context) {
 	var s hosts.UsabilitySettings
 	if jc.Decode(&s) != nil {
 		return
@@ -465,7 +465,7 @@ func (a *adminAPI) handlePUTSettingsHosts(jc jape.Context) {
 	jc.Check("failed to update host settings", a.store.UpdateUsabilitySettings(jc.Request.Context(), s))
 }
 
-func (a *adminAPI) handleGETSettingsPricePinning(jc jape.Context) {
+func (a *admin) handleGETSettingsPricePinning(jc jape.Context) {
 	s, err := a.store.PinnedSettings(jc.Request.Context())
 	if jc.Check("failed to get price pinning settings", err) != nil {
 		return
@@ -473,7 +473,7 @@ func (a *adminAPI) handleGETSettingsPricePinning(jc jape.Context) {
 	jc.Encode(s)
 }
 
-func (a *adminAPI) handlePUTSettingsPricePinning(jc jape.Context) {
+func (a *admin) handlePUTSettingsPricePinning(jc jape.Context) {
 	var s pins.PinnedSettings
 	if jc.Decode(&s) != nil {
 		return
@@ -485,7 +485,7 @@ func (a *adminAPI) handlePUTSettingsPricePinning(jc jape.Context) {
 	jc.Check("failed to update price pinning settings", a.store.UpdatePinnedSettings(jc.Request.Context(), s))
 }
 
-func (a *adminAPI) handleGETWallet(jc jape.Context) {
+func (a *admin) handleGETWallet(jc jape.Context) {
 	balance, err := a.wallet.Balance()
 	if !a.checkServerError(jc, "failed to get wallet", err) {
 		return
@@ -497,7 +497,7 @@ func (a *adminAPI) handleGETWallet(jc jape.Context) {
 	})
 }
 
-func (a *adminAPI) handleGETWalletEvents(jc jape.Context) {
+func (a *admin) handleGETWalletEvents(jc jape.Context) {
 	offset, limit, ok := parseOffsetLimit(jc)
 	if !ok {
 		return
@@ -511,7 +511,7 @@ func (a *adminAPI) handleGETWalletEvents(jc jape.Context) {
 	jc.Encode(events)
 }
 
-func (a *adminAPI) handleGETWalletPending(jc jape.Context) {
+func (a *admin) handleGETWalletPending(jc jape.Context) {
 	pending, err := a.wallet.UnconfirmedEvents()
 	if !a.checkServerError(jc, "failed to get wallet pending", err) {
 		return
@@ -519,7 +519,7 @@ func (a *adminAPI) handleGETWalletPending(jc jape.Context) {
 	jc.Encode(pending)
 }
 
-func (a *adminAPI) handlePOSTWalletSend(jc jape.Context) {
+func (a *admin) handlePOSTWalletSend(jc jape.Context) {
 	var req WalletSendSiacoinsRequest
 	if jc.Decode(&req) != nil {
 		return

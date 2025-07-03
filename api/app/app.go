@@ -10,16 +10,16 @@ import (
 
 type (
 	// Option is a function that applies an option to the application API.
-	Option func(*applicationAPI)
+	Option func(*app)
 
-	applicationAPI struct {
+	app struct {
 		log *zap.Logger
 	}
 )
 
 // WithLogger sets the logger for application API.
 func WithLogger(log *zap.Logger) Option {
-	return func(api *applicationAPI) {
+	return func(api *app) {
 		api.log = log
 	}
 }
@@ -29,7 +29,7 @@ func WithLogger(log *zap.Logger) Option {
 // Authentication happens through presigned URLs that are signed with a private
 // key that corresponds to a previously registered public key.
 func NewAPI(hostname string, store AccountStore, opts ...Option) http.Handler {
-	a := &applicationAPI{
+	a := &app{
 		log: zap.NewNop(),
 	}
 	for _, opt := range opts {
