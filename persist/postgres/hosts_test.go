@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -570,6 +571,97 @@ func TestHostsForScanning(t *testing.T) {
 	} else if len(hosts) != 0 {
 		t.Fatal("unexpected", len(hosts))
 	}
+}
+
+func TestHostsForAlert(t *testing.T) {
+	// create database
+	log := zaptest.NewLogger(t)
+	db := initPostgres(t, log.Named("postgres"))
+
+	// add account
+	account := proto.Account{1}
+	if err := db.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+
+	// add two hosts
+	hk1 := db.addTestHost(t)
+	hk2 := db.addTestHost(t)
+
+	// add a contract for each host
+	db.addTestContract(t, hk1)
+	db.addTestContract(t, hk2)
+
+	// pin a slab that adds 2 sectors to each host
+	root1 := frand.Entropy256()
+	root2 := frand.Entropy256()
+	root3 := frand.Entropy256()
+	root4 := frand.Entropy256()
+	_, err := db.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: [32]byte{},
+		MinShards:     10,
+		Sectors: []slabs.SectorPinParams{
+			{
+				Root:    root1,
+				HostKey: hk1,
+			},
+			{
+				Root:    root2,
+				HostKey: hk1,
+			},
+			{
+				Root:    root3,
+				HostKey: hk2,
+			},
+			{
+				Root:    root4,
+				HostKey: hk2,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	markSectorLost := func(hk types.PublicKey, roots []types.Hash256) {
+		t.Helper()
+		if err := db.MarkSectorsLost(context.Background(), hk, roots); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertHosts := func(hks []types.PublicKey) {
+		t.Helper()
+		hosts, err := db.HostsForSectorAlert(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		} else if len(hks) != len(hosts) {
+			t.Fatalf("expected %d hosts, got %d", len(hks), len(hosts))
+		}
+		for i, host := range hosts {
+			if host != hks[i] {
+				t.Fatalf("expected hk %v, got %v", hks[i], host)
+			}
+		}
+	}
+
+	// assert no hosts are returned because no sectors are lost yet
+	assertHosts(nil)
+
+	markSectorLost(hk1, []types.Hash256{root1})
+
+	// hk1 should be returned after one of its sectors is marked as lost
+	assertHosts([]types.PublicKey{hk1})
+
+	markSectorLost(hk1, []types.Hash256{root2})
+
+	// still only hk1 should be returned after another one of its sectors is
+	// marked as lost
+	assertHosts([]types.PublicKey{hk1})
+
+	markSectorLost(hk2, []types.Hash256{root3, root4})
+
+	// hk1 and hk2 should be returned after both have lost sectors
+	assertHosts([]types.PublicKey{hk1, hk2})
 }
 
 func TestHostsRecentUptime(t *testing.T) {
