@@ -54,6 +54,10 @@ func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) ([]t
 	panic("not implemented")
 }
 
+func (s *mockStore) HostsForSectorAlert(ctx context.Context) ([]types.PublicKey, error) {
+	panic("not implemented")
+}
+
 func (s *mockStore) MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error {
 	for root, failures := range s.failedChecks[hostKey] {
 		if failures >= int(maxFailedIntegrityChecks) {

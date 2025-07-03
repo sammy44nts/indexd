@@ -81,6 +81,7 @@ type (
 		AddAccount(ctx context.Context, ak types.PublicKey) error
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error)
+		HostsForSectorAlert(ctx context.Context) ([]types.PublicKey, error)
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
@@ -240,6 +241,16 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 			}(host)
 		}
 		wg.Wait()
+	}
+
+	alertHosts, err := m.store.HostsForSectorAlert(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get hosts with lost sectors: %w", err)
+	}
+	for _, host := range alertHosts {
+		if err := m.alerter.RegisterAlert(newLostSectorsAlert(host)); err != nil {
+			return fmt.Errorf("failed to register lost sector alert: %w", err)
+		}
 	}
 
 	logger.Debug("finished integrity checks", zap.Duration("elapsed", time.Since(start)))
