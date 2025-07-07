@@ -21,7 +21,8 @@ import (
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api"
+	"go.sia.tech/indexd/api/admin"
+	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/client"
 	"go.sia.tech/indexd/config"
 	"go.sia.tech/indexd/contracts"
@@ -131,18 +132,18 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer adminAPIListener.Close()
 
-	adminAPIOpts := []api.AdminOption{
-		api.WithAdminLogger(log.Named("api.admin")),
+	adminAPIOpts := []admin.Option{
+		admin.WithLogger(log.Named("api.admin")),
 	}
 
 	if cfg.Debug {
-		adminAPIOpts = append(adminAPIOpts, api.WithDebug())
+		adminAPIOpts = append(adminAPIOpts, admin.WithDebug())
 	}
 
 	var e *explorer.Explorer
 	if cfg.Explorer.Enabled {
 		e = explorer.New(cfg.Explorer.URL)
-		adminAPIOpts = append(adminAPIOpts, api.WithExplorer(e))
+		adminAPIOpts = append(adminAPIOpts, admin.WithExplorer(e))
 	}
 
 	pm, err := pins.NewManager(e, hm, store, pins.WithLogger(log.Named("pins")))
@@ -153,7 +154,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	adminAPI := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.AdminAPI.Password)(api.NewAdminAPI(cm, contracts, hm, s, wm, store, adminAPIOpts...)),
+			api: jape.BasicAuth(cfg.AdminAPI.Password)(admin.NewAPI(cm, contracts, hm, s, wm, store, adminAPIOpts...)),
 		},
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -173,12 +174,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer appAPIListener.Close()
 
-	appAPIOpts := []api.AppOption{
-		api.WithAppLogger(log.Named("api.application")),
+	appAPIOpts := []app.Option{
+		app.WithLogger(log.Named("api.application")),
 	}
 
 	appAPI := http.Server{
-		Handler:      api.NewApplicationAPI(cfg.ApplicationAPI.Hostname, store, appAPIOpts...),
+		Handler:      app.NewAPI(cfg.ApplicationAPI.Hostname, store, appAPIOpts...),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}

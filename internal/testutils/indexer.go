@@ -14,7 +14,8 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api"
+	"go.sia.tech/indexd/api/admin"
+	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/client"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/explorer"
@@ -34,7 +35,7 @@ const (
 // Indexer is a test utility combining an indexer, an http client for the
 // indexer and useful helpers for testing.
 type Indexer struct {
-	*api.Client
+	*admin.Client
 	appAPIAddress string
 
 	db     *postgres.Store
@@ -88,14 +89,14 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	}
 	c.addSyncFn(syncFn)
 
-	adminAPIOpts := []api.AdminOption{
-		api.WithAdminLogger(log.Named("api.admin")),
-		api.WithExplorer(explorer.New("https://api.siascan.com")),
+	adminAPIOpts := []admin.Option{
+		admin.WithLogger(log.Named("api.admin")),
+		admin.WithExplorer(explorer.New("https://api.siascan.com")),
 	}
 
 	password := hex.EncodeToString(frand.Bytes(16))
 	adminAPI := http.Server{
-		Handler: jape.BasicAuth(password)(api.NewAdminAPI(c.cm, contracts, hm, syncer, wm, store, adminAPIOpts...)),
+		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, contracts, hm, syncer, wm, store, adminAPIOpts...)),
 	}
 
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -109,12 +110,12 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		}
 	}()
 
-	appAPIOpts := []api.AppOption{
-		api.WithAppLogger(log.Named("api.application")),
+	appAPIOpts := []app.Option{
+		app.WithLogger(log.Named("api.application")),
 	}
 
 	applicationAPI := http.Server{
-		Handler: api.NewApplicationAPI(DefaultHostname, store, appAPIOpts...),
+		Handler: app.NewAPI(DefaultHostname, store, appAPIOpts...),
 	}
 
 	applicationListener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -158,7 +159,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 		}
 	})
 	return &Indexer{
-		Client: api.NewClient(fmt.Sprintf("http://%s", adminListener.Addr().String()), password),
+		Client: admin.NewClient(fmt.Sprintf("http://%s", adminListener.Addr().String()), password),
 
 		appAPIAddress: fmt.Sprintf("http://%s", applicationListener.Addr().String()),
 

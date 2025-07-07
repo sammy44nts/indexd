@@ -1,4 +1,4 @@
-package api
+package admin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/pins"
@@ -27,7 +28,7 @@ func NewClient(addr, password string) *Client {
 }
 
 // Accounts returns all accounts registered in the indexer.
-func (c *Client) Accounts(ctx context.Context, opts ...URLQueryParameterOption) (accounts []types.PublicKey, err error) {
+func (c *Client) Accounts(ctx context.Context, opts ...api.URLQueryParameterOption) (accounts []types.PublicKey, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
@@ -83,7 +84,7 @@ func (c *Client) Hosts(ctx context.Context, opts ...HostQueryParameterOption) (h
 }
 
 // HostsBlocklist returns the host key of all hosts on the blocklist.
-func (c *Client) HostsBlocklist(ctx context.Context, opts ...URLQueryParameterOption) (blocklist []types.PublicKey, err error) {
+func (c *Client) HostsBlocklist(ctx context.Context, opts ...api.URLQueryParameterOption) (blocklist []types.PublicKey, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
@@ -156,7 +157,7 @@ func (c *Client) WalletPending(ctx context.Context) (events []wallet.Event, err 
 }
 
 // WalletEvents returns all events relevant to the wallet.
-func (c *Client) WalletEvents(ctx context.Context, opts ...URLQueryParameterOption) (events []wallet.Event, err error) {
+func (c *Client) WalletEvents(ctx context.Context, opts ...api.URLQueryParameterOption) (events []wallet.Event, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
