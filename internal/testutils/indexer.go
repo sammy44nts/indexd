@@ -26,6 +26,15 @@ import (
 	"lukechampine.com/frand"
 )
 
+var (
+	testMaintenanceSettings = contracts.MaintenanceSettings{
+		Enabled:         true,
+		Period:          144,
+		RenewWindow:     72,
+		WantedContracts: 6,
+	}
+)
+
 // Indexer is a test utility combining an indexer, an http client for the
 // indexer and useful helpers for testing.
 type Indexer struct {
@@ -58,7 +67,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	dialer := client.NewSiamuxDialer(c.cm, signer, store, log)
 	am := accounts.NewManager(store, accounts.NewFunder(dialer), accounts.WithLogger(log.Named("accounts")))
 
-	contracts, err := contracts.NewManager(walletKey, am, c.cm, store, dialer, nil, s, wm, contracts.WithLogger(log.Named("contracts")))
+	contracts, err := contracts.NewManager(walletKey, am, c.cm, store, dialer, hm, s, wm, contracts.WithLogger(log.Named("contracts")), contracts.WithMaintenanceFrequency(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
@@ -124,6 +133,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 			t.Errorf("failed to close store: %v", err)
 		}
 	})
+
 	return &Indexer{
 		Client: api.NewClient(fmt.Sprintf("http://%s", httpListener.Addr().String()), password),
 
