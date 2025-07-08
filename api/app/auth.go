@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"context"
@@ -95,20 +95,6 @@ func checkSignedURLAuth(jc jape.Context, hostname string, store AccountStore) (t
 		return types.PublicKey{}, false
 	}
 	return pk, true
-}
-
-func wrapSignedAPI(hostname string, store AccountStore, wrapped map[string]authedHandler) http.Handler {
-	handlers := make(map[string]jape.Handler)
-	for path, handler := range wrapped {
-		handlers[path] = func(jc jape.Context) {
-			pk, ok := checkSignedURLAuth(jc, hostname, store)
-			if !ok {
-				return
-			}
-			handler(jc, pk)
-		}
-	}
-	return jape.Mux(handlers)
 }
 
 func parseCredential(req *http.Request) (types.PublicKey, error) {

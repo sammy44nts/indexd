@@ -13,7 +13,7 @@ import (
 	"github.com/klauspost/reedsolomon"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/indexd/api"
+	"go.sia.tech/indexd/api/admin"
 	"golang.org/x/crypto/chacha20"
 	"lukechampine.com/frand"
 )
@@ -74,7 +74,7 @@ type (
 	// An SDK is a client for the indexd service.
 	SDK struct {
 		appKey types.PrivateKey
-		c      api.Client
+		c      admin.Client
 
 		dialer HostDialer
 	}
@@ -510,6 +510,6 @@ func NewSDK(baseURL string, appKey types.PrivateKey, dialer HostDialer) *SDK {
 	return &SDK{
 		appKey: appKey,
 		dialer: dialer,
-		c:      *api.NewClient(baseURL, ""),
+		c:      *admin.NewClient(baseURL, ""),
 	}
 }
