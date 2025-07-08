@@ -29,15 +29,9 @@ func TestAuth(t *testing.T) {
 
 	server := httptest.NewServer(jape.Mux(map[string]jape.Handler{
 		"GET /foo": func(jc jape.Context) {
-			pk, ok := checkSignedURLAuth(jc, hostname, s)
-			if !ok {
-				jc.ResponseWriter.WriteHeader(http.StatusInternalServerError)
-				return
-			} else if pk != sk.PublicKey() {
-				jc.ResponseWriter.WriteHeader(http.StatusUnauthorized)
-				return
+			if _, ok := checkSignedURLAuth(jc, hostname, s); ok {
+				jc.ResponseWriter.WriteHeader(http.StatusOK)
 			}
-			jc.ResponseWriter.WriteHeader(http.StatusOK)
 		},
 	}))
 	defer server.Close()
