@@ -16,7 +16,6 @@ import (
 
 type mockStore struct {
 	accounts        map[proto.Account]struct{}
-	hosts           map[types.PublicKey]struct{}
 	lostSectors     map[types.PublicKey]map[types.Hash256]struct{}
 	failedChecks    map[types.PublicKey]map[types.Hash256]int
 	sectorsForCheck []types.Hash256
@@ -26,7 +25,6 @@ type mockStore struct {
 func newMockStore() *mockStore {
 	return &mockStore{
 		accounts:        make(map[proto.Account]struct{}),
-		hosts:           make(map[types.PublicKey]struct{}),
 		failedChecks:    make(map[types.PublicKey]map[types.Hash256]int),
 		lostSectors:     make(map[types.PublicKey]map[types.Hash256]struct{}),
 		serviceAccounts: make(map[proto.Account]map[types.PublicKey]types.Currency),
@@ -53,15 +51,7 @@ func (s *mockStore) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 }
 
 func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) (result []types.PublicKey, err error) {
-	for hk := range s.hosts {
-		if len(result) >= limit {
-			break
-		}
-
-		delete(s.hosts, hk)
-		result = append(result, hk)
-	}
-	return
+	return nil, nil
 }
 
 func (s *mockStore) HostsWithLostSectors(ctx context.Context) (result []hosts.Host, err error) {
