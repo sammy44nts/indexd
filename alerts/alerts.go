@@ -197,8 +197,3 @@ func validateOffsetLimit(offset, limit int) error {
 func RandomAlertID() types.Hash256 {
 	return frand.Entropy256()
 }
-
-// IDForHost returns an ID representing an action on a host.
-func IDForHost(alertID [32]byte, hk types.PublicKey) types.Hash256 {
-	return types.HashBytes(append(alertID[:], hk[:]...))
-}

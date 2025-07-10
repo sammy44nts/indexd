@@ -81,7 +81,7 @@ type (
 		AddAccount(ctx context.Context, ak types.PublicKey) error
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error)
-		HostsWithLostSectors(ctx context.Context) ([]hosts.Host, error)
+		HostsWithLostSectors(ctx context.Context) ([]types.PublicKey, error)
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
@@ -95,6 +95,10 @@ type (
 		RegisterAlert(alert alerts.Alert) error
 		DismissAlerts(ids ...types.Hash256)
 	}
+)
+
+var (
+	alertLostSectorsID = alerts.RandomAlertID()
 )
 
 // An Option is a functional option for the SlabManager.
@@ -192,15 +196,14 @@ func (m *SlabManager) Close() error {
 	return nil
 }
 
-func newLostSectorsAlert(hk types.PublicKey, lostSectors uint64) alerts.Alert {
+func newLostSectorsAlert(hks []types.PublicKey) alerts.Alert {
 	return alerts.Alert{
-		ID:       alerts.IDForHost(alertLostSectorsID, hk),
+		ID:       alertLostSectorsID,
 		Severity: alerts.SeverityWarning,
-		Message:  "Host has lost sectors",
+		Message:  "Host(s) have lost sectors",
 		Data: map[string]interface{}{
-			"hostKey":     hk.String(),
-			"lostSectors": lostSectors,
-			"hint":        "The host has reported that it can't serve at least one sector. Consider blocking this host through the blocklist feature.",
+			"hostKeys": hks,
+			"hint":     "Host(s) have reported that it can't serve at least one sector. Consider blocking these hosts through the blocklist feature.",
 		},
 		Timestamp: time.Now(),
 	}
@@ -276,23 +279,17 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 		}
 	}
 
-	alertHosts, err := m.store.HostsWithLostSectors(ctx)
+	hks, err := m.store.HostsWithLostSectors(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get hosts with lost sectors: %w", err)
 	}
-	for _, host := range alertHosts {
-		delete(activeHosts, host.PublicKey)
-		if err := m.alerter.RegisterAlert(newLostSectorsAlert(host.PublicKey, host.LostSectors)); err != nil {
+	if len(hks) > 0 {
+		if err := m.alerter.RegisterAlert(newLostSectorsAlert(hks)); err != nil {
 			return fmt.Errorf("failed to register lost sector alert: %w", err)
 		}
+	} else {
+		m.alerter.DismissAlerts(alertLostSectorsID)
 	}
-
-	// activeHosts now represents the active hosts that don't have lost sector
-	var dismiss []types.Hash256
-	for hk := range activeHosts {
-		dismiss = append(dismiss, alerts.IDForHost(alertLostSectorsID, hk))
-	}
-	m.alerter.DismissAlerts(dismiss...)
 
 	logger.Debug("finished integrity checks", zap.Duration("elapsed", time.Since(start)))
 	return nil

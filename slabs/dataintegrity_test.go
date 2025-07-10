@@ -53,8 +53,7 @@ func TestVerifySectors(t *testing.T) {
 	am := newMockAccountManager(store)
 	hm := newMockHostManager()
 	account := types.GeneratePrivateKey()
-	alerter := alerts.NewManager()
-	sm, err := newSlabManager(am, hm, store, nil, alerter, account, account)
+	sm, err := newSlabManager(am, hm, store, nil, alerts.NewManager(), account, account)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +318,7 @@ func TestIntegrityChecksAlert(t *testing.T) {
 		got = alerts[0]
 	}
 
-	expected := newLostSectorsAlert(hk, 1)
+	expected := newLostSectorsAlert([]types.PublicKey{hk})
 	got.Timestamp = expected.Timestamp // ignore timestamp
 	if !reflect.DeepEqual(expected, got) {
 		t.Fatal("unexpected alert", expected, got)

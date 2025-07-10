@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
-	"go.sia.tech/indexd/alerts"
 	"go.uber.org/zap"
 )
 
@@ -58,10 +57,6 @@ type (
 		serviceAccountKey types.PrivateKey
 		tc                rhp.TransportClient
 	}
-)
-
-var (
-	alertLostSectorsID = alerts.RandomAlertID() // constant until restarted
 )
 
 func newSectorVerifier(ctx context.Context, hostAddr string, hostKey types.PublicKey, prices proto.HostPrices) (*sectorVerifier, error) {
