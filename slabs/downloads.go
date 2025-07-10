@@ -23,10 +23,10 @@ type downloadCandidates struct {
 	indices map[types.PublicKey]int
 }
 
-func newDownloadCandidates(goodHosts []hosts.Host, slab Slab) downloadCandidates {
+func newDownloadCandidates(allHosts []hosts.Host, slab Slab) downloadCandidates {
 	// build host lookup
-	lookup := make(map[types.PublicKey]struct{}, len(goodHosts))
-	for _, h := range goodHosts {
+	lookup := make(map[types.PublicKey]struct{}, len(allHosts))
+	for _, h := range allHosts {
 		lookup[h.PublicKey] = struct{}{}
 	}
 
@@ -45,7 +45,7 @@ func newDownloadCandidates(goodHosts []hosts.Host, slab Slab) downloadCandidates
 
 	// build sorted list of hosts, cheapest first
 	hosts := make([]hosts.Host, 0, len(lookup))
-	for _, h := range goodHosts {
+	for _, h := range allHosts {
 		if _, ok := indices[h.PublicKey]; ok {
 			hosts = append(hosts, h)
 		}
@@ -71,11 +71,11 @@ func (dc *downloadCandidates) next() (hosts.Host, bool) {
 
 // downloadShards downloads at least the minimum number of shards required to
 // recover the slab.
-func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, goodHosts []hosts.Host, logger *zap.Logger) ([][]byte, error) {
+func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []hosts.Host, logger *zap.Logger) ([][]byte, error) {
 	shards := make([][]byte, len(slab.Sectors))
 	var downloaded atomic.Uint32
 
-	candidates := newDownloadCandidates(goodHosts, slab)
+	candidates := newDownloadCandidates(allHosts, slab)
 	if uint(len(candidates.indices)) < slab.MinShards {
 		return nil, fmt.Errorf("%w: only %d sectors available, minimum required: %d", errNotEnoughShards, len(candidates.indices), slab.MinShards)
 	}
