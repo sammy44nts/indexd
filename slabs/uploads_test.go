@@ -171,9 +171,10 @@ func TestUploadCandidates(t *testing.T) {
 
 func newTestHost(hk types.PublicKey) hosts.Host {
 	return hosts.Host{
+		Networks:  []net.IPNet{{IP: net.IP{127, 0, 0, hk[0]}, Mask: net.CIDRMask(24, 32)}},
 		PublicKey: hk,
 		Settings:  goodSettings,
-		Networks:  []net.IPNet{{IP: net.IP{127, 0, 0, hk[0]}, Mask: net.CIDRMask(24, 32)}},
+		Usability: hosts.GoodUsability,
 	}
 }
 

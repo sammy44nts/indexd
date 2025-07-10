@@ -75,7 +75,7 @@ func (m *SlabManager) uploadShards(ctx context.Context, shards [][]byte, goodHos
 	var uploadErr error
 	for _, shard := range shards {
 		if shard == nil {
-			panic("shard is nil") // developer error
+			continue
 		}
 
 	nextCandidate:
