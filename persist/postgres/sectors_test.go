@@ -606,8 +606,8 @@ func TestPinSlabs(t *testing.T) {
 		t.Fatal(err)
 	} else if len(slabs) != 1 {
 		t.Fatalf("expected 1 slab, got %d", len(slabs))
-	} else if slabs[0].PinnedAt == pinnedAt {
-		t.Fatal("expected slab to be pinned at a different time")
+	} else if !slabs[0].PinnedAt.After(pinnedAt) {
+		t.Fatal("expected pinnedAt to be updated")
 	}
 }
 

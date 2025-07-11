@@ -114,7 +114,7 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatal("failed to fetch slabs:", err)
 	} else if len(slabsIDs) != 2 {
 		t.Fatal("expected 2 slabs, got", len(slabsIDs))
-	} else if !reflect.DeepEqual(slabsIDs, []slabs.SlabID{slabID1, slabID2}) {
+	} else if !reflect.DeepEqual(slabsIDs, []slabs.SlabID{slabID2, slabID1}) {
 		t.Fatal("expected slabs to match pinned slabs, got:", slabsIDs)
 	}
 
@@ -124,8 +124,8 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatal("failed to fetch slabs with offset and limit:", err)
 	} else if len(slabsIDs) != 1 {
 		t.Fatal("expected 1 slab, got", len(slabsIDs))
-	} else if slabsIDs[0] != slabID2 {
-		t.Fatal("expected slabID2, got:", slabsIDs[0])
+	} else if slabsIDs[0] != slabID1 {
+		t.Fatal("expected slabID1, got:", slabsIDs[0])
 	}
 
 	// assert slab is returned
