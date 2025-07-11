@@ -40,6 +40,11 @@ func WithLimit(limit int) URLQueryParameterOption {
 	}
 }
 
+// ParseOffsetLimit parses the 'offset' and 'limit' query parameters from the
+// request context. It returns the offset and limit values, and a boolean
+// indicating whether the parsing was successful. If the parameters are not
+// present or invalid, it returns false and writes an appropriate error to the
+// response body.
 func ParseOffsetLimit(jc jape.Context) (offset int, limit int, ok bool) {
 	if jc.DecodeForm("offset", &offset) != nil {
 		return 0, 0, false
