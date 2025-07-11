@@ -822,8 +822,8 @@ func TestUnhealthySlabs(t *testing.T) {
 		t.Fatalf("expected slab ID %v, got %v", slabID, unhealthyID)
 	}
 
-	// run again for 50ms - shouldn't return the same slab twice since the last_repair_attempt was updated
-	_, err = store.UnhealthySlab(context.Background(), time.Now().Add(-50*time.Millisecond))
+	// run again for 100ms - shouldn't return the same slab twice since the last_repair_attempt was updated
+	_, err = store.UnhealthySlab(context.Background(), time.Now().Add(-100*time.Millisecond))
 	if !errors.Is(err, slabs.ErrSlabNotFound) {
 		t.Fatal(err)
 	}
