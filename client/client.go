@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -243,6 +244,22 @@ func (c *HostClient) ReplenishAccounts(ctx context.Context, contractID types.Fil
 		return rhp.RPCReplenishAccountsResult{}, 0, fmt.Errorf("failed to replenish accounts: %w", err)
 	}
 	return res, funded, nil
+}
+
+// WriteSector writes a sector to the host.
+func (c *HostClient) WriteSector(ctx context.Context, settings proto.HostPrices, token proto.AccountToken, data io.Reader, length uint64) (rhp.RPCWriteSectorResult, error) {
+	// sanity check
+	if length > proto.SectorSize {
+		return rhp.RPCWriteSectorResult{}, fmt.Errorf("sector size too large, %d > %d", length, proto.SectorSize) // developer error
+	}
+
+	// write sector
+	res, err := rhp.RPCWriteSector(ctx, c.client, settings, token, data, length)
+	if err != nil {
+		return rhp.RPCWriteSectorResult{}, fmt.Errorf("failed to write sector: %w", err)
+	}
+
+	return res, nil
 }
 
 func (c *HostClient) syncRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract) (types.V2FileContract, bool, error) {

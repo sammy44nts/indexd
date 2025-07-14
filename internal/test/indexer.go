@@ -1,4 +1,4 @@
-package testutils
+package test
 
 import (
 	"context"
@@ -49,8 +49,9 @@ type Indexer struct {
 	*admin.Client
 	App func(types.PrivateKey) *app.Client
 
-	db     *postgres.Store
 	cm     *chain.Manager
+	dialer *client.SiamuxDialer
+	store  *postgres.Store
 	syncer *Syncer
 	wallet *wallet.SingleAddressWallet
 }
@@ -67,7 +68,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	wm := NewWallet(t, c, walletKey)
 
 	syncer := NewSyncer(t, c.genesis.ID(), c.cm)
-	hm, err := hosts.NewManager(syncer, store, hosts.WithLogger(log.Named("hosts")), hosts.WithScanFrequency(500*time.Millisecond), hosts.WithScanInterval(time.Second))
+	hm, err := hosts.NewManager(syncer, store, hosts.WithLogger(log.Named("hosts")), hosts.WithScanFrequency(200*time.Millisecond), hosts.WithScanInterval(time.Second))
 	if err != nil {
 		t.Fatalf("failed to create host manager: %v", err)
 	}
@@ -76,7 +77,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	dialer := client.NewSiamuxDialer(c.cm, signer, store, log)
 	am := accounts.NewManager(store, accounts.NewFunder(dialer), accounts.WithLogger(log.Named("accounts")))
 
-	contracts, err := contracts.NewManager(walletKey, am, c.cm, store, dialer, hm, s, wm, contracts.WithLogger(log.Named("contracts")), contracts.WithMaintenanceFrequency(250*time.Millisecond))
+	contracts, err := contracts.NewManager(walletKey, am, c.cm, store, dialer, hm, s, wm, contracts.WithLogger(log.Named("contracts")), contracts.WithMaintenanceFrequency(200*time.Millisecond))
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
@@ -179,11 +180,30 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 			return client
 		},
 
-		db:     store,
 		cm:     c.cm,
+		dialer: dialer,
+		store:  store,
 		syncer: syncer,
 		wallet: wm,
 	}
+}
+
+// Database returns the underlying store.
+func (idx *Indexer) Database() *postgres.Store {
+	return idx.store
+}
+
+// HostClient returns a host client for the given host public key.
+func (idx *Indexer) HostClient(hk types.PublicKey) *client.HostClient {
+	h, err := idx.store.Host(context.Background(), hk)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get host %s: %v", hk, err)) // developer error
+	}
+	hc, err := idx.dialer.DialHost(context.Background(), hk, h.SiamuxAddr())
+	if err != nil {
+		panic(fmt.Sprintf("failed to dial host %s: %v", hk, err)) // developer error
+	}
+	return hc
 }
 
 // Tip returns the current tip of the chain.

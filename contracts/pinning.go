@@ -45,7 +45,7 @@ func (cm *ContractManager) performSectorPinning(ctx context.Context, log *zap.Lo
 				wg.Done()
 			}()
 
-			err = cm.hm.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
+			err := cm.hm.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
 				return cm.performSectorPinningOnHost(ctx, host, hostLog)
 			})
 			if err != nil {
