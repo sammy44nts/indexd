@@ -1,4 +1,4 @@
-package testutils
+package test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
@@ -49,9 +50,10 @@ type Indexer struct {
 	*admin.Client
 	App func(types.PrivateKey) *app.Client
 
-	db     *postgres.Store
 	cm     *chain.Manager
+	store  *postgres.Store
 	syncer *Syncer
+	dialer *client.SiamuxDialer
 	wallet *wallet.SingleAddressWallet
 }
 
@@ -179,11 +181,26 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 			return client
 		},
 
-		db:     store,
 		cm:     c.cm,
+		dialer: dialer,
+		store:  store,
 		syncer: syncer,
 		wallet: wm,
 	}
+}
+
+// Database returns the underlying database.
+func (idx *Indexer) Database() *pgxpool.Pool {
+	return idx.store.Database()
+}
+
+// HostClient returns a host client for the given host public key.
+func (idx *Indexer) HostClient(ctx context.Context, hk types.PublicKey) (*client.HostClient, error) {
+	h, err := idx.store.Host(ctx, hk)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get host %s: %w", hk, err)
+	}
+	return idx.dialer.DialHost(ctx, hk, h.SiamuxAddr())
 }
 
 // Tip returns the current tip of the chain.
