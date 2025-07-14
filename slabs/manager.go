@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -37,12 +38,13 @@ type (
 
 		shardTimeout time.Duration
 
-		am     AccountManager
-		dialer Dialer
-		hm     HostManager
-		store  Store
-		tg     *threadgroup.ThreadGroup
-		log    *zap.Logger
+		am      AccountManager
+		dialer  Dialer
+		hm      HostManager
+		store   Store
+		alerter AlertsManager
+		tg      *threadgroup.ThreadGroup
+		log     *zap.Logger
 	}
 
 	// AccountManager defines the SlabManager's dependencies on the account
@@ -79,6 +81,7 @@ type (
 		AddAccount(ctx context.Context, ak types.PublicKey) error
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error)
+		HostsWithLostSectors(ctx context.Context) ([]types.PublicKey, error)
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
@@ -86,6 +89,16 @@ type (
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
 	}
+
+	// AlertsManager defines an interface to register alerts.
+	AlertsManager interface {
+		RegisterAlert(alert alerts.Alert) error
+		DismissAlerts(ids ...types.Hash256)
+	}
+)
+
+var (
+	alertLostSectorsID = alerts.RandomAlertID()
 )
 
 // An Option is a functional option for the SlabManager.
@@ -99,8 +112,8 @@ func WithLogger(l *zap.Logger) Option {
 }
 
 // NewManager creates a new slab manager.
-func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	m, err := newSlabManager(am, hm, store, dialer, migrationAccount, serviceAccount, opts...)
+func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+	m, err := newSlabManager(am, hm, store, dialer, alerter, migrationAccount, serviceAccount, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +149,7 @@ func NewManager(am AccountManager, hm HostManager, store Store, dialer Dialer, m
 	return m, nil
 }
 
-func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		integrityCheckInterval:       7 * 24 * time.Hour,
 		failedIntegrityCheckInterval: 6 * time.Hour,
@@ -150,12 +163,13 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 
 		shardTimeout: 30 * time.Second,
 
-		am:     am,
-		dialer: dialer,
-		hm:     hm,
-		store:  store,
-		tg:     threadgroup.New(),
-		log:    zap.NewNop(),
+		am:      am,
+		dialer:  dialer,
+		hm:      hm,
+		store:   store,
+		alerter: alerter,
+		tg:      threadgroup.New(),
+		log:     zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -180,6 +194,19 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 func (m *SlabManager) Close() error {
 	m.tg.Stop()
 	return nil
+}
+
+func newLostSectorsAlert(hks []types.PublicKey) alerts.Alert {
+	return alerts.Alert{
+		ID:       alertLostSectorsID,
+		Severity: alerts.SeverityWarning,
+		Message:  "Host(s) have lost sectors",
+		Data: map[string]interface{}{
+			"hostKeys": hks,
+			"hint":     "Host(s) have reported that it can't serve at least one sector. Consider blocking these hosts through the blocklist feature.",
+		},
+		Timestamp: time.Now(),
+	}
 }
 
 func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
@@ -232,6 +259,18 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 			}(host)
 		}
 		wg.Wait()
+	}
+
+	hks, err := m.store.HostsWithLostSectors(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get hosts with lost sectors: %w", err)
+	}
+	if len(hks) > 0 {
+		if err := m.alerter.RegisterAlert(newLostSectorsAlert(hks)); err != nil {
+			return fmt.Errorf("failed to register lost sector alert: %w", err)
+		}
+	} else {
+		m.alerter.DismissAlerts(alertLostSectorsID)
 	}
 
 	logger.Debug("finished integrity checks", zap.Duration("elapsed", time.Since(start)))

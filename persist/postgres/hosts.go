@@ -730,7 +730,7 @@ func (s *Store) HostsForPruning(ctx context.Context) ([]types.PublicKey, error) 
 // HostsWithLostSectors returns a list of host keys that have contracts with
 // lost sectors.
 func (s *Store) HostsWithLostSectors(ctx context.Context) ([]types.PublicKey, error) {
-	var hosts []types.PublicKey
+	var hks []types.PublicKey
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `
 			SELECT public_key
@@ -746,11 +746,11 @@ func (s *Store) HostsWithLostSectors(ctx context.Context) ([]types.PublicKey, er
 			if err := rows.Scan(&hk); err != nil {
 				return err
 			}
-			hosts = append(hosts, types.PublicKey(hk))
+			hks = append(hks, types.PublicKey(hk))
 		}
 		return rows.Err()
 	}); err != nil {
 		return nil, err
 	}
-	return hosts, nil
+	return hks, nil
 }
