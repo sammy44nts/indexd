@@ -494,14 +494,14 @@ func TestApplyRevertDiff(t *testing.T) {
 	// helper to apply/revert diff
 	applyDiff := func(diff consensus.V2FileContractElementDiff) {
 		t.Helper()
-		err := contracts.applyContractDiff(updateTx, diff, time.Now())
+		err := contracts.applyContractDiff(updateTx, diff)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	revertDiff := func(diff consensus.V2FileContractElementDiff) {
 		t.Helper()
-		err := contracts.revertContractDiff(updateTx, diff, time.Now())
+		err := contracts.revertContractDiff(updateTx, diff)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -110,7 +110,7 @@ func TestPerformContractRenewals(t *testing.T) {
 	wallet := &walletMock{}
 	contracts := newContractManager(renterKey, amMock, cmMock, store, dialer, hm, syncerMock, wallet)
 
-	assertRenewal := func(h hosts.Host, renewedFrom types.FileContractID, proofHeight uint64, call renewContractCall) {
+	assertRenewal := func(renewedFrom types.FileContractID, proofHeight uint64, call renewContractCall) {
 		t.Helper()
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
@@ -140,7 +140,7 @@ func TestPerformContractRenewals(t *testing.T) {
 	} else if len(dialer.HostClient(bad.PublicKey).renewCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
-	assertRenewal(good, types.FileContractID{1}, blockHeight+period+renewWindow, dialer.HostClient(good.PublicKey).renewCalls[0])
+	assertRenewal(types.FileContractID{1}, blockHeight+period+renewWindow, dialer.HostClient(good.PublicKey).renewCalls[0])
 
 	// assert renewal made it into the store
 	if len(store.contracts) != 4 {
