@@ -1008,6 +1008,22 @@ func BenchmarkSlabs(b *testing.B) {
 		}
 	})
 
+	b.Run("Slab", func(b *testing.B) {
+		id, err := store.PinSlab(context.Background(), proto.Account{1}, time.Time{}, newSlab())
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		b.SetBytes(slabSize)
+		b.ResetTimer()
+		for b.Loop() {
+			_, err := store.Slab(context.Background(), id)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
 	// fetch 40MiB of data at a time
 	b.Run("Slabs-40MiB", func(b *testing.B) {
 		runSlabsBenchmark(b, 1)

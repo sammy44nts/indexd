@@ -98,6 +98,14 @@ type (
 		LostSectors            uint64              `json:"lostSectors"`
 	}
 
+	// HostInfo is a subset of the Host struct that contains only the public
+	// key, networks and addresses. It is used for listing hosts in the API.
+	HostInfo struct {
+		PublicKey types.PublicKey    `json:"publicKey"`
+		Addresses []chain.NetAddress `json:"addresses"`
+		Networks  []net.IPNet        `json:"networks"`
+	}
+
 	// Usability represents a series of host checks that can be used to
 	// determine whether the host is usable or not.
 	Usability struct {
