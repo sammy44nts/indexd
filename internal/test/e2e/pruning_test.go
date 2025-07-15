@@ -116,5 +116,4 @@ func TestContractPruning(t *testing.T) {
 			t.Fatalf("expected contract %s to be pruned, got capacity %d", contracts[host.PublicKey], contract.Revision.Capacity)
 		}
 	}
-
 }
