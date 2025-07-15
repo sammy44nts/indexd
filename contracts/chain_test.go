@@ -535,7 +535,7 @@ func TestApplyRevertDiff(t *testing.T) {
 		V2FileContractElement: fce,
 		Revision:              &revision,
 	})
-	fce.V2FileContract.RevisionNumber++
+	fce.V2FileContract.RevisionNumber = revision.RevisionNumber
 	assertContract(ContractStateActive)
 
 	// resolve contract
