@@ -1,4 +1,4 @@
-package test
+package testutils
 
 import (
 	"context"
@@ -188,8 +188,8 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	}
 }
 
-// Database returns the underlying store.
-func (idx *Indexer) Database() *postgres.Store {
+// Store returns the underlying store.
+func (idx *Indexer) Store() *postgres.Store {
 	return idx.store
 }
 

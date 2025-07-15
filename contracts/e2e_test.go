@@ -1,4 +1,4 @@
-package e2e
+package contracts_test
 
 import (
 	"bytes"
@@ -10,16 +10,17 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api/admin"
-	"go.sia.tech/indexd/internal/test"
+	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
 )
 
-func TestSlabPinning(t *testing.T) {
+func TestSectorPinningE2E(t *testing.T) {
 	// create cluster
-	logger := test.NewLogger(false)
-	cluster := test.NewCluster(t, test.WithLogger(logger), test.WithHosts(3))
+	logger := testutils.NewLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(3))
 	indexer := cluster.Indexer
+	store := indexer.Store()
 	time.Sleep(time.Second)
 
 	// add an account
@@ -68,7 +69,7 @@ func TestSlabPinning(t *testing.T) {
 
 	// assert the slab is pinned
 	time.Sleep(time.Second)
-	res, err := indexer.Database().Slabs(context.Background(), acc, slabIDs)
+	res, err := store.Slabs(context.Background(), acc, slabIDs)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 1 {
@@ -88,7 +89,7 @@ func TestSlabPinning(t *testing.T) {
 	}
 
 	// assert the slab is unpinned
-	_, err = indexer.Database().Slabs(context.Background(), acc, slabIDs)
+	_, err = store.Slabs(context.Background(), acc, slabIDs)
 	if !errors.Is(err, slabs.ErrSlabNotFound) {
 		t.Fatal("unexpected error", err)
 	}

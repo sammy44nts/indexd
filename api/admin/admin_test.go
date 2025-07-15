@@ -15,7 +15,7 @@ import (
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
-	"go.sia.tech/indexd/internal/test"
+	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/pins"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -23,8 +23,8 @@ import (
 )
 
 func TestAccountsAPI(t *testing.T) {
-	c := test.NewConsensusNode(t, zap.NewNop())
-	indexer := test.NewIndexer(t, c, zap.NewNop())
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
 	var accs []types.PublicKey
 	for range 10 {
@@ -108,11 +108,11 @@ func TestAccountsAPI(t *testing.T) {
 func TestContractsAPI(t *testing.T) {
 	// create cluster with one host
 	logger := newTestLogger(false)
-	c := test.NewConsensusNode(t, logger)
+	c := testutils.NewConsensusNode(t, logger)
 	h := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
 
 	// create indexer
-	indexer := test.NewIndexer(t, c, logger)
+	indexer := testutils.NewIndexer(t, c, logger)
 
 	// fund host and indexer wallet
 	c.MineBlocks(t, h.WalletAddress(), 1)
@@ -225,8 +225,8 @@ func TestContractsAPI(t *testing.T) {
 }
 
 func TestExplorerAPI(t *testing.T) {
-	c := test.NewConsensusNode(t, zap.NewNop())
-	indexer := test.NewIndexer(t, c, zap.NewNop())
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
 	rate, err := indexer.ExplorerSiacoinExchangeRate(context.Background(), "usd")
 	if err != nil {
@@ -238,10 +238,10 @@ func TestExplorerAPI(t *testing.T) {
 
 func TestHostsAPI(t *testing.T) {
 	// create cluster
-	c := test.NewConsensusNode(t, zap.NewNop())
+	c := testutils.NewConsensusNode(t, zap.NewNop())
 	h1 := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
 	h2 := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
-	indexer := test.NewIndexer(t, c, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
 	// fund hosts
 	c.MineBlocks(t, h1.WalletAddress(), 1)
@@ -364,8 +364,8 @@ func TestHostsAPI(t *testing.T) {
 }
 
 func TestSettingsAPI(t *testing.T) {
-	c := test.NewConsensusNode(t, zap.NewNop())
-	indexer := test.NewIndexer(t, c, zap.NewNop())
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
 	// assert contract settings can be fetched and updated
 	cs, err := indexer.SettingsContracts(context.Background())
@@ -438,8 +438,8 @@ func TestSettingsAPI(t *testing.T) {
 
 func TestWalletAPI(t *testing.T) {
 	// create indexer
-	c := test.NewConsensusNode(t, zap.NewNop())
-	indexer := test.NewIndexer(t, c, zap.NewNop())
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 	c.MineBlocks(t, indexer.WalletAddr(), 1)
 
 	// assert events are being persisted
@@ -480,7 +480,7 @@ func TestWalletAPI(t *testing.T) {
 	}
 
 	// create a wallet
-	w := test.NewWallet(t, c, types.GeneratePrivateKey())
+	w := testutils.NewWallet(t, c, types.GeneratePrivateKey())
 
 	// assert host wallet is empty
 	bal, err := w.Balance()
