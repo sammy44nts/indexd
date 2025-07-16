@@ -13,7 +13,8 @@ import (
 	"github.com/klauspost/reedsolomon"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/indexd/api/admin"
+	"go.sia.tech/indexd/api/app"
+	"go.sia.tech/indexd/slabs"
 	"golang.org/x/crypto/chacha20"
 	"lukechampine.com/frand"
 )
@@ -29,6 +30,14 @@ type (
 	downloadOption struct {
 		hostTimeout time.Duration
 		maxInflight int
+	}
+
+	// An AppClient is an interface for the application API of the indexer.
+	AppClient interface {
+		PinSlab(context.Context, slabs.SlabPinParams) (slabs.SlabID, error)
+		UnpinSlab(context.Context, slabs.SlabID) error
+
+		Slab(context.Context, slabs.SlabID) (slabs.PinnedSlab, error)
 	}
 
 	// A HostDialer is an interface for writing and reading sectors to/from hosts.
@@ -49,19 +58,11 @@ type (
 	// A DownloadOption configures the download behavior
 	DownloadOption func(*downloadOption)
 
-	// A Shard represents a sector in a slab
-	Shard struct {
-		Root    types.Hash256
-		HostKey types.PublicKey
-	}
-
 	// A Slab represents a collection of erasure-coded sectors
 	Slab struct {
-		SectorKey [32]byte
-		MinShards uint8
-		Offset    uint32
-		Length    uint32
-		Shards    []Shard
+		ID     slabs.SlabID `json:"id"`
+		Offset uint32       `json:"offset"`
+		Length uint32       `json:"length"`
 	}
 
 	// An Object represents a collection of slabs that are associated with a
@@ -74,7 +75,7 @@ type (
 	// An SDK is a client for the indexd service.
 	SDK struct {
 		appKey types.PrivateKey
-		c      admin.Client
+		client AppClient
 
 		dialer HostDialer
 	}
@@ -90,26 +91,26 @@ var (
 	ErrNoMoreHosts = errors.New("no more hosts available")
 )
 
-func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][]byte, dataShards uint8, maxInFlight int, timeout time.Duration) (Slab, error) {
+func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][]byte, dataShards uint8, maxInFlight int, timeout time.Duration) (slabs.SlabPinParams, error) {
 	if len(shards) == 0 {
-		return Slab{}, errors.New("no shards to upload")
+		return slabs.SlabPinParams{}, errors.New("no shards to upload")
 	} else if len(shards) < int(dataShards) {
-		return Slab{}, fmt.Errorf("not enough shards to upload: %d, required: %d", len(shards), dataShards)
+		return slabs.SlabPinParams{}, fmt.Errorf("not enough shards to upload: %d, required: %d", len(shards), dataShards)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	slab := Slab{
-		SectorKey: encryptionKey,
-		MinShards: dataShards,
-		Shards:    make([]Shard, len(shards)),
+	slab := slabs.SlabPinParams{
+		EncryptionKey: encryptionKey,
+		MinShards:     uint(dataShards),
+		Sectors:       make([]slabs.SectorPinParams, len(shards)),
 	}
 
 	var hostsMu sync.Mutex
 	hosts := shuffle(s.dialer.Hosts())
 	if len(hosts) < len(shards) {
-		return Slab{}, fmt.Errorf("not enough hosts available: %d, required: %d", len(hosts), len(shards))
+		return slabs.SlabPinParams{}, fmt.Errorf("not enough hosts available: %d, required: %d", len(hosts), len(shards))
 	}
 
 	errCh := make(chan error, len(shards))
@@ -123,7 +124,7 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 
 		select {
 		case <-ctx.Done():
-			return Slab{}, ctx.Err()
+			return slabs.SlabPinParams{}, ctx.Err()
 		case sema <- struct{}{}:
 			// limit number of concurrent requests
 		}
@@ -150,7 +151,7 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 
 				root, err := uploadShard(ctx, sector, hostKey, s.dialer, timeout) // error can be ignored, hosts will be retried until none are left and the upload fails.
 				if err == nil {
-					slab.Shards[index] = Shard{
+					slab.Sectors[index] = slabs.SectorPinParams{
 						HostKey: hostKey,
 						Root:    root,
 					}
@@ -163,26 +164,26 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 	for range len(shards) {
 		select {
 		case <-ctx.Done():
-			return Slab{}, ctx.Err()
+			return slabs.SlabPinParams{}, ctx.Err()
 		case err := <-errCh:
 			if err != nil {
-				return Slab{}, fmt.Errorf("failed to upload shard: %w", err)
+				return slabs.SlabPinParams{}, fmt.Errorf("failed to upload shard: %w", err)
 			}
 		}
 	}
 	return slab, nil
 }
 
-func (s *SDK) downloadSlab(ctx context.Context, slab Slab, maxInflight int, timeout time.Duration) ([][]byte, error) {
+func (s *SDK) downloadSlab(ctx context.Context, slab slabs.PinnedSlab, maxInflight int, timeout time.Duration) ([][]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var successful atomic.Uint32
 	var wg sync.WaitGroup
-	shards := make([][]byte, len(slab.Shards))
+	sectors := make([][]byte, len(slab.Sectors))
 	sema := make(chan struct{}, maxInflight)
 top:
-	for i, shard := range slab.Shards {
+	for i, sector := range slab.Sectors {
 		select {
 		case <-ctx.Done():
 			break top
@@ -190,26 +191,26 @@ top:
 			// limit number of concurrent requests
 		}
 		wg.Add(1)
-		go func(ctx context.Context, shard Shard, i int) {
+		go func(ctx context.Context, sector slabs.PinnedSector, i int) {
 			defer func() { <-sema }() // release semaphore
 			defer wg.Done()
-			data, err := downloadShard(ctx, shard.Root, shard.HostKey, s.dialer, timeout)
+			data, err := downloadShard(ctx, sector.Root, sector.HostKey, s.dialer, timeout)
 			if err != nil {
 				return
 			}
-			shards[i] = data[:]
+			sectors[i] = data[:]
 			if v := successful.Add(1); v >= uint32(slab.MinShards) {
 				// got enough pieces to recover
 				cancel()
 			}
-		}(ctx, shard, i)
+		}(ctx, sector, i)
 	}
 
 	wg.Wait()
 	if n := successful.Load(); n < uint32(slab.MinShards) {
-		return nil, fmt.Errorf("retrieved %d shards, minimum required: %d: %w", n, slab.MinShards, ErrNotEnoughShards)
+		return nil, fmt.Errorf("retrieved %d sectors, minimum required: %d: %w", n, slab.MinShards, ErrNotEnoughShards)
 	}
-	return shards, nil
+	return sectors, nil
 }
 
 // Upload uploads the data to hosts and pins it to the indexer.
@@ -289,13 +290,20 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 			} else if work.err != nil {
 				return nil, work.err
 			}
-			slab, err := s.uploadSlab(ctx, shardKey, shards, uo.dataShards, uo.maxInflight, uo.hostTimeout)
+			params, err := s.uploadSlab(ctx, shardKey, shards, uo.dataShards, uo.maxInflight, uo.hostTimeout)
 			if err != nil {
 				return nil, fmt.Errorf("failed to upload slab %d: %w", i, err)
 			}
-			slab.Length = uint32(work.length)
-			// TODO: pin slab
-			pinned = append(pinned, slab)
+
+			slabID, err := s.client.PinSlab(ctx, params)
+			if err != nil {
+				return nil, fmt.Errorf("failed to pin slab %d: %w", i, err)
+			}
+			pinned = append(pinned, Slab{
+				ID:     slabID,
+				Offset: 0,
+				Length: uint32(work.length),
+			})
 		}
 	}
 }
@@ -308,9 +316,6 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 		return errors.New("no slabs to download")
 	}
 
-	dataShards := int(metadata[0].MinShards)
-	parityShards := len(metadata[0].Shards) - dataShards
-
 	do := downloadOption{
 		hostTimeout: 4 * time.Second, // ~10 Mbps
 		maxInflight: 10,
@@ -319,24 +324,38 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 		opt(&do)
 	}
 
-	enc, err := reedsolomon.New(dataShards, parityShards)
-	if err != nil {
-		return fmt.Errorf("failed to create encoder: %w", err)
-	}
-
 	type work struct {
 		shards [][]byte
 		err    error
 	}
 	workCh := make(chan work, 1)
 	go func(ctx context.Context, slabs []Slab) {
-		for i, slab := range metadata {
-			shards, err := s.downloadSlab(ctx, slab, do.maxInflight, do.hostTimeout)
+		for i, meta := range metadata {
+			pinned, err := s.client.Slab(ctx, meta.ID)
+			if err != nil {
+				workCh <- work{err: fmt.Errorf("failed to get slab %d metadata: %w", i, err)}
+				return
+			}
+			enc, err := reedsolomon.New(int(pinned.MinShards), len(pinned.Sectors)-int(pinned.MinShards))
+			if err != nil {
+				workCh <- work{err: fmt.Errorf("failed to create erasure coder for slab %d: %w", i, err)}
+				return
+			}
+			shards, err := s.downloadSlab(ctx, pinned, do.maxInflight, do.hostTimeout)
 			if err != nil {
 				workCh <- work{err: fmt.Errorf("failed to download slab %d: %w", i, err)}
 				return
+			} else if err := enc.ReconstructData(shards); err != nil {
+				workCh <- work{err: fmt.Errorf("failed to reconstruct slab %d data: %w", i, err)}
+				return
 			}
-			workCh <- work{shards: shards}
+			nonce := make([]byte, 24)
+			for i := range shards {
+				nonce[0] = byte(i)
+				c, _ := chacha20.NewUnauthenticatedCipher(pinned.EncryptionKey[:], nonce)
+				c.XORKeyStream(shards[i], shards[i]) // decrypt shard in place
+			}
+			workCh <- work{shards: shards[:pinned.MinShards]}
 		}
 		workCh <- work{err: io.EOF}
 	}(ctx, metadata)
@@ -354,16 +373,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 				return err
 			}
 			slab := metadata[i]
-			encryptionKey := slab.SectorKey
-			shards := work.shards
-			nonce := make([]byte, 24)
-			for i := range shards {
-				nonce[0] = byte(i)
-				c, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce)
-				c.XORKeyStream(shards[i], shards[i]) // decrypt shard in place
-			}
-			enc.ReconstructData(shards)
-			if err := stripedJoin(w, shards[:slab.MinShards], int(slab.Length)); err != nil {
+			if err := stripedJoin(w, work.shards, int(slab.Length)); err != nil {
 				return fmt.Errorf("failed to write slab %d: %w", i, err)
 			}
 		}
@@ -505,11 +515,24 @@ func WithDownloadInflight(maxInflight int) DownloadOption {
 	}
 }
 
-// NewSDK creates a new indexd client with the given app key and base URL.
-func NewSDK(baseURL string, appKey types.PrivateKey, dialer HostDialer) *SDK {
+func initSDK(client AppClient, dialer HostDialer, appKey types.PrivateKey) (*SDK, error) {
+	if client == nil {
+		return nil, errors.New("app client is required")
+	} else if dialer == nil {
+		return nil, errors.New("host dialer is required")
+	}
 	return &SDK{
 		appKey: appKey,
+		client: client,
 		dialer: dialer,
-		c:      *admin.NewClient(baseURL, ""),
+	}, nil
+}
+
+// NewSDK creates a new indexd client with the given app key and base URL.
+func NewSDK(baseURL string, appKey types.PrivateKey) (*SDK, error) {
+	c, err := app.NewClient(baseURL, appKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create app client: %w", err)
 	}
+	return initSDK(c, nil, appKey) // TODO: init dialer
 }

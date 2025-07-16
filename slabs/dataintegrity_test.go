@@ -3,12 +3,14 @@ package slabs
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -51,7 +53,7 @@ func TestVerifySectors(t *testing.T) {
 	am := newMockAccountManager(store)
 	hm := newMockHostManager()
 	account := types.GeneratePrivateKey()
-	sm, err := newSlabManager(am, hm, store, nil, account, account)
+	sm, err := newSlabManager(am, hm, store, nil, alerts.NewManager(), account, account)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,8 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	am := newMockAccountManager(store)
 	hm := newMockHostManager()
 	account := types.GeneratePrivateKey()
-	sm, err := newSlabManager(am, hm, store, nil, account, account)
+	alerter := alerts.NewManager()
+	sm, err := newSlabManager(am, hm, store, nil, alerter, account, account)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,5 +281,59 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 		t.Fatalf("expected lost sector %v, got %v", rootLost, store.lostSectors)
 	} else if _, exists := store.lostSectors[host.PublicKey][rootBad]; !exists {
 		t.Fatalf("expected lost sector %v, got %v", rootBad, store.lostSectors)
+	}
+}
+
+func TestIntegrityChecksAlert(t *testing.T) {
+	store := newMockStore()
+	alerter := alerts.NewManager()
+	sm, err := newSlabManager(newMockAccountManager(store), nil, store, nil, alerter, types.GeneratePrivateKey(), types.GeneratePrivateKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// assert there are no alerts
+	if alerts, err := alerter.Alerts(0, math.MaxInt64); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 0 {
+		t.Fatalf("expected 0 alerts, got %d", len(alerts))
+	}
+
+	// mock a lost sector
+	hk := types.PublicKey{1}
+	store.hosts[hk] = hosts.Host{PublicKey: hk}
+	store.lostSectors[hk] = make(map[types.Hash256]struct{})
+	store.lostSectors[hk][types.Hash256{1}] = struct{}{}
+
+	// perform integrity checks
+	sm.performIntegrityChecks(context.Background())
+
+	// assert alert was generated
+	var got alerts.Alert
+	if alerts, err := alerter.Alerts(0, math.MaxInt64); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	} else {
+		got = alerts[0]
+	}
+
+	expected := newLostSectorsAlert([]types.PublicKey{hk})
+	got.Timestamp = expected.Timestamp // ignore timestamp
+	if !reflect.DeepEqual(expected, got) {
+		t.Fatal("unexpected alert", expected, got)
+	}
+
+	// remove lostSectors
+	delete(store.lostSectors, hk)
+
+	// perform integrity checks
+	sm.performIntegrityChecks(context.Background())
+
+	// alert should be dismissed
+	if alerts, err := alerter.Alerts(0, math.MaxInt64); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 0 {
+		t.Fatalf("expected 0 alerts, got %d", len(alerts))
 	}
 }

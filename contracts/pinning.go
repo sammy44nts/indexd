@@ -31,10 +31,11 @@ func (cm *ContractManager) performSectorPinning(ctx context.Context, log *zap.Lo
 	sema := make(chan struct{}, 50)
 	defer close(sema)
 
+loop:
 	for _, hostKey := range hfp {
 		select {
 		case <-ctx.Done():
-			break
+			break loop
 		case sema <- struct{}{}:
 		}
 
@@ -45,10 +46,9 @@ func (cm *ContractManager) performSectorPinning(ctx context.Context, log *zap.Lo
 				wg.Done()
 			}()
 
-			err := cm.hm.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
+			if err := cm.hm.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
 				return cm.performSectorPinningOnHost(ctx, host, hostLog)
-			})
-			if err != nil {
+			}); err != nil {
 				hostLog.Debug("failed to pin sectors", zap.Error(err))
 				return
 			}

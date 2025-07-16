@@ -16,6 +16,7 @@ import (
 
 type mockStore struct {
 	accounts        map[proto.Account]struct{}
+	hosts           map[types.PublicKey]hosts.Host
 	lostSectors     map[types.PublicKey]map[types.Hash256]struct{}
 	failedChecks    map[types.PublicKey]map[types.Hash256]int
 	sectorsForCheck []types.Hash256
@@ -25,6 +26,7 @@ type mockStore struct {
 func newMockStore() *mockStore {
 	return &mockStore{
 		accounts:        make(map[proto.Account]struct{}),
+		hosts:           make(map[types.PublicKey]hosts.Host),
 		failedChecks:    make(map[types.PublicKey]map[types.Hash256]int),
 		lostSectors:     make(map[types.PublicKey]map[types.Hash256]struct{}),
 		serviceAccounts: make(map[proto.Account]map[types.PublicKey]types.Currency),
@@ -50,8 +52,17 @@ func (s *mockStore) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 	panic("not implemented")
 }
 
-func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error) {
-	panic("not implemented")
+func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) (result []types.PublicKey, err error) {
+	return nil, nil
+}
+
+func (s *mockStore) HostsWithLostSectors(ctx context.Context) (hks []types.PublicKey, err error) {
+	for hk, lostSectors := range s.lostSectors {
+		if len(lostSectors) > 0 {
+			hks = append(hks, hk)
+		}
+	}
+	return
 }
 
 func (s *mockStore) MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error {
