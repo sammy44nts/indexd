@@ -8,6 +8,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/jape"
 )
@@ -23,61 +24,6 @@ type Client struct {
 	// the following fields are used to sign requests
 	appkey   types.PrivateKey
 	hostname string
-}
-
-// NewClient creates a new AppClient that can be used to interact with the
-// application API of the indexer. The address should be the full URL to the
-// application API, including the scheme (e.g., "http://indexer.sia.tech").
-func NewClient(address string, appKey types.PrivateKey) (*Client, error) {
-	parsedURL, err := url.Parse(address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse address %q: %w", address, err)
-	}
-
-	return &Client{
-		c: jape.Client{BaseURL: address},
-
-		appkey:   appKey,
-		hostname: parsedURL.Hostname(),
-	}, nil
-}
-
-// PinSlab pins a slab to the indexer.
-func (c *Client) PinSlab(ctx context.Context, params slabs.SlabPinParams) (slabID slabs.SlabID, err error) {
-	err = c.c.POST(ctx, c.sign("/slabs/pin"), params, &slabID)
-	return
-}
-
-// Slab fetches a slab from the indexer by its digest.
-func (c *Client) Slab(ctx context.Context, slabID slabs.SlabID) (slabs.Slab, error) {
-	var slab slabs.Slab
-	err := c.c.GET(ctx, c.sign(fmt.Sprintf("/slabs/%s", slabID)), &slab)
-	if err != nil {
-		return slabs.Slab{}, fmt.Errorf("failed to fetch slab: %w", err)
-	}
-	return slab, nil
-}
-
-// SlabDigests fetches the digests of slabs associated with the account.
-// It supports pagination through the provided options.
-func (c *Client) SlabDigests(ctx context.Context, opts ...api.URLQueryParameterOption) ([]slabs.SlabID, error) {
-	values := url.Values{}
-	for _, opt := range opts {
-		opt(values)
-	}
-
-	var slabIDs []slabs.SlabID
-	err := c.c.GET(ctx, c.sign("/slabs?"+values.Encode()), &slabIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch slab digests: %w", err)
-	}
-
-	return slabIDs, nil
-}
-
-// UnpinSlab unpins a slab from the indexer.
-func (c *Client) UnpinSlab(ctx context.Context, slabID slabs.SlabID) error {
-	return c.c.DELETE(ctx, c.sign(fmt.Sprintf("/slabs/%s", slabID)))
 }
 
 func (c *Client) sign(route string) string {
@@ -109,4 +55,65 @@ func (c *Client) sign(route string) string {
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// Hosts returns all usable hosts.
+func (c *Client) Hosts(ctx context.Context, opts ...api.URLQueryParameterOption) (hosts []hosts.Host, err error) {
+	values := url.Values{}
+	for _, opt := range opts {
+		opt(values)
+	}
+	err = c.c.GET(ctx, c.sign("/hosts?"+values.Encode()), &hosts)
+	return
+}
+
+// PinSlab pins a slab to the indexer.
+func (c *Client) PinSlab(ctx context.Context, params slabs.SlabPinParams) (slabID slabs.SlabID, err error) {
+	err = c.c.POST(ctx, c.sign("/slabs"), params, &slabID)
+	return
+}
+
+// UnpinSlab unpins a slab from the indexer.
+func (c *Client) UnpinSlab(ctx context.Context, slabID slabs.SlabID) error {
+	return c.c.DELETE(ctx, c.sign(fmt.Sprintf("/slabs/%s", slabID)))
+}
+
+// Slab retrieves a slab from the indexer by its ID.
+func (c *Client) Slab(ctx context.Context, slabID slabs.SlabID) (s slabs.PinnedSlab, err error) {
+	err = c.c.GET(ctx, c.sign(fmt.Sprintf("/slabs/%s", slabID)), &s)
+	return
+}
+
+// SlabDigests fetches the digests of slabs associated with the account.
+// It supports pagination through the provided options.
+func (c *Client) SlabDigests(ctx context.Context, opts ...api.URLQueryParameterOption) ([]slabs.SlabID, error) {
+	values := url.Values{}
+	for _, opt := range opts {
+		opt(values)
+	}
+
+	var slabIDs []slabs.SlabID
+	err := c.c.GET(ctx, c.sign("/slabs?"+values.Encode()), &slabIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch slab digests: %w", err)
+	}
+
+	return slabIDs, nil
+}
+
+// NewClient creates a new AppClient that can be used to interact with the
+// application API of the indexer. The address should be the full URL to the
+// application API, including the scheme (e.g., "http://indexer.sia.tech").
+func NewClient(address string, appKey types.PrivateKey) (*Client, error) {
+	parsedURL, err := url.Parse(address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse address %q: %w", address, err)
+	}
+
+	return &Client{
+		c: jape.Client{BaseURL: address},
+
+		appkey:   appKey,
+		hostname: parsedURL.Hostname(),
+	}, nil
 }

@@ -10,6 +10,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -117,7 +118,7 @@ func TestDownloadShards(t *testing.T) {
 		hk3: newClient(sector3, host3.Settings),
 	}}
 
-	sm, err := newSlabManager(am, hm, store, dialer, account, types.GeneratePrivateKey())
+	sm, err := newSlabManager(am, hm, store, dialer, alerts.NewManager(), account, types.GeneratePrivateKey())
 	if err != nil {
 		t.Fatal(err)
 	}

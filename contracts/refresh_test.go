@@ -153,7 +153,7 @@ func TestPerformContractRefreshes(t *testing.T) {
 	wallet := &walletMock{}
 	contracts := newContractManager(renterKey, amMock, cmMock, store, dialer, hm, syncerMock, wallet)
 
-	assertRefresh := func(h hosts.Host, allowance, collateral types.Currency, refreshedFrom types.FileContractID, call refreshContractCall) {
+	assertRefresh := func(allowance, collateral types.Currency, refreshedFrom types.FileContractID, call refreshContractCall) {
 		t.Helper()
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
@@ -173,10 +173,10 @@ func TestPerformContractRefreshes(t *testing.T) {
 	} else if len(dialer.HostClient(bad.PublicKey).refreshCalls) != 0 {
 		t.Fatal("expected bad host to not be dialed")
 	}
-	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{2}, dialer.HostClient(good.PublicKey).refreshCalls[0])
-	assertRefresh(good, types.Siacoins(110), types.Siacoins(110), types.FileContractID{3}, dialer.HostClient(good.PublicKey).refreshCalls[1])
-	assertRefresh(good, types.Siacoins(110), types.ZeroCurrency, types.FileContractID{4}, dialer.HostClient(good.PublicKey).refreshCalls[2])
-	assertRefresh(good, types.Siacoins(1), types.Siacoins(1), types.FileContractID{6}, dialer.HostClient(good.PublicKey).refreshCalls[3])
+	assertRefresh(types.Siacoins(110), types.ZeroCurrency, types.FileContractID{2}, dialer.HostClient(good.PublicKey).refreshCalls[0])
+	assertRefresh(types.Siacoins(110), types.Siacoins(110), types.FileContractID{3}, dialer.HostClient(good.PublicKey).refreshCalls[1])
+	assertRefresh(types.Siacoins(110), types.ZeroCurrency, types.FileContractID{4}, dialer.HostClient(good.PublicKey).refreshCalls[2])
+	assertRefresh(types.Siacoins(1), types.Siacoins(1), types.FileContractID{6}, dialer.HostClient(good.PublicKey).refreshCalls[3])
 
 	// assert refreshes made it into the store leading to 8 existing + 4 refreshed
 	// contracts in the store

@@ -21,6 +21,9 @@ var (
 
 	// ErrSlabNotFound is returned when a slab is not found in the database.
 	ErrSlabNotFound = errors.New("slab not found")
+
+	// ErrUnrecoverable is returned when a slab is unrecoverable, meaning it cannot be repaired or migrated.
+	ErrUnrecoverable = errors.New("slab is unrecoverable")
 )
 
 type (
@@ -62,6 +65,20 @@ type (
 		EncryptionKey [32]byte          `json:"encryptionKey"`
 		MinShards     uint              `json:"minShards"`
 		Sectors       []SectorPinParams `json:"sectors"`
+	}
+
+	// A PinnedSector is a sector that has been pinned to a host.
+	PinnedSector struct {
+		Root    types.Hash256   `json:"root"`
+		HostKey types.PublicKey `json:"hostKey"`
+	}
+
+	// A PinnedSlab is a slab that has been pinned to hosts.
+	PinnedSlab struct {
+		ID            SlabID         `json:"id"`
+		EncryptionKey [32]byte       `json:"encryptionKey"`
+		MinShards     uint           `json:"minShards"`
+		Sectors       []PinnedSector `json:"sectors"`
 	}
 )
 
