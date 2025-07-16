@@ -54,6 +54,7 @@ type (
 	// to ensure the account is funded as soon as possible.
 	ContractManager interface {
 		TriggerAccountFunding()
+		TriggerContractPruning() error
 		TriggerMaintenance()
 	}
 
@@ -229,12 +230,14 @@ func (a *admin) handlePOSTTrigger(jc jape.Context) {
 	switch action {
 	case "funding":
 		a.contracts.TriggerAccountFunding()
+	case "pruning":
+		a.contracts.TriggerContractPruning()
 	case "maintenance":
 		a.contracts.TriggerMaintenance()
 	case "scanning":
 		a.hosts.TriggerHostScanning()
 	default:
-		jc.Error(fmt.Errorf("unknown action: %q, available actions are 'funding', 'maintenance' or 'scanning'", action), http.StatusBadRequest)
+		jc.Error(fmt.Errorf("unknown action: %q, available actions are 'funding', 'maintenance', 'pruning' or 'scanning'", action), http.StatusBadRequest)
 		return
 	}
 

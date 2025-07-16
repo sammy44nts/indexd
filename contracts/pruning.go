@@ -18,9 +18,17 @@ const (
 	pruneIntervalFailure = 3 * time.Hour
 )
 
-func (cm *ContractManager) performContractPruning(ctx context.Context, log *zap.Logger) error {
+func (cm *ContractManager) performContractPruning(ctx context.Context, force bool, log *zap.Logger) error {
 	start := time.Now()
 	log = log.Named("contractpruning")
+
+	// if force is true, schedule all (active and good) contracts for pruning
+	if force {
+		err := cm.store.ScheduleContractsForPruning(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to schedule contracts for pruning: %w", err)
+		}
+	}
 
 	// fetch hosts for pruning, a host is eligble for pruning if it is not
 	// blocked and has active contracts that haven't been pruned in the last 24

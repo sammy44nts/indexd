@@ -1,4 +1,4 @@
-package test
+package testutils
 
 import (
 	"context"
@@ -97,6 +97,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	c.addSyncFn(syncFn)
 
 	adminAPIOpts := []admin.Option{
+		admin.WithDebug(),
 		admin.WithLogger(log.Named("api.admin")),
 		admin.WithExplorer(explorer.New("https://api.siascan.com")),
 	}

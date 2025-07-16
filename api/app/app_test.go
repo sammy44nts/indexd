@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/indexd/internal/test"
+	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -16,14 +16,14 @@ import (
 
 func TestApplicationAPI(t *testing.T) {
 	// create cluster with three hosts
-	logger := test.NewLogger(false)
-	c := test.NewConsensusNode(t, logger)
+	logger := testutils.NewLogger(false)
+	c := testutils.NewConsensusNode(t, logger)
 	h1 := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
 	h2 := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
 	h3 := c.NewHost(t, types.GeneratePrivateKey(), zap.NewNop())
 
 	// create indexer
-	indexer := test.NewIndexer(t, c, logger)
+	indexer := testutils.NewIndexer(t, c, logger)
 
 	// fund hosts and indexer wallet
 	c.MineBlocks(t, h1.WalletAddress(), 1)

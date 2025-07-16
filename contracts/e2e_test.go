@@ -1,4 +1,4 @@
-package e2e
+package contracts_test
 
 import (
 	"bytes"
@@ -9,15 +9,15 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api/admin"
-	"go.sia.tech/indexd/internal/test"
+	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
 )
 
-func TestContractPruning(t *testing.T) {
+func TestContractPruningE2E(t *testing.T) {
 	// create cluster
-	logger := test.NewLogger(false)
-	cluster := test.NewCluster(t, test.WithLogger(logger), test.WithHosts(3))
+	logger := testutils.NewLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(3))
 	indexer := cluster.Indexer
 	time.Sleep(time.Second)
 
@@ -98,8 +98,8 @@ func TestContractPruning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// manipulate next_prune so contracts are pruned
-	_, err = store.Database().Exec(context.Background(), "UPDATE contracts SET next_prune = NOW() - INTERVAL '1 minute'")
+	// trigger contract pruning
+	err = indexer.TriggerAction(context.Background(), "pruning")
 	if err != nil {
 		t.Fatal(err)
 	}

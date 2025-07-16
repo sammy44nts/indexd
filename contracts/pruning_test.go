@@ -92,6 +92,13 @@ func (s *storeMock) PrunableContractRoots(ctx context.Context, contractID types.
 	return slices.Collect(maps.Keys(lookup)), nil
 }
 
+func (s *storeMock) ScheduleContractsForPruning(ctx context.Context) error {
+	for i := range s.contracts {
+		s.contracts[i].NextPrune = time.Now()
+	}
+	return nil
+}
+
 func (c *hostClientMock) SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
 	if c.failsRPCs {
 		return rhp.RPCSectorRootsResult{}, fmt.Errorf("mocked error")
