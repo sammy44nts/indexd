@@ -65,7 +65,7 @@ func (c *Client) Contract(ctx context.Context, contractID types.FileContractID) 
 
 // Contracts returns all contracts known to the indexer, optionally filtered by
 // the given query options.
-func (c *Client) Contracts(ctx context.Context, opts ...ContractQueryParameterOption) (contracts []contracts.Contract, err error) {
+func (c *Client) Contracts(ctx context.Context, opts ...api.ContractQueryParameterOption) (contracts []contracts.Contract, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
@@ -93,7 +93,7 @@ func (c *Client) Host(ctx context.Context, hostKey types.PublicKey) (h hosts.Hos
 }
 
 // Hosts returns all hosts known to the indexer.
-func (c *Client) Hosts(ctx context.Context, opts ...HostQueryParameterOption) (hosts []hosts.Host, err error) {
+func (c *Client) Hosts(ctx context.Context, opts ...api.HostQueryParameterOption) (hosts []hosts.Host, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)

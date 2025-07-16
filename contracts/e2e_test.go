@@ -9,7 +9,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/indexd/api/admin"
+	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
@@ -32,7 +32,7 @@ func TestSectorPinningE2E(t *testing.T) {
 
 	// assert we have 3 usable hosts
 	time.Sleep(time.Second)
-	hosts, err := indexer.Hosts(context.Background(), admin.WithUsable(true), admin.WithActiveContracts(true))
+	hosts, err := indexer.Hosts(context.Background(), api.WithUsable(true), api.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(hosts) != 3 {

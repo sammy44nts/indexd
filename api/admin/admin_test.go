@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
-	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/pins"
@@ -164,22 +163,22 @@ func TestContractsAPI(t *testing.T) {
 	}
 
 	// assert WithGood filters out bad contracts
-	if contracts, err := indexer.Contracts(context.Background(), admin.WithGood(true)); err != nil {
+	if contracts, err := indexer.Contracts(context.Background(), api.WithGood(true)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 1 {
 		t.Fatal("expected 1 contract", len(contracts))
-	} else if contracts, err := indexer.Contracts(context.Background(), admin.WithGood(false)); err != nil {
+	} else if contracts, err := indexer.Contracts(context.Background(), api.WithGood(false)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 0 {
 		t.Fatal("expected no contract", len(contracts))
 	}
 
 	// assert WithRevisable filters out non-revisable contracts
-	if contracts, err := indexer.Contracts(context.Background(), admin.WithRevisable(true)); err != nil {
+	if contracts, err := indexer.Contracts(context.Background(), api.WithRevisable(true)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 1 {
 		t.Fatal("expected 1 contract", len(contracts))
-	} else if contracts, err := indexer.Contracts(context.Background(), admin.WithRevisable(false)); err != nil {
+	} else if contracts, err := indexer.Contracts(context.Background(), api.WithRevisable(false)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 0 {
 		t.Fatal("expected no contract", len(contracts))
@@ -188,7 +187,7 @@ func TestContractsAPI(t *testing.T) {
 	// block host and assert it's not returned
 	if err := indexer.HostsBlocklistAdd(context.Background(), []types.PublicKey{h.PublicKey()}, t.Name()); err != nil {
 		t.Fatal(err)
-	} else if contracts, err := indexer.Contracts(context.Background(), admin.WithGood(true)); err != nil {
+	} else if contracts, err := indexer.Contracts(context.Background(), api.WithGood(true)); err != nil {
 		t.Fatal(err)
 	} else if len(contracts) != 0 {
 		t.Fatal("expected no contract", len(contracts))
@@ -321,13 +320,13 @@ func TestHostsAPI(t *testing.T) {
 	}
 
 	// filter by blocked hosts
-	unblocked, err := indexer.Hosts(context.Background(), admin.WithBlocked(false))
+	unblocked, err := indexer.Hosts(context.Background(), api.WithBlocked(false))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unblocked) != 1 || unblocked[0].PublicKey != h1.PublicKey() {
 		t.Fatalf("invalid hosts were returned (%d): %+v", len(unblocked), unblocked)
 	}
-	blocked, err := indexer.Hosts(context.Background(), admin.WithBlocked(true))
+	blocked, err := indexer.Hosts(context.Background(), api.WithBlocked(true))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(blocked) != 1 || blocked[0].PublicKey != h2.PublicKey() {
@@ -335,13 +334,13 @@ func TestHostsAPI(t *testing.T) {
 	}
 
 	// filter by usable hosts - all of them should be usable
-	usable, err := indexer.Hosts(context.Background(), admin.WithUsable(true))
+	usable, err := indexer.Hosts(context.Background(), api.WithUsable(true))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(usable) != 2 {
 		t.Fatalf("invalid number of hosts: %d", len(usable))
 	}
-	unusable, err := indexer.Hosts(context.Background(), admin.WithUsable(false))
+	unusable, err := indexer.Hosts(context.Background(), api.WithUsable(false))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unusable) != 0 {
@@ -349,13 +348,13 @@ func TestHostsAPI(t *testing.T) {
 	}
 
 	// filter for hosts with contracts - none should have contracts
-	contracted, err := indexer.Hosts(context.Background(), admin.WithActiveContracts(true))
+	contracted, err := indexer.Hosts(context.Background(), api.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(contracted) != 0 {
 		t.Fatalf("invalid number of hosts: %d", len(contracted))
 	}
-	notContracted, err := indexer.Hosts(context.Background(), admin.WithActiveContracts(false))
+	notContracted, err := indexer.Hosts(context.Background(), api.WithActiveContracts(false))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(notContracted) != 2 {
