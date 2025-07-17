@@ -40,12 +40,18 @@ func newUploadCandidates(hosts []hosts.Host) uploadCandidates {
 }
 
 func (uc *uploadCandidates) next() (hosts.Host, bool) {
-	if len(uc.hosts) == 0 {
-		return hosts.Host{}, false
+outer:
+	for len(uc.hosts) > 0 {
+		host := uc.hosts[0]
+		uc.hosts = uc.hosts[1:]
+		for _, cidr := range host.Networks {
+			if _, ok := uc.cidrs[cidr.String()]; ok {
+				continue outer // already used this CIDR
+			}
+		}
+		return host, true
 	}
-	host := uc.hosts[0]
-	uc.hosts = uc.hosts[1:]
-	return host, true
+	return hosts.Host{}, false
 }
 
 func (uc *uploadCandidates) used(h hosts.Host) {
@@ -61,15 +67,15 @@ func (uc *uploadCandidates) used(h hosts.Host) {
 // uploadShards uploads the shards to the given hosts. If not all shards were
 // migrated, an error is returned but any finished shards will still be returned
 // and should be tracked in the database. The given shards must not be nil and
-// the candidates can not have overlapping CIDRs.
-func (m *SlabManager) uploadShards(ctx context.Context, shards [][]byte, hosts []hosts.Host, logger *zap.Logger) ([]Shard, error) {
-	candidates := newUploadCandidates(hosts)
+// the given hosts must all be good.
+func (m *SlabManager) uploadShards(ctx context.Context, shards [][]byte, goodHosts []hosts.Host, logger *zap.Logger) ([]Shard, error) {
+	candidates := newUploadCandidates(goodHosts)
 	uploaded := make([]Shard, 0, len(shards))
 
 	var uploadErr error
 	for _, shard := range shards {
 		if shard == nil {
-			panic("shard is nil") // developer error
+			continue
 		}
 
 	nextCandidate:

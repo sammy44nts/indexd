@@ -97,6 +97,11 @@ func newHostClient(hk types.PublicKey, cm ChainManager, client rhp.TransportClie
 	}
 }
 
+// AccountBalance returns the balance of the given account.
+func (c *HostClient) AccountBalance(ctx context.Context, account proto.Account) (types.Currency, error) {
+	return rhp.RPCAccountBalance(ctx, c.client, account)
+}
+
 // AppendSectors appends the given sectors to the contract.
 func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
 	// sanity check
@@ -168,6 +173,11 @@ func (c *HostClient) FreeSectors(ctx context.Context, hostPrices proto.HostPrice
 		return rhp.RPCFreeSectorsResult{}, fmt.Errorf("failed to fetch free sectors: %w", err)
 	}
 	return res, nil
+}
+
+// ReadSector reads a sector from the host and writes it to the provided writer.
+func (c *HostClient) ReadSector(ctx context.Context, settings proto.HostSettings, token proto.AccountToken, root types.Hash256, w io.Writer, offset, length uint64) (rhp.RPCReadSectorResult, error) {
+	return rhp.RPCReadSector(ctx, c.client, settings.Prices, token, w, root, offset, length)
 }
 
 // RefreshContract refreshes the contract with the host.

@@ -11,14 +11,18 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 )
 
 type mockStore struct {
 	accounts        map[proto.Account]struct{}
+	contracts       map[types.PublicKey]contracts.Contract
+	failedChecks    map[types.PublicKey]map[types.Hash256]int
 	hosts           map[types.PublicKey]hosts.Host
 	lostSectors     map[types.PublicKey]map[types.Hash256]struct{}
-	failedChecks    map[types.PublicKey]map[types.Hash256]int
+	migratedSectors map[types.PublicKey]map[types.Hash256]struct{}
+	pinnedSlabs     map[proto.Account]map[SlabID]Slab
 	sectorsForCheck []types.Hash256
 	serviceAccounts map[proto.Account]map[types.PublicKey]types.Currency
 }
@@ -26,9 +30,12 @@ type mockStore struct {
 func newMockStore() *mockStore {
 	return &mockStore{
 		accounts:        make(map[proto.Account]struct{}),
-		hosts:           make(map[types.PublicKey]hosts.Host),
+		contracts:       make(map[types.PublicKey]contracts.Contract),
 		failedChecks:    make(map[types.PublicKey]map[types.Hash256]int),
+		hosts:           make(map[types.PublicKey]hosts.Host),
 		lostSectors:     make(map[types.PublicKey]map[types.Hash256]struct{}),
+		migratedSectors: make(map[types.PublicKey]map[types.Hash256]struct{}),
+		pinnedSlabs:     make(map[proto.Account]map[SlabID]Slab),
 		serviceAccounts: make(map[proto.Account]map[types.PublicKey]types.Currency),
 	}
 }
@@ -36,6 +43,25 @@ func newMockStore() *mockStore {
 func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey) error {
 	s.accounts[proto.Account(account)] = struct{}{}
 	return nil
+}
+
+func (s *mockStore) Contracts(ctx context.Context, offset, limit int, opts ...contracts.ContractQueryOpt) ([]contracts.Contract, error) {
+	opt := contracts.ContractQueryOpts{}
+	for _, o := range opts {
+		o(&opt)
+	}
+
+	var contracts []contracts.Contract
+	for _, c := range s.contracts {
+		if opt.Good != nil {
+			if *opt.Good != c.Good {
+				continue
+			}
+		}
+		// NOTE: currently ignores revisable filter
+		contracts = append(contracts, c)
+	}
+	return contracts, nil
 }
 
 func (s *mockStore) FailingSectors(ctx context.Context, hostKey types.PublicKey, minChecks, limit int) ([]types.Hash256, error) {
@@ -49,7 +75,23 @@ func (s *mockStore) FailingSectors(ctx context.Context, hostKey types.PublicKey,
 }
 
 func (s *mockStore) Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error) {
-	panic("not implemented")
+	opt := hosts.DefaultHostsQueryOpts
+	for _, o := range queryOpts {
+		o(&opt)
+	}
+
+	var hosts []hosts.Host
+	for _, h := range s.hosts {
+		if opt.Good != nil {
+			if *opt.Good != h.Usability.Usable() {
+				continue
+			}
+		}
+		// NOTE: currently ignores blocked filter
+		hosts = append(hosts, h)
+	}
+
+	return hosts, nil
 }
 
 func (s *mockStore) HostsForIntegrityChecks(ctx context.Context, limit int) (result []types.PublicKey, err error) {
@@ -63,6 +105,10 @@ func (s *mockStore) HostsWithLostSectors(ctx context.Context) (hks []types.Publi
 		}
 	}
 	return
+}
+
+func (s *mockStore) MaintenanceSettings(ctx context.Context) (contracts.MaintenanceSettings, error) {
+	return contracts.DefaultMaintenanceSettings, nil
 }
 
 func (s *mockStore) MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error {
@@ -84,8 +130,63 @@ func (s *mockStore) MarkSectorsLost(ctx context.Context, hostKey types.PublicKey
 	return nil
 }
 
+func (s *mockStore) MigrateSector(ctx context.Context, root types.Hash256, hostKey types.PublicKey) (bool, error) {
+	_, ok := s.migratedSectors[hostKey]
+	if !ok {
+		s.migratedSectors[hostKey] = make(map[types.Hash256]struct{})
+	}
+	s.migratedSectors[hostKey][root] = struct{}{}
+
+	contract, ok := s.contracts[hostKey]
+	if !ok {
+		return false, errors.New("host contract not found")
+	}
+
+	for acc := range s.accounts {
+		for slabID, slab := range s.pinnedSlabs[acc] {
+			for i, sector := range slab.Sectors {
+				if sector.Root == root {
+					s.pinnedSlabs[acc][slabID].Sectors[i].HostKey = &hostKey
+					s.pinnedSlabs[acc][slabID].Sectors[i].ContractID = &contract.ID
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *mockStore) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error) {
-	panic("not implemented")
+	slabID, err := slab.Digest()
+	if err != nil {
+		return SlabID{}, err
+	}
+
+	sectors := make([]Sector, 0, len(slab.Sectors))
+	for _, ss := range slab.Sectors {
+		contract, ok := s.contracts[ss.HostKey]
+		if !ok {
+			sectors = append(sectors, Sector{Root: ss.Root})
+			continue
+		}
+		sectors = append(sectors, Sector{
+			Root:       ss.Root,
+			ContractID: &contract.ID,
+			HostKey:    &contract.HostKey,
+		})
+	}
+
+	_, ok := s.pinnedSlabs[account]
+	if !ok {
+		s.pinnedSlabs[account] = make(map[SlabID]Slab)
+	}
+	s.pinnedSlabs[account][slabID] = Slab{
+		ID:            slabID,
+		EncryptionKey: slab.EncryptionKey,
+		MinShards:     slab.MinShards,
+		Sectors:       sectors,
+	}
+	return slabID, nil
 }
 
 func (s *mockStore) RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error {
@@ -107,7 +208,31 @@ func (s *mockStore) SectorsForIntegrityCheck(ctx context.Context, hostKey types.
 }
 
 func (s *mockStore) Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error) {
-	panic("not implemented")
+	var slabs []Slab
+	for _, slab := range s.pinnedSlabs[accountID] {
+		slabs = append(slabs, slab)
+	}
+	return slabs, nil
+}
+
+func (s *mockStore) UnhealthySlab(ctx context.Context, maxRepairAttempt time.Time) (Slab, error) {
+	for acc := range s.accounts {
+		for _, slab := range s.pinnedSlabs[acc] {
+			for _, sector := range slab.Sectors {
+				if sector.ContractID == nil || sector.HostKey == nil {
+					return slab, nil
+				}
+				if sector.HostKey != nil {
+					hk := *sector.HostKey
+					contract, ok := s.contracts[hk]
+					if ok && !contract.Good {
+						return slab, nil
+					}
+				}
+			}
+		}
+	}
+	return Slab{}, ErrSlabNotFound
 }
 
 type mockAccountManager struct {

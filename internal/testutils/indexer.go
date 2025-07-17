@@ -97,6 +97,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	c.addSyncFn(syncFn)
 
 	adminAPIOpts := []admin.Option{
+		admin.WithDebug(),
 		admin.WithLogger(log.Named("api.admin")),
 		admin.WithExplorer(explorer.New("https://api.siascan.com")),
 	}
@@ -188,11 +189,6 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger) *Indexer {
 	}
 }
 
-// Store returns the underlying store.
-func (idx *Indexer) Store() *postgres.Store {
-	return idx.db
-}
-
 // HostClient returns a host client for the given host public key.
 func (idx *Indexer) HostClient(t testing.TB, hk types.PublicKey) *client.HostClient {
 	h, err := idx.db.Host(context.Background(), hk)
@@ -204,6 +200,11 @@ func (idx *Indexer) HostClient(t testing.TB, hk types.PublicKey) *client.HostCli
 		t.Fatalf("failed to dial host %s: %v", hk, err)
 	}
 	return hc
+}
+
+// Store returns the underlying store.
+func (idx *Indexer) Store() *postgres.Store {
+	return idx.db
 }
 
 // Tip returns the current tip of the chain.
