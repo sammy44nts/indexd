@@ -39,7 +39,7 @@ func TestAccountFundingE2E(t *testing.T) {
 	acc := proto.Account(a1.PublicKey())
 	hk := hosts[0].PublicKey
 	hp := hosts[0].Settings.Prices
-	hc := indexer.HostClient(hk)
+	hc := indexer.HostClient(t, hk)
 	token := acc.Token(a1, hk)
 	target := types.Siacoins(1)
 
