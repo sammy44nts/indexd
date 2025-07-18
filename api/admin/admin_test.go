@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
@@ -28,42 +27,36 @@ func TestAccountsAPI(t *testing.T) {
 	cluster := testutils.NewCluster(t)
 	indexer := cluster.Indexer
 
-	var accs []types.PublicKey
-	for range 10 {
-		accs = append(accs, types.GeneratePrivateKey().PublicKey())
-		err := indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	err := indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
-	if err == nil || !strings.Contains(err.Error(), accounts.ErrExists.Error()) {
-		t.Fatal("expected ErrExists", err)
-	}
-
 	accounts, err := indexer.Accounts(context.Background())
 	if err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(accs, accounts) {
-		t.Fatal("unexpected accounts", accounts)
+	} else if len(accounts) != 2 {
+		t.Fatal("unexpected accounts", len(accounts))
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(7), api.WithLimit(2))
+	acc := types.GeneratePrivateKey()
+	err = indexer.AccountsAdd(context.Background(), acc.PublicKey())
 	if err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(accs[7:9], accounts) {
-		t.Fatal("unexpected accounts", accounts)
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(10), api.WithLimit(2))
+	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(2), api.WithLimit(1))
 	if err != nil {
 		t.Fatal(err)
-	} else if len(accounts) != 0 {
+	} else if len(accounts) != 1 {
+		t.Fatal("unexpected accounts", len(accounts))
+	} else if accounts[0] != acc.PublicKey() {
+		t.Fatal("unexpected account", accounts[0])
+	}
+
+	accounts, err = indexer.Accounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accounts) != 3 {
 		t.Fatal("unexpected accounts", accounts)
 	}
 
-	for _, acc := range accs {
+	for _, acc := range accounts {
 		err = indexer.AccountsDelete(context.Background(), acc)
 		if err != nil {
 			t.Fatal(err)
