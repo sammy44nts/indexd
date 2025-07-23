@@ -158,6 +158,7 @@ CREATE TABLE contracts (
 
   -- lifetime related columns
   formation TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  formation_height BIGINT, -- height contract was formed
   proof_height BIGINT NOT NULL, -- start of proof window
   expiration_height BIGINT NOT NULL, -- end of proof window
   renewed_from BYTEA UNIQUE REFERENCES contracts(contract_id),

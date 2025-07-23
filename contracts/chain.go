@@ -22,6 +22,7 @@ type (
 		IsKnownContract(contractID types.FileContractID) (bool, error)
 		UpdateContractElements(fces ...types.V2FileContractElement) error
 		UpdateContractState(contractID types.FileContractID, state ContractState) error
+		UpdateFormationHeight(contractID types.FileContractID, height *uint64) error
 	}
 
 	updateTx struct {
@@ -101,7 +102,7 @@ func (m *ContractManager) applyChainUpdate(tx *updateTx, cau chain.ApplyUpdate) 
 		} else if !known {
 			continue // ignore unknown contracts
 		}
-		if err := m.applyContractDiff(tx, diff); err != nil {
+		if err := m.applyContractDiff(tx, diff, cau.ChainIndexElement().ChainIndex.Height); err != nil {
 			return fmt.Errorf("failed to apply contract diff: %w", err)
 		}
 	}
@@ -110,7 +111,7 @@ func (m *ContractManager) applyChainUpdate(tx *updateTx, cau chain.ApplyUpdate) 
 	return updateContractElementProofs(tx, cau)
 }
 
-func (m *ContractManager) applyContractDiff(tx *updateTx, diff consensus.V2FileContractElementDiff) error {
+func (m *ContractManager) applyContractDiff(tx *updateTx, diff consensus.V2FileContractElementDiff, height uint64) error {
 	// update contract state
 	if diff.Resolution != nil || diff.Created {
 		var state ContractState
@@ -119,6 +120,9 @@ func (m *ContractManager) applyContractDiff(tx *updateTx, diff consensus.V2FileC
 			state = ContractStateResolved
 		case diff.Created:
 			state = ContractStateActive
+			if err := tx.UpdateFormationHeight(diff.V2FileContractElement.ID, &height); err != nil {
+				return fmt.Errorf("failed to update contract height: %w", err)
+			}
 		default:
 			panic("unknown state") // unreachable
 		}
@@ -162,6 +166,9 @@ func (m *ContractManager) revertContractDiff(tx *updateTx, diff consensus.V2File
 		switch {
 		case diff.Created:
 			state = ContractStatePending
+			if err := tx.UpdateFormationHeight(diff.V2FileContractElement.ID, nil); err != nil {
+				return fmt.Errorf("failed to update contract height: %w", err)
+			}
 		case diff.Resolution != nil:
 			state = ContractStateActive
 		default:

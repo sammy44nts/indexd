@@ -82,6 +82,7 @@ type (
 
 		// revision fields, updated on refresh/renewal
 		RevisionNumber     uint64         `json:"revisionNumber"`     // current revision number
+		FormationHeight    uint64         `json:"formationHeight"`    // height contract was formed
 		ProofHeight        uint64         `json:"proofHeight"`        // start of the contract's proof window
 		ExpirationHeight   uint64         `json:"expirationHeight"`   // end of the contract's proof window
 		Capacity           uint64         `json:"capacity"`           // already paid for capacity (always >=Size)

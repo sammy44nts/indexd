@@ -315,21 +315,24 @@ func (s *storeMock) UpdateContractRevision(ctx context.Context, contract rhp.Con
 // mockUpdateTx is a mocked implementation of UpdateTx which allows for unit
 // testing the contract manager's chain updates without a full database.
 type mockUpdateTx struct {
-	contracts map[types.FileContractID]types.V2FileContractElement
-	state     map[types.FileContractID]ContractState
+	contracts       map[types.FileContractID]types.V2FileContractElement
+	formationHeight map[types.FileContractID]*uint64
+	state           map[types.FileContractID]ContractState
 }
 
 // newMockUpdateTx creates a new mock UpdateTx.
 func newMockUpdateTx() *mockUpdateTx {
 	return &mockUpdateTx{
-		contracts: make(map[types.FileContractID]types.V2FileContractElement),
-		state:     make(map[types.FileContractID]ContractState),
+		contracts:       make(map[types.FileContractID]types.V2FileContractElement),
+		formationHeight: make(map[types.FileContractID]*uint64),
+		state:           make(map[types.FileContractID]ContractState),
 	}
 }
 
 func (tx *mockUpdateTx) AddContract(fce types.V2FileContractElement) {
 	tx.contracts[fce.ID] = fce
 	tx.state[fce.ID] = ContractStatePending
+	tx.formationHeight[fce.ID] = nil
 }
 
 func (tx *mockUpdateTx) ContractElements() ([]types.V2FileContractElement, error) {
@@ -355,6 +358,16 @@ func (tx *mockUpdateTx) Contract(contractID types.FileContractID) (types.V2FileC
 func (tx *mockUpdateTx) IsKnownContract(contractID types.FileContractID) (bool, error) {
 	_, ok := tx.contracts[contractID]
 	return ok, nil
+}
+
+func (tx *mockUpdateTx) FormationHeight(contractID types.FileContractID) (*uint64, bool) {
+	formationHeight, ok := tx.formationHeight[contractID]
+	return formationHeight, ok
+}
+
+func (tx *mockUpdateTx) UpdateFormationHeight(contractID types.FileContractID, height *uint64) error {
+	tx.formationHeight[contractID] = height
+	return nil
 }
 
 func (tx *mockUpdateTx) UpdateContractElements(fces ...types.V2FileContractElement) error {
@@ -492,9 +505,9 @@ func TestApplyRevertDiff(t *testing.T) {
 	}
 
 	// helper to apply/revert diff
-	applyDiff := func(diff consensus.V2FileContractElementDiff) {
+	applyDiff := func(diff consensus.V2FileContractElementDiff, formationHeight uint64) {
 		t.Helper()
-		err := contracts.applyContractDiff(updateTx, diff)
+		err := contracts.applyContractDiff(updateTx, diff, formationHeight)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -507,26 +520,33 @@ func TestApplyRevertDiff(t *testing.T) {
 		}
 	}
 
-	assertContract := func(state ContractState) {
+	assertContract := func(state ContractState, formationHeight *uint64) {
 		t.Helper()
 		storedFCE, storedState := mock.Contract(contractID)
+		storedFormationHeight, ok := mock.FormationHeight(contractID)
+		if !ok {
+			panic("can't get formation heights")
+		}
 		if storedState != state {
 			t.Fatalf("expected state %v, got %v", state, storedState)
 		} else if !reflect.DeepEqual(storedFCE, fce) {
 			t.Fatalf("expected contract %v, got %v", fce, storedFCE)
+		} else if (storedFormationHeight == nil) != (formationHeight == nil) || (storedFormationHeight != nil && *storedFormationHeight != *formationHeight) {
+			t.Fatalf("expected formation height %d, got %d", storedFormationHeight, formationHeight)
 		}
 	}
 
 	// initial state
-	assertContract(ContractStatePending)
+	assertContract(ContractStatePending, nil)
 
+	height1 := uint64(1)
 	// confirm the contract
 	fce.V2FileContract.RevisionNumber++
 	applyDiff(consensus.V2FileContractElementDiff{
 		Created:               true,
 		V2FileContractElement: fce,
-	})
-	assertContract(ContractStateActive)
+	}, height1)
+	assertContract(ContractStateActive, &height1)
 
 	// revise contract
 	revision := fce.V2FileContract
@@ -534,17 +554,17 @@ func TestApplyRevertDiff(t *testing.T) {
 	applyDiff(consensus.V2FileContractElementDiff{
 		V2FileContractElement: fce,
 		Revision:              &revision,
-	})
+	}, 2)
 	fce.V2FileContract.RevisionNumber = revision.RevisionNumber
-	assertContract(ContractStateActive)
+	assertContract(ContractStateActive, &height1)
 
 	// resolve contract
 	fce.V2FileContract.RevisionNumber++
 	applyDiff(consensus.V2FileContractElementDiff{
 		V2FileContractElement: fce,
 		Resolution:            &types.V2StorageProof{},
-	})
-	assertContract(ContractStateResolved)
+	}, 3)
+	assertContract(ContractStateResolved, &height1)
 
 	// revert resolution
 	fce.V2FileContract.RevisionNumber--
@@ -552,7 +572,7 @@ func TestApplyRevertDiff(t *testing.T) {
 		V2FileContractElement: fce,
 		Resolution:            &types.V2StorageProof{},
 	})
-	assertContract(ContractStateActive)
+	assertContract(ContractStateActive, &height1)
 
 	// revert revision
 	fce.V2FileContract.RevisionNumber--
@@ -560,7 +580,7 @@ func TestApplyRevertDiff(t *testing.T) {
 		V2FileContractElement: fce,
 		Revision:              &revision,
 	})
-	assertContract(ContractStateActive)
+	assertContract(ContractStateActive, &height1)
 
 	// revert contract
 	fce.V2FileContract.RevisionNumber--
@@ -568,7 +588,7 @@ func TestApplyRevertDiff(t *testing.T) {
 		Created:               true,
 		V2FileContractElement: fce,
 	})
-	assertContract(ContractStatePending)
+	assertContract(ContractStatePending, nil)
 }
 
 func TestUpdateContractElementProofs(t *testing.T) {

@@ -117,7 +117,7 @@ func (s *Store) Contract(ctx context.Context, contractID types.FileContractID) (
 	var contract contracts.Contract
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		contract, err = scanContract(tx.QueryRow(ctx, `
-SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.next_prune, c.last_broadcast_attempt
+SELECT c.contract_id, c.formation, h.public_key, c.formation_height, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.next_prune, c.last_broadcast_attempt
 FROM contracts c
 INNER JOIN hosts h ON c.host_id = h.id
 WHERE c.contract_id = $1`, sqlHash256(contractID)))
@@ -140,7 +140,7 @@ func (s *Store) Contracts(ctx context.Context, offset, limit int, queryOpts ...c
 	var contracts []contracts.Contract
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		rows, err := tx.Query(ctx, `
-SELECT c.contract_id, c.formation, h.public_key, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.next_prune, c.last_broadcast_attempt
+SELECT c.contract_id, c.formation, h.public_key, c.formation_height, c.proof_height, c.expiration_height, c.renewed_from, c.renewed_to, c.revision_number, c.state, c.capacity, c.size, c.contract_price, c.initial_allowance, c.remaining_allowance, c.miner_fee, c.used_collateral, c.total_collateral, c.good, c.append_sector_spending, c.free_sector_spending, c.fund_account_spending, c.sector_roots_spending, c.next_prune, c.last_broadcast_attempt
 FROM contracts c
 INNER JOIN hosts h ON c.host_id = h.id
 WHERE 
@@ -395,6 +395,17 @@ func (tx *updateTx) IsKnownContract(contractID types.FileContractID) (bool, erro
 	return exists, nil
 }
 
+// UpdateFormationHeight updates the height a contract was formed.
+func (tx *updateTx) UpdateFormationHeight(contractID types.FileContractID, height *uint64) error {
+	res, err := tx.tx.Exec(tx.ctx, `UPDATE contracts SET formation_height = $1 WHERE contract_id = $2 AND renewed_to IS NULL`, height, sqlHash256(contractID))
+	if err != nil {
+		return fmt.Errorf("failed to update contract renewed to: %w", err)
+	} else if res.RowsAffected() != 1 {
+		return fmt.Errorf("expected 1 row to be affected, got %d", res.RowsAffected())
+	}
+	return nil
+}
+
 // MarkBroadcastAttempt marks a broadcast attempt for the given contract.
 func (s *Store) MarkBroadcastAttempt(ctx context.Context, contractID types.FileContractID) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
@@ -511,10 +522,12 @@ func (tx *updateTx) UpdateContractState(contractID types.FileContractID, state c
 
 func scanContract(row scanner) (contracts.Contract, error) {
 	var lastPrune sql.NullTime
+	var formationHeight sql.Null[uint64]
 	var c contracts.Contract
 	err := row.Scan((*sqlHash256)(&c.ID),
 		&c.Formation,
 		(*sqlPublicKey)(&c.HostKey),
+		&formationHeight,
 		&c.ProofHeight, &c.ExpirationHeight,
 		asNullable((*sqlHash256)(&c.RenewedFrom)),
 		asNullable((*sqlHash256)(&c.RenewedTo)),
@@ -536,6 +549,9 @@ func scanContract(row scanner) (contracts.Contract, error) {
 		&lastPrune,
 		&c.LastBroadcastAttempt,
 	)
+	if formationHeight.Valid {
+		c.FormationHeight = formationHeight.V
+	}
 	if lastPrune.Valid {
 		c.NextPrune = lastPrune.Time
 	}
