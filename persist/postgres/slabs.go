@@ -24,7 +24,7 @@ func (s *Store) Slab(ctx context.Context, digest slabs.SlabID) (slab slabs.Slab,
 		if errors.Is(err, sql.ErrNoRows) {
 			return slabs.ErrSlabNotFound
 		} else if err != nil {
-			return fmt.Errorf("failed to get slab %q: %w", slabID, err)
+			return fmt.Errorf("failed to get slab %q: %w", digest, err)
 		}
 
 		sectorsBatch := &pgx.Batch{}
