@@ -180,24 +180,34 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 		opt(m)
 	}
 
-	// add accounts to store
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := store.AddAccount(ctx, migrationAccount.PublicKey()); err != nil && !errors.Is(err, accounts.ErrExists) {
-		return nil, fmt.Errorf("failed to add migration account: %w", err)
-	} else if err := store.AddAccount(ctx, integrityAccount.PublicKey()); err != nil && !errors.Is(err, accounts.ErrExists) {
-		return nil, fmt.Errorf("failed to add integrity account: %w", err)
+	err := m.initServiceAccounts(migrationAccount, integrityAccount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize service accounts: %w", err)
 	}
 
-	// let AccountManager know about the service accounts
-	am.RegisterServiceAccount(proto.Account(migrationAccount.PublicKey()))
-	am.RegisterServiceAccount(proto.Account(integrityAccount.PublicKey()))
 	return m, nil
 }
 
 // Close closes the manager.
 func (m *SlabManager) Close() error {
 	m.tg.Stop()
+	return nil
+}
+
+func (m *SlabManager) initServiceAccounts(sks ...types.PrivateKey) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, sk := range sks {
+		// ensure account is added to the store
+		err := m.store.AddAccount(ctx, sk.PublicKey())
+		if err != nil && !errors.Is(err, accounts.ErrExists) {
+			return fmt.Errorf("failed to add service account: %w", err)
+		}
+
+		// ensure account is registered with the AccountManager
+		m.am.RegisterServiceAccount(proto.Account(sk.PublicKey()))
+	}
 	return nil
 }
 
