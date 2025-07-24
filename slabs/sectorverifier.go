@@ -39,9 +39,9 @@ type (
 	// accordingly. It returns a list of CheckSectorsResult for each sector that
 	// gets verified.
 	SectorVerifier struct {
-		am               AccountManager
-		dialer           Dialer
-		integrityAccount types.PrivateKey
+		am             AccountManager
+		dialer         Dialer
+		serviceAccount types.PrivateKey
 	}
 
 	// CheckSectorsResult is the result of a sector verification. It indicates
@@ -53,8 +53,8 @@ type (
 )
 
 // NewSectorVerifier creates a new SectorVerifier.
-func NewSectorVerifier(am AccountManager, dialer Dialer, integrityAccount types.PrivateKey) *SectorVerifier {
-	return &SectorVerifier{am: am, dialer: dialer, integrityAccount: integrityAccount}
+func NewSectorVerifier(am AccountManager, dialer Dialer, serviceAccount types.PrivateKey) *SectorVerifier {
+	return &SectorVerifier{am: am, dialer: dialer, serviceAccount: serviceAccount}
 }
 
 // CheckBalance ensures the service account balance is sufficient to cover the
@@ -160,10 +160,10 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, host hosts.Host, roo
 }
 
 func (v *SectorVerifier) account() proto.Account {
-	return proto.Account(v.integrityAccount.PublicKey())
+	return proto.Account(v.serviceAccount.PublicKey())
 }
 
 func (v *SectorVerifier) token(hostKey types.PublicKey) proto.AccountToken {
-	acc := proto.Account(v.integrityAccount.PublicKey())
-	return acc.Token(v.integrityAccount, hostKey)
+	acc := proto.Account(v.serviceAccount.PublicKey())
+	return acc.Token(v.serviceAccount, hostKey)
 }

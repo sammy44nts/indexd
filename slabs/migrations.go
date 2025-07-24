@@ -15,7 +15,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-func (m *SlabManager) migrateSlabs(ctx context.Context, slabIDs []SlabID, l *zap.Logger) error {
+func (m *SlabManager) migrateSlabs(ctx context.Context, slabs []Slab, l *zap.Logger) error {
 	logger := l.Named(hex.EncodeToString(frand.Bytes(16))) // unique id per batch
 
 	// fetch all available contracts
@@ -52,16 +52,10 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabIDs []SlabID, l *zap
 	}
 
 	var wg sync.WaitGroup
-	for _, slabID := range slabIDs {
+	for _, slab := range slabs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			slab, err := m.store.Slab(ctx, slabID)
-			if err != nil {
-				logger.Error("failed to fetch slab", zap.String("slabID", slabID.String()), zap.Error(err))
-				return
-			}
 
 			if err := m.migrateSlab(ctx, slab, allHosts, goodContracts, ms.Period, logger); err != nil {
 				logger.Error("failed to migrate slab", zap.Error(err))

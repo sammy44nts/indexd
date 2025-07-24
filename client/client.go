@@ -200,17 +200,10 @@ func (c *HostClient) RenewContract(ctx context.Context, settings proto.HostSetti
 		// 1. Contracts drain over time if they contain more funds than needed
 		// 2. Renewals are very "cheap" since no party needs to lock away
 		//    additional funds. Only the fees need to be paid.
-		collateral := contract.Revision.TotalCollateral
-		allowance := contract.Revision.RenterOutput.Value
-		minAllowance := proto.MinRenterAllowance(settings.Prices, collateral)
-		if allowance.Cmp(minAllowance) < 0 {
-			allowance = minAllowance
-		}
-
 		res, err = rhp.RPCRenewContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, contract.Revision, proto.RPCRenewContractParams{
 			ContractID:  contractID,
-			Allowance:   allowance,
-			Collateral:  collateral,
+			Allowance:   contract.Revision.RenterOutput.Value,
+			Collateral:  contract.Revision.MissedHostValue,
 			ProofHeight: proofHeight,
 		})
 		if err != nil {
