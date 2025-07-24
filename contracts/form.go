@@ -259,26 +259,3 @@ func contractFunding(settings proto.HostSettings, existingData uint64, minAllowa
 	}
 	return
 }
-
-func initialContractFunding(prices proto.HostPrices, maxCollateral types.Currency, period uint64) (allowance, collateral types.Currency) {
-	// each 10GB of upload + download + storage
-	basePrice := prices.ContractPrice
-	writeUsage := prices.RPCWriteSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	readUsage := prices.RPCReadSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	storageUsage := prices.RPCAppendSectorsCost(10*sectorsPerGiB, period)
-	total := writeUsage.Add(readUsage).Add(storageUsage)
-	allowance = total.RenterCost().Add(basePrice)
-
-	// don't go below a sane minimum to make sure we can fill an account without
-	// immediately draining the contract and requiring a refresh.
-	if allowance.Cmp(minAllowance) < 0 {
-		allowance = minAllowance
-	}
-
-	// don't go beyond the host's max collateral limits
-	collateral = proto.MaxHostCollateral(prices, allowance)
-	if collateral.Cmp(maxCollateral) > 0 {
-		collateral = maxCollateral
-	}
-	return allowance, collateral
-}

@@ -249,7 +249,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
 		// assert params
-		allowance, collateral := initialContractFunding(goodSettings.Prices, goodSettings.MaxCollateral, period)
+		allowance, collateral := contractFunding(goodSettings, 0, minAllowance, minHostCollateral, period)
 		if !call.params.Allowance.Equals(allowance) {
 			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
 		} else if !call.params.Collateral.Equals(collateral) {
@@ -415,7 +415,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
 		// assert params
-		allowance, collateral := initialContractFunding(goodSettings.Prices, goodSettings.MaxCollateral, period)
+		allowance, collateral := contractFunding(goodSettings, 0, minAllowance, minHostCollateral, period)
 		if !call.params.Allowance.Equals(allowance) {
 			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
 		} else if !call.params.Collateral.Equals(collateral) {
@@ -451,43 +451,6 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	// the 3 we started with plus the 3 we formed
 	if len(store.contracts) != 6 {
 		t.Fatalf("expected 6 contracts, got %v", len(store.contracts))
-	}
-}
-
-func TestInitialContractFunding(t *testing.T) {
-	maxCollateral := types.MaxCurrency
-	prices := proto.HostPrices{
-		ContractPrice: types.Siacoins(1),
-		Collateral:    types.NewCurrency64(1),
-		StoragePrice:  types.NewCurrency64(2),
-		IngressPrice:  types.Siacoins(3),
-		EgressPrice:   types.Siacoins(4),
-	}
-	period := uint64(100)
-
-	// manually compute funding for sane prices
-	basePrice := prices.ContractPrice
-	writeUsage := prices.RPCWriteSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	readUsage := prices.RPCReadSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	storageUsage := prices.RPCAppendSectorsCost(10*sectorsPerGiB, period)
-	total := writeUsage.Add(readUsage).Add(storageUsage)
-	expectedAllowance := total.RenterCost().Add(basePrice)
-	expectedCollateral := proto.MaxHostCollateral(prices, expectedAllowance)
-
-	allowance, collateral := initialContractFunding(prices, maxCollateral, period)
-	if !allowance.Equals(expectedAllowance) {
-		t.Fatalf("expected allowance %v, got %v", expectedAllowance, allowance)
-	} else if !collateral.Equals(expectedCollateral) {
-		t.Fatalf("expected collateral %v, got %v", expectedCollateral, collateral)
-	}
-
-	// make sure the allowance doesn't go below the minimum allowance and stays
-	// at the max collateral when storage is cheap/free
-	allowance, collateral = initialContractFunding(proto.HostPrices{}, maxCollateral, period)
-	if allowance.Cmp(minAllowance) < 0 {
-		t.Fatalf("expected allowance %v, got %v", minAllowance, allowance)
-	} else if !collateral.Equals(maxCollateral) {
-		t.Fatalf("expected collateral %v, got %v", maxCollateral, collateral)
 	}
 }
 
