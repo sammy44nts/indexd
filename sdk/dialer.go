@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -145,6 +146,13 @@ func (d *Dialer) retry(ctx context.Context, hostKey types.PublicKey, fn func(rhp
 }
 
 func (d *Dialer) prices(ctx context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+	d.mu.Lock()
+	if settings, ok := d.cachedSettings[hostKey]; ok && time.Now().Before(settings.Prices.ValidUntil) {
+		d.mu.Unlock()
+		return settings.Prices, nil
+	}
+	d.mu.Unlock()
+
 	var settings proto.HostSettings
 	err := d.retry(ctx, hostKey, func(tc rhp.TransportClient) (err error) {
 		settings, err = rhp.RPCSettings(ctx, tc)
