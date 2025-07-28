@@ -184,7 +184,13 @@ func (c *HostClient) RefreshContract(ctx context.Context, settings proto.HostSet
 	var res rhp.RPCRefreshContractResult
 	if err := c.withRevision(ctx, params.ContractID, func(contract rhp.ContractRevision) (_ rhp.ContractRevision, err error) {
 		res, err = rhp.RPCRefreshContractPartialRollover(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, contract.Revision, params)
-		return res.Contract, err
+		if err != nil {
+			return rhp.ContractRevision{}, err
+		}
+		// renewals return the old (or 'renewed') revision, the revision of the
+		// renewal will be persisted in the database when the renewed contract
+		// is added
+		return contract, nil
 	}); err != nil {
 		return rhp.RPCRefreshContractResult{}, fmt.Errorf("failed to refresh contract: %w", err)
 	}
