@@ -96,8 +96,9 @@ type (
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
 		RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
+		Slab(ctx context.Context, slabID SlabID) (Slab, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
-		UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) ([]Slab, error)
+		UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) ([]SlabID, error)
 	}
 
 	// AlertsManager defines an interface to register alerts.
