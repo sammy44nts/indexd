@@ -60,6 +60,7 @@ func (m *SlabManager) migrateSlabs(ctx context.Context, slabIDs []SlabID, l *zap
 			slab, err := m.store.Slab(ctx, slabID)
 			if err != nil {
 				logger.Error("failed to fetch slab", zap.Error(err), zap.Stringer("slabID", slabID))
+				return
 			}
 
 			if err := m.migrateSlab(ctx, slab, allHosts, goodContracts, ms.Period, logger); err != nil {
