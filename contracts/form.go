@@ -15,10 +15,37 @@ import (
 
 const sectorsPerGiB = uint64(1<<30) / proto.SectorSize
 
-// minAllowance is a sane minimum for the allowance we put into a contract to
-// make sure forming the contract is worthwhile and we don't spend more on fees
-// than on actual usage.
-var minAllowance = types.Siacoins(10)
+const (
+	// minContractGrowthRate is the minimum expected growth rate
+	// for contracts used when calculating funding. Lowering
+	// this value will mean contracts will need to be refreshed
+	// more frequently. 32 GiB is a good trade off between initial
+	// cost to both parties and the frequency of refreshes.
+	minContractGrowthRate = 32 << 30
+
+	// maxContractGrowthRate is the maximum additional data
+	// allowed when adding funds for refresh or renews. This
+	// means contracts will not grow exponentially as more data
+	// is uploaded. Decreasing this will mean contracts
+	// will need to be refreshed more frequently. Increasing
+	// this will mean large contracts will be more expensive.
+	// 256 GiB is a good trade off between cost and frequency of
+	// refreshes due to how long it would take to reasonably upload
+	// that amount of data with a 10 Gbps connection.
+	maxContractGrowthRate = 256 << 30
+)
+
+var (
+	// minAllowance is the minimum allowance the
+	// renter will use when forming, refreshing, or renewing a
+	// contract. This is because account funding is done using
+	// 1 SC increments.
+	minAllowance = types.Siacoins(10) // 10 SC
+	// minHostCollateral is the minimum collateral the
+	// renter will request when forming, refreshing, or renewing a
+	// contract.
+	minHostCollateral = types.Siacoins(1)
+)
 
 type (
 	formContractSigner struct {
@@ -78,6 +105,10 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	// helpers for CIDR check
 	usedCidrs := make(map[string]types.PublicKey)
 	addHost := func(host hosts.Host) {
+		// NOTE: in testing CIDR checks are disabled because the hosts' network
+		// is an unspecified IPv6 address, in those cases we use the host's
+		// public key to ensure we don't keep forming contracts with the same
+		// host.
 		if cm.disableCIDRChecks {
 			usedCidrs[host.PublicKey.String()] = host.PublicKey
 		} else {
@@ -85,6 +116,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				usedCidrs[network.IP.String()] = host.PublicKey
 			}
 		}
+
 		wanted--
 	}
 	hasCidrConflict := func(host hosts.Host) (types.PublicKey, bool) {
@@ -179,7 +211,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				return fmt.Errorf("host is not good: %s", host.PublicKey)
 			}
 
-			allowance, collateral := initialContractFunding(host.Settings.Prices, host.Settings.MaxCollateral, period)
+			allowance, collateral := contractFunding(host.Settings, 0, minAllowance, minHostCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
@@ -223,25 +255,25 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	return nil
 }
 
-func initialContractFunding(prices proto.HostPrices, maxCollateral types.Currency, period uint64) (allowance, collateral types.Currency) {
-	// each 10GB of upload + download + storage
-	basePrice := prices.ContractPrice
-	writeUsage := prices.RPCWriteSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	readUsage := prices.RPCReadSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	storageUsage := prices.RPCAppendSectorsCost(10*sectorsPerGiB, period)
-	total := writeUsage.Add(readUsage).Add(storageUsage)
-	allowance = total.RenterCost().Add(basePrice)
-
-	// don't go below a sane minimum to make sure we can fill an account without
-	// immediately draining the contract and requiring a refresh.
+// contractFunding is a helper that calculates the funding and collateral
+// that go into forming, refreshing or renewing a contract.
+func contractFunding(settings proto.HostSettings, existingData uint64, minAllowance, minCollateral types.Currency, duration uint64) (allowance, collateral types.Currency) {
+	multiplier := 1 + (existingData / minContractGrowthRate)
+	contractGrowth := min(minContractGrowthRate*multiplier, maxContractGrowthRate) / proto.SectorSize // 100% growth clamped to [32GiB, 256GiB]
+	uploadCost := settings.Prices.RPCWriteSectorCost(proto.SectorSize).RenterCost().Mul64(contractGrowth)
+	downloadCost := settings.Prices.RPCReadSectorCost(proto.SectorSize).RenterCost().Mul64(contractGrowth)
+	storeCost := settings.Prices.RPCAppendSectorsCost(contractGrowth, duration).RenterCost()
+	allowance = uploadCost.Add(storeCost).Add(downloadCost)
 	if allowance.Cmp(minAllowance) < 0 {
-		allowance = minAllowance
+		allowance = minAllowance // ensure we have at least the minimum allowance
 	}
 
-	// don't go beyond the host's max collateral limits
-	collateral = proto.MaxHostCollateral(prices, allowance)
-	if collateral.Cmp(maxCollateral) > 0 {
-		collateral = maxCollateral
+	collateral = proto.MaxHostCollateral(settings.Prices, storeCost) // based on store cost because uploads do not require collateral
+	if collateral.Cmp(settings.MaxCollateral) > 0 {
+		collateral = settings.MaxCollateral
 	}
-	return allowance, collateral
+	if collateral.Cmp(minCollateral) < 0 {
+		collateral = minCollateral // ensure we have at least the minimum collateral
+	}
+	return
 }

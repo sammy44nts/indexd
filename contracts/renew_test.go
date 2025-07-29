@@ -14,23 +14,21 @@ import (
 )
 
 type renewContractCall struct {
-	settings    proto.HostSettings
-	contractID  types.FileContractID
-	proofHeight uint64
+	settings proto.HostSettings
+	params   proto.RPCRenewContractParams
 }
 
-func (c *hostClientMock) RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error) {
+func (c *hostClientMock) RenewContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRenewContractParams) (rhp.RPCRenewContractResult, error) {
 	c.renewCalls = append(c.renewCalls, renewContractCall{
-		settings:    settings,
-		contractID:  contractID,
-		proofHeight: proofHeight,
+		settings: settings,
+		params:   params,
 	})
 	return rhp.RPCRenewContractResult{
 		Contract: rhp.ContractRevision{
 			ID: frand.Entropy256(),
 			Revision: types.V2FileContract{
-				ExpirationHeight: proofHeight + proto.ProofWindow,
-				ProofHeight:      proofHeight,
+				ExpirationHeight: params.ProofHeight + proto.ProofWindow,
+				ProofHeight:      params.ProofHeight,
 			},
 		},
 		RenewalSet: rhp.TransactionSet{
@@ -114,10 +112,10 @@ func TestPerformContractRenewals(t *testing.T) {
 		t.Helper()
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
-		} else if call.contractID != renewedFrom {
-			t.Fatalf("expected renewedFrom %v, got %v", renewedFrom, call.contractID)
-		} else if call.proofHeight != proofHeight {
-			t.Fatalf("expected proof height %v, got %v", proofHeight, call.proofHeight)
+		} else if call.params.ContractID != renewedFrom {
+			t.Fatalf("expected renewedFrom %v, got %v", renewedFrom, call.params.ContractID)
+		} else if call.params.ProofHeight != proofHeight {
+			t.Fatalf("expected proof height %v, got %v", proofHeight, call.params.ProofHeight)
 		}
 	}
 

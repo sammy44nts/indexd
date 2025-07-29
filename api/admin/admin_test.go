@@ -28,6 +28,7 @@ func TestAccountsAPI(t *testing.T) {
 	c := testutils.NewConsensusNode(t, zap.NewNop())
 	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
+	// remove all existing accounts (slab related service accounts)
 	existing, err := indexer.Accounts(context.Background())
 	if err != nil {
 		t.Fatal(err)
