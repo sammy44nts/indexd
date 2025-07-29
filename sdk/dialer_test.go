@@ -59,9 +59,7 @@ func TestHostDialer(t *testing.T) {
 		t.Fatal("retrieved sector does not match")
 	}
 
-	if err := dialer.Close(); err != nil {
-		t.Fatal(err)
-	}
+	dialer.Close()
 
 	// read sector again after closing connection
 	sector, err = dialer.ReadSector(context.Background(), hk, root)
@@ -73,9 +71,7 @@ func TestHostDialer(t *testing.T) {
 		t.Fatal("retrieved sector does not match")
 	}
 
-	if err := dialer.Close(); err != nil {
-		t.Fatal(err)
-	}
+	dialer.Close()
 }
 
 func TestHostDialerParallel(t *testing.T) {
@@ -137,7 +133,5 @@ func TestHostDialerParallel(t *testing.T) {
 	}
 	wg.Wait()
 
-	if err := dialer.Close(); err != nil {
-		t.Fatal(err)
-	}
+	dialer.Close()
 }

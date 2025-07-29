@@ -86,27 +86,21 @@ func (d *Dialer) Start(ctx context.Context) (func(), error) {
 }
 
 // Close closes all the open connections on the dialer.
-func (d *Dialer) Close() error {
+func (d *Dialer) Close() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	var errs []error
-	for _, entry := range d.conns {
+	for hostKey, entry := range d.conns {
 		entry.mu.Lock()
 		if entry.tc != nil {
 			if err := entry.tc.Close(); err != nil {
-				errs = append(errs, err)
+				d.log.Debug("Failed to close connection", zap.Stringer("pk", hostKey), zap.Error(err))
 			}
-			entry.tc = nil
 		}
+		entry.tc = nil
 		entry.mu.Unlock()
 	}
 	clear(d.conns)
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
 }
 
 func (d *Dialer) updateHosts(ctx context.Context) error {
