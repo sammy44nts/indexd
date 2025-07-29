@@ -62,6 +62,14 @@ func (d *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr
 	return d.clients[hostKey], nil
 }
 
+func (d *dialerMock) TotalFormations() int {
+	var nCalls int
+	for _, calls := range d.clients {
+		nCalls += len(calls.formCalls)
+	}
+	return nCalls
+}
+
 type hostClientMock struct {
 	failsRPCs bool
 
@@ -232,6 +240,7 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 		bad2.PublicKey:  bad2,
 		bad3.PublicKey:  bad3,
 		good3.PublicKey: good3,
+		good4.PublicKey: good4,
 	}
 
 	dialer := newDialerMock()
@@ -244,12 +253,17 @@ func TestPerformContractFormationWithoutContracts(t *testing.T) {
 
 	assertFormation := func(h hosts.Host) {
 		t.Helper()
-		call := dialer.HostClient(h.PublicKey).Calls()[0]
+
+		calls := dialer.HostClient(h.PublicKey).Calls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 call for host %v, got %v", h.PublicKey, len(calls))
+		}
+		call := calls[0]
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
 		// assert params
-		allowance, collateral := initialContractFunding(goodSettings.Prices, goodSettings.MaxCollateral, period)
+		allowance, collateral := contractFunding(goodSettings, 0, minAllowance, minHostCollateral, period)
 		if !call.params.Allowance.Equals(allowance) {
 			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
 		} else if !call.params.Collateral.Equals(collateral) {
@@ -317,7 +331,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 
 	const (
 		period = 100
-		wanted = 4
+		wanted = 5
 	)
 
 	// helper to create a good host
@@ -390,6 +404,20 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	hm.settings[good5.PublicKey] = goodSettings
 	formContract(good5.PublicKey, false)
 
+	// seventh one is good but full host takes priority -> no formation
+	good6 := goodHost(7)
+	hm.settings[good6.PublicKey] = goodSettings
+
+	// eighth one is good but has a full contract
+	good7 := goodHost(8)
+	hm.settings[good7.PublicKey] = goodSettings
+	formContract(good7.PublicKey, true)
+	for i := range store.contracts {
+		if store.contracts[i].ID == types.FileContractID(good7.PublicKey) {
+			store.contracts[i].Size = maxContractSize
+		}
+	}
+
 	// populate store
 	store.hosts = map[types.PublicKey]hosts.Host{
 		good1.PublicKey: good1,
@@ -398,6 +426,8 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 		good3.PublicKey: good3,
 		good4.PublicKey: good4,
 		good5.PublicKey: good5,
+		good6.PublicKey: good6,
+		good7.PublicKey: good7,
 	}
 
 	dialer := newDialerMock()
@@ -410,12 +440,16 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 
 	assertFormation := func(h hosts.Host) {
 		t.Helper()
-		call := dialer.HostClient(h.PublicKey).Calls()[0]
+		calls := dialer.HostClient(h.PublicKey).Calls()
+		if len(calls) == 0 {
+			t.Fatalf("no calls for host %v", h.PublicKey)
+		}
+		call := calls[0]
 		if call.settings != goodSettings {
 			t.Fatalf("expected settings %v+, got %v+", goodSettings, call.settings)
 		}
 		// assert params
-		allowance, collateral := initialContractFunding(goodSettings.Prices, goodSettings.MaxCollateral, period)
+		allowance, collateral := contractFunding(goodSettings, 0, minAllowance, minHostCollateral, period)
 		if !call.params.Allowance.Equals(allowance) {
 			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
 		} else if !call.params.Collateral.Equals(collateral) {
@@ -436,58 +470,46 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 
 	// assert that we attempted to form contracts with the right hosts,
 	// settings and params
-	var nCalls int
-	for _, calls := range dialer.clients {
-		nCalls += len(calls.formCalls)
-	}
+	nCalls := dialer.TotalFormations()
 	if nCalls != wanted-1 {
 		t.Fatalf("expected %v calls, got %v", wanted-1, nCalls)
 	}
 	assertFormation(good3)
 	assertFormation(good4)
 	assertFormation(good5)
+	assertFormation(good7)
 
 	// the store should now contain the right number of total contracts which is
-	// the 3 we started with plus the 3 we formed
-	if len(store.contracts) != 6 {
-		t.Fatalf("expected 6 contracts, got %v", len(store.contracts))
-	}
-}
-
-func TestInitialContractFunding(t *testing.T) {
-	maxCollateral := types.MaxCurrency
-	prices := proto.HostPrices{
-		ContractPrice: types.Siacoins(1),
-		Collateral:    types.NewCurrency64(1),
-		StoragePrice:  types.NewCurrency64(2),
-		IngressPrice:  types.Siacoins(3),
-		EgressPrice:   types.Siacoins(4),
-	}
-	period := uint64(100)
-
-	// manually compute funding for sane prices
-	basePrice := prices.ContractPrice
-	writeUsage := prices.RPCWriteSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	readUsage := prices.RPCReadSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	storageUsage := prices.RPCAppendSectorsCost(10*sectorsPerGiB, period)
-	total := writeUsage.Add(readUsage).Add(storageUsage)
-	expectedAllowance := total.RenterCost().Add(basePrice)
-	expectedCollateral := proto.MaxHostCollateral(prices, expectedAllowance)
-
-	allowance, collateral := initialContractFunding(prices, maxCollateral, period)
-	if !allowance.Equals(expectedAllowance) {
-		t.Fatalf("expected allowance %v, got %v", expectedAllowance, allowance)
-	} else if !collateral.Equals(expectedCollateral) {
-		t.Fatalf("expected collateral %v, got %v", expectedCollateral, collateral)
+	// the 4 we started with plus the 4 we formed
+	if len(store.contracts) != 8 {
+		t.Fatalf("expected 8 contracts, got %v", len(store.contracts))
 	}
 
-	// make sure the allowance doesn't go below the minimum allowance and stays
-	// at the max collateral when storage is cheap/free
-	allowance, collateral = initialContractFunding(proto.HostPrices{}, maxCollateral, period)
-	if allowance.Cmp(minAllowance) < 0 {
-		t.Fatalf("expected allowance %v, got %v", minAllowance, allowance)
-	} else if !collateral.Equals(maxCollateral) {
-		t.Fatalf("expected collateral %v, got %v", maxCollateral, collateral)
+	// perform formations again, this time it's a no-op
+	if err := contracts.performContractFormation(context.Background(), period, wanted, zap.NewNop()); err != nil {
+		t.Fatal(err)
+	}
+	nCalls = dialer.TotalFormations()
+	if nCalls != wanted-1 {
+		t.Fatalf("expected %v calls, got %v", wanted-1, nCalls)
+	}
+
+	// form a contract with the previously ignored host to make it full and
+	// perform migrations with a 0 minimum. This should still form a contract
+	// with the host.
+	formContract(good6.PublicKey, true)
+	for i := range store.contracts {
+		if store.contracts[i].ID == types.FileContractID(good6.PublicKey) {
+			store.contracts[i].Size = maxContractSize
+		}
+	}
+	if err := contracts.performContractFormation(context.Background(), period, 0, zap.NewNop()); err != nil {
+		t.Fatal(err)
+	}
+	assertFormation(good6)
+	nCalls = dialer.TotalFormations()
+	if nCalls != wanted {
+		t.Fatalf("expected %v calls, got %v", wanted, nCalls)
 	}
 }
 
@@ -501,5 +523,120 @@ func newTestRevision(hk types.PublicKey) types.V2FileContract {
 		ExpirationHeight: 800,
 		RevisionNumber:   1,
 		TotalCollateral:  types.Siacoins(100),
+	}
+}
+
+func TestContractFunding(t *testing.T) {
+	defaultSettings := proto.HostSettings{
+		MaxCollateral: types.Siacoins(1), // unattainable
+		Prices: proto.HostPrices{
+			StoragePrice: types.NewCurrency64(1), // 1 H/byte/block
+			IngressPrice: types.NewCurrency64(1), // 1 H/byte/block
+			EgressPrice:  types.NewCurrency64(1), // 1 H/byte/block
+			Collateral:   types.NewCurrency64(2), // 2 H/byte/block
+		},
+	}
+
+	calcCost := func(settings proto.HostSettings, sectors uint64) (types.Currency, types.Currency) {
+		uploadCost := settings.Prices.RPCWriteSectorCost(proto.SectorSize).RenterCost().Mul64(sectors)
+		downloadCost := settings.Prices.RPCReadSectorCost(proto.SectorSize).RenterCost().Mul64(sectors)
+		storeCost := settings.Prices.RPCAppendSectorsCost(sectors, 1).RenterCost()
+		expectedAllowance := storeCost.Add(uploadCost).Add(downloadCost)
+		expectedCollateral := proto.MaxHostCollateral(settings.Prices, storeCost)
+		return expectedAllowance, expectedCollateral
+	}
+
+	tests := []struct {
+		name            string
+		initialDataSize uint64
+		minAllowance    types.Currency
+		minCollateral   types.Currency
+		modSettings     func(settings *proto.HostSettings)
+		calc            func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency)
+	}{
+		{
+			name:            "empty contract",
+			initialDataSize: 0,
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				return calcCost(settings, minContractGrowthRate/proto.SectorSize) // value should be minimum growth rate
+			},
+		},
+		{
+			name:            "clamped to min values",
+			initialDataSize: 0,
+			minAllowance:    types.Siacoins(1),
+			minCollateral:   types.Siacoins(1),
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				return types.Siacoins(1), types.Siacoins(1) // clamped to min
+			},
+		},
+		{
+			name:            "clamped to min allowance",
+			initialDataSize: 0,
+			minAllowance:    types.Siacoins(10),
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				_, expectedCollateral = calcCost(settings, minContractGrowthRate/proto.SectorSize) // value should be minimum growth rate
+				return types.Siacoins(10), expectedCollateral                                      // clamped to min allowance
+			},
+		},
+		{
+			name:            "clamped to min collateral",
+			initialDataSize: 0,
+			minCollateral:   types.Siacoins(10),
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				expectedAllowance, _ = calcCost(settings, minContractGrowthRate/proto.SectorSize) // value should be minimum growth rate
+				return expectedAllowance, types.Siacoins(10)                                      // clamped to min collateral
+			},
+		},
+		{
+			name:            "data less than min growth rate",
+			initialDataSize: 100,
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				return calcCost(settings, minContractGrowthRate/proto.SectorSize) // value should still be minimum growth rate
+			},
+		},
+		{
+			name:            "data close to min growth rate",
+			initialDataSize: 100 << 30, // 100 GiB
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				return calcCost(settings, (128<<30)/proto.SectorSize) // value should be closest multiple of 32 GiB
+			},
+		},
+		{
+			name:            "data over max growth rate",
+			initialDataSize: 500 << 30, // 500 GiB
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				return calcCost(settings, maxContractGrowthRate/proto.SectorSize) // clamped to max
+			},
+		},
+		{
+			name:            "data over max growth rate clamped to max collateral",
+			initialDataSize: 3 << 40, // 3 TiB
+			modSettings: func(settings *proto.HostSettings) {
+				settings.MaxCollateral = types.NewCurrency64(10) // want to test that collateral is clamped to the host's max
+			},
+			calc: func(settings proto.HostSettings) (expectedAllowance types.Currency, expectedCollateral types.Currency) {
+				expectedAllowance, _ = calcCost(settings, maxContractGrowthRate/proto.SectorSize) // clamped to max
+				expectedCollateral = types.NewCurrency64(10)                                      // clamped to the host's max collateral)
+				return
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			settings := defaultSettings
+			if test.modSettings != nil {
+				test.modSettings(&settings)
+			}
+			expectedAllowance, expectedCollateral := test.calc(settings)
+			allowance, collateral := contractFunding(settings, test.initialDataSize, test.minAllowance, test.minCollateral, 1)
+			if !allowance.Equals(expectedAllowance) {
+				t.Errorf("expected allowance %v but got %v", expectedAllowance, allowance)
+			}
+			if !collateral.Equals(expectedCollateral) {
+				t.Errorf("expected collateral %v but got %v", expectedCollateral, collateral)
+			}
+		})
 	}
 }

@@ -104,6 +104,21 @@ func (s *Store) UnspentSiacoinElements() (tip types.ChainIndex, sces []types.Sia
 	return
 }
 
+// WalletEvent returns an event with the given ID.
+func (s *Store) WalletEvent(id types.Hash256) (event wallet.Event, err error) {
+	if err := s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		tip, err := getTip(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("failed to get tip: %w", err)
+		}
+		event, err = scanEvent(tx.QueryRow(ctx, `SELECT event_data FROM wallet_events WHERE event_id = $1`, sqlHash256(id)), tip)
+		return err
+	}); err != nil {
+		return wallet.Event{}, err
+	}
+	return
+}
+
 // WalletEvents returns a paginated list of transactions ordered by maturity
 // height, descending. If no more transactions are available, (nil, nil) should
 // be returned.
@@ -117,26 +132,21 @@ func (s *Store) WalletEvents(offset, limit int) ([]wallet.Event, error) {
 
 	var events []wallet.Event
 	if err := s.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
-		var tip types.ChainIndex
-		err := tx.QueryRow(ctx, `SELECT scanned_height, scanned_block_id FROM global_settings`).Scan(&tip.Height, (*sqlHash256)(&tip.ID))
+		tip, err := getTip(ctx, tx)
 		if err != nil {
-			return fmt.Errorf("failed to query last scanned index: %w", err)
+			return fmt.Errorf("failed to get tip: %w", err)
 		}
 
-		rows, err := tx.Query(ctx, `SELECT chain_index, maturity_height, event_id, event_type, event_data FROM wallet_events ORDER BY maturity_height DESC, id DESC LIMIT $1 OFFSET $2`, limit, offset)
+		rows, err := tx.Query(ctx, `SELECT event_data FROM wallet_events ORDER BY maturity_height DESC, id DESC LIMIT $1 OFFSET $2`, limit, offset)
 		if err != nil {
 			return fmt.Errorf("failed to query wallet events: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var event wallet.Event
-			err := rows.Scan((*sqlChainIndex)(&event.Index), &event.MaturityHeight, (*sqlHash256)(&event.ID), &event.Type, sqlDecodeEvent(&event.Data))
+			event, err := scanEvent(rows, tip)
 			if err != nil {
 				return fmt.Errorf("failed to scan wallet event: %w", err)
-			}
-			if tip.Height >= event.Index.Height {
-				event.Confirmations = 1 + tip.Height - event.Index.Height
 			}
 			events = append(events, event)
 		}
@@ -224,16 +234,8 @@ func (u *updateTx) WalletApplyIndex(index types.ChainIndex, created, spent []typ
 
 	if len(events) > 0 {
 		for _, e := range events {
-			if res, err := u.tx.Exec(u.ctx, `INSERT INTO wallet_events (chain_index, maturity_height, event_id, event_type, event_data) VALUES ($1, $2, $3, $4, $5)`,
-				sqlChainIndex(e.Index),
-				e.MaturityHeight,
-				sqlHash256(e.ID),
-				e.Type,
-				sqlEncodeEvent(e.Type, e.Data),
-			); err != nil {
-				return fmt.Errorf("failed to insert event: %w", err)
-			} else if res.RowsAffected() != 1 {
-				return errors.New("failed to insert event")
+			if err := insertWalletEvent(u.ctx, u.tx, e); err != nil {
+				return fmt.Errorf("failed to insert wallet event %q: %w", e.ID, err)
 			}
 		}
 	}
@@ -273,6 +275,29 @@ func (u *updateTx) WalletRevertIndex(index types.ChainIndex, removed, unspent []
 		return fmt.Errorf("failed to delete events: %w", err)
 	}
 	return nil
+}
+
+func scanEvent(row scanner, tip types.ChainIndex) (event wallet.Event, err error) {
+	err = row.Scan((*sqlWalletEvent)(&event))
+	if err != nil {
+		return wallet.Event{}, err
+	} else if tip.Height >= event.Index.Height {
+		event.Confirmations = 1 + tip.Height - event.Index.Height
+	}
+	return
+}
+
+func getTip(ctx context.Context, tx *txn) (tip types.ChainIndex, err error) {
+	err = tx.QueryRow(ctx, `SELECT scanned_height, scanned_block_id FROM global_settings`).Scan(&tip.Height, (*sqlHash256)(&tip.ID))
+	return
+}
+
+func insertWalletEvent(ctx context.Context, tx *txn, event wallet.Event) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO wallet_events (chain_index, maturity_height, event_id, event_type, event_data)
+		VALUES ($1, $2, $3, $4, $5)`,
+		sqlChainIndex(event.Index), event.MaturityHeight, sqlHash256(event.ID), event.Type, (*sqlWalletEvent)(&event))
+	return err
 }
 
 func validateOffsetLimit(offset, limit int) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
@@ -30,7 +31,7 @@ func (cm *ContractManager) performContractRenewals(ctx context.Context, period, 
 				continue // contract is bad
 			}
 
-			if err := cm.renewContract(ctx, contract, newProofHeight, renewalLog); err != nil {
+			if err := cm.renewContract(ctx, contract, newProofHeight, period, renewalLog); err != nil {
 				renewalLog.Error("failed to renew contract",
 					zap.Stringer("contractID", contract.ID),
 					zap.Error(err),
@@ -46,7 +47,7 @@ func (cm *ContractManager) performContractRenewals(ctx context.Context, period, 
 	return nil
 }
 
-func (cm *ContractManager) renewContract(ctx context.Context, contract Contract, proofHeight uint64, log *zap.Logger) error {
+func (cm *ContractManager) renewContract(ctx context.Context, contract Contract, proofHeight, period uint64, log *zap.Logger) error {
 	contractLog := log.With(zap.Stringer("hostKey", contract.HostKey), zap.Stringer("contractID", contract.ID))
 
 	return cm.hm.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
@@ -56,9 +57,26 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 			return nil
 		}
 		defer hc.Close()
-		res, err := hc.RenewContract(ctx, host.Settings, contract.ID, proofHeight)
+
+		// NOTE: In theory using 'contractFunding' here might push the
+		// collateral over the max collateral of the host. Previously we tried
+		// to avoid that by not changing the allowance/collateral amounts in the
+		// contract when renewing but that has its own issues. Prices might
+		// change, the acceptable ratio of allowance and collateral as well and
+		// overall the host might just have lowered its max collateral. So we
+		// might as well keep the funding logic consistent with formations and
+		// refreshes and rely on the host checks to identify hosts with a
+		// MaxCollateral too low for us to use them.
+		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance, minHostCollateral, period)
+
+		res, err := hc.RenewContract(ctx, host.Settings, rhp.RPCRenewContractParams{
+			Allowance:   allowance,
+			Collateral:  collateral,
+			ContractID:  contract.ID,
+			ProofHeight: proofHeight,
+		})
 		if err != nil {
-			contractLog.Debug("failed to renew", zap.Error(err))
+			contractLog.Warn("failed to renew", zap.Error(err))
 			return nil
 		}
 		renewed := res.Contract

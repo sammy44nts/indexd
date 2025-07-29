@@ -102,13 +102,10 @@ func TestSingleAddressWalletStoreWalletEventsAndWalletEventCount(t *testing.T) {
 	}
 
 	update := newTestEvent()
-	if _, err := store.pool.Exec(context.Background(), `INSERT INTO wallet_events (chain_index, maturity_height, event_id, event_type, event_data) VALUES ($1, $2, $3, $4, $5)`,
-		sqlChainIndex(update.Index),
-		update.MaturityHeight,
-		sqlHash256(update.ID),
-		update.Type,
-		sqlEncodeEvent(update.Type, update.Data),
-	); err != nil {
+	err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		return insertWalletEvent(ctx, tx, update)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,6 +127,24 @@ func TestSingleAddressWalletStoreWalletEventsAndWalletEventCount(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 0 {
 		t.Fatal("unexpected number of events", len(events))
+	}
+}
+
+func TestSingleAddressWalletStoreWalletEvent(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	update := newTestEvent()
+	err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		return insertWalletEvent(ctx, tx, update)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if event, err := store.WalletEvent(update.ID); err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(event, update) {
+		t.Fatal("unexpected event", update, event)
 	}
 }
 
@@ -190,7 +205,9 @@ func newTestEvent() wallet.Event {
 		Index:          newTestChainIndex(),
 		Type:           wallet.EventTypeSiafundClaim,
 		Data:           wallet.EventPayout{SiacoinElement: newTestSiacoinElement()},
+		Timestamp:      time.Unix(int64(frand.Intn(int(time.Now().Unix()))), 0),
 		MaturityHeight: 4,
+		Relevant:       []types.Address{frand.Entropy256()},
 	}
 }
 

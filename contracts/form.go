@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
@@ -15,10 +16,37 @@ import (
 
 const sectorsPerGiB = uint64(1<<30) / proto.SectorSize
 
-// minAllowance is a sane minimum for the allowance we put into a contract to
-// make sure forming the contract is worthwhile and we don't spend more on fees
-// than on actual usage.
-var minAllowance = types.Siacoins(10)
+const (
+	// minContractGrowthRate is the minimum expected growth rate
+	// for contracts used when calculating funding. Lowering
+	// this value will mean contracts will need to be refreshed
+	// more frequently. 32 GiB is a good trade off between initial
+	// cost to both parties and the frequency of refreshes.
+	minContractGrowthRate = 32 << 30
+
+	// maxContractGrowthRate is the maximum additional data
+	// allowed when adding funds for refresh or renews. This
+	// means contracts will not grow exponentially as more data
+	// is uploaded. Decreasing this will mean contracts
+	// will need to be refreshed more frequently. Increasing
+	// this will mean large contracts will be more expensive.
+	// 256 GiB is a good trade off between cost and frequency of
+	// refreshes due to how long it would take to reasonably upload
+	// that amount of data with a 10 Gbps connection.
+	maxContractGrowthRate = 256 << 30
+)
+
+var (
+	// minAllowance is the minimum allowance the
+	// renter will use when forming, refreshing, or renewing a
+	// contract. This is because account funding is done using
+	// 1 SC increments.
+	minAllowance = types.Siacoins(10) // 10 SC
+	// minHostCollateral is the minimum collateral the
+	// renter will request when forming, refreshing, or renewing a
+	// contract.
+	minHostCollateral = types.Siacoins(1)
+)
 
 type (
 	formContractSigner struct {
@@ -58,9 +86,9 @@ func (s *formContractSigner) SignV2Inputs(txn *types.V2Transaction, toSign []int
 
 // performContractFormation makes sure that we have at least 'wanted' good
 // contracts with good hosts in unique CIDRs.
-func (cm *ContractManager) performContractFormation(ctx context.Context, period uint64, wanted uint64, log *zap.Logger) error {
+func (cm *ContractManager) performContractFormation(ctx context.Context, period uint64, wanted int64, log *zap.Logger) error {
 	formationLog := log.Named("formation")
-	formationLog.Debug("started", zap.Uint64("period", period), zap.Uint64("wanted", wanted))
+	formationLog.Debug("started", zap.Uint64("period", period), zap.Int64("wanted", wanted))
 
 	var activeContracts []Contract
 	const batchSize = 50
@@ -75,15 +103,35 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		}
 	}
 
+	// determine which hosts are 'full', meaning they have exclusively full
+	// contracts. A full host bypasses the CIDR check and will always have a
+	// contract formed with it assuming it's not bad for other reasons.
+	isFull := make(map[types.PublicKey]bool)
+	for _, contract := range activeContracts {
+		if contract.Size < maxContractSize {
+			isFull[contract.HostKey] = false
+		} else if _, hasContract := isFull[contract.HostKey]; !hasContract {
+			isFull[contract.HostKey] = true
+		}
+	}
+
 	// helpers for CIDR check
 	usedCidrs := make(map[string]types.PublicKey)
 	addHost := func(host hosts.Host) {
-		for _, cidr := range host.Networks {
-			usedCidrs[cidr.IP.String()] = host.PublicKey
+		if cm.disableCIDRChecks {
+			usedCidrs[host.PublicKey.String()] = host.PublicKey
+		} else {
+			for _, network := range host.Networks {
+				usedCidrs[network.IP.String()] = host.PublicKey
+			}
 		}
 		wanted--
 	}
 	hasCidrConflict := func(host hosts.Host) (types.PublicKey, bool) {
+		if cm.disableCIDRChecks {
+			hk, known := usedCidrs[host.PublicKey.String()]
+			return hk, known
+		}
 		for _, cidr := range host.Networks {
 			if hk, known := usedCidrs[cidr.IP.String()]; known {
 				return hk, true
@@ -95,12 +143,13 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	// helper to check if a host is good to form a contract with
 	isGood := func(host hosts.Host, log *zap.Logger) bool {
 		hostLog := log.With(zap.Stringer("hostKey", host.PublicKey))
+		full, _ := isFull[host.PublicKey]
 		if good := host.Usability.Usable(); !good {
 			// host should be good
 			hostLog.Debug("host is not usable due to bad usability")
 			return false
-		} else if usedBy, used := hasCidrConflict(host); used {
-			// host should be on a unique cidr
+		} else if usedBy, used := hasCidrConflict(host); used && !full {
+			// host should be on a unique cidr unless 'full'
 			hostLog.Debug("host is not usable cidr is already in use", zap.Stringer("usedBy", usedBy))
 			return false
 		} else if host.Settings.RemainingStorage < minRemainingStorage {
@@ -156,9 +205,20 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	// randomize their order to avoid preferring any host
 	cm.shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
 
+	// move full hosts to the front of the list
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return isFull[candidates[i].PublicKey] && !isFull[candidates[j].PublicKey]
+	})
+
+	// we form contracts with all full hosts and until we reach the wanted
+	// number of contracts
 	for i := range candidates {
+		if !isFull[candidates[i].PublicKey] && wanted <= 0 {
+			break
+		}
+
 		hostKey := candidates[i].PublicKey
-		hostLog := formationLog.With(zap.Stringer("hostKey", hostKey))
+		hostLog := formationLog.With(zap.Stringer("hostKey", hostKey), zap.Bool("full", isFull[hostKey]))
 
 		err := cm.hm.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
 			// make sure host is still good
@@ -166,7 +226,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				return fmt.Errorf("host is not good: %s", host.PublicKey)
 			}
 
-			allowance, collateral := initialContractFunding(host.Settings.Prices, host.Settings.MaxCollateral, period)
+			allowance, collateral := contractFunding(host.Settings, 0, minAllowance, minHostCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
@@ -210,25 +270,25 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	return nil
 }
 
-func initialContractFunding(prices proto.HostPrices, maxCollateral types.Currency, period uint64) (allowance, collateral types.Currency) {
-	// each 10GB of upload + download + storage
-	basePrice := prices.ContractPrice
-	writeUsage := prices.RPCWriteSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	readUsage := prices.RPCReadSectorCost(proto.SectorSize).Mul(10 * sectorsPerGiB)
-	storageUsage := prices.RPCAppendSectorsCost(10*sectorsPerGiB, period)
-	total := writeUsage.Add(readUsage).Add(storageUsage)
-	allowance = total.RenterCost().Add(basePrice)
-
-	// don't go below a sane minimum to make sure we can fill an account without
-	// immediately draining the contract and requiring a refresh.
+// contractFunding is a helper that calculates the funding and collateral
+// that go into forming, refreshing or renewing a contract.
+func contractFunding(settings proto.HostSettings, existingData uint64, minAllowance, minCollateral types.Currency, duration uint64) (allowance, collateral types.Currency) {
+	multiplier := 1 + (existingData / minContractGrowthRate)
+	contractGrowth := min(minContractGrowthRate*multiplier, maxContractGrowthRate) / proto.SectorSize // 100% growth clamped to [32GiB, 256GiB]
+	uploadCost := settings.Prices.RPCWriteSectorCost(proto.SectorSize).RenterCost().Mul64(contractGrowth)
+	downloadCost := settings.Prices.RPCReadSectorCost(proto.SectorSize).RenterCost().Mul64(contractGrowth)
+	storeCost := settings.Prices.RPCAppendSectorsCost(contractGrowth, duration).RenterCost()
+	allowance = uploadCost.Add(storeCost).Add(downloadCost)
 	if allowance.Cmp(minAllowance) < 0 {
-		allowance = minAllowance
+		allowance = minAllowance // ensure we have at least the minimum allowance
 	}
 
-	// don't go beyond the host's max collateral limits
-	collateral = proto.MaxHostCollateral(prices, allowance)
-	if collateral.Cmp(maxCollateral) > 0 {
-		collateral = maxCollateral
+	collateral = proto.MaxHostCollateral(settings.Prices, storeCost) // based on store cost because uploads do not require collateral
+	if collateral.Cmp(settings.MaxCollateral) > 0 {
+		collateral = settings.MaxCollateral
 	}
-	return allowance, collateral
+	if collateral.Cmp(minCollateral) < 0 {
+		collateral = minCollateral // ensure we have at least the minimum collateral
+	}
+	return
 }

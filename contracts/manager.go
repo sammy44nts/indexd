@@ -66,7 +66,7 @@ type (
 		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
 		FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error)
 		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
-		RenewContract(ctx context.Context, settings proto.HostSettings, contractID types.FileContractID, proofHeight uint64) (rhp.RPCRenewContractResult, error)
+		RenewContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRenewContractParams) (rhp.RPCRenewContractResult, error)
 		SectorRoots(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, offset, length uint64) (rhp.RPCSectorRootsResult, error)
 	}
 
@@ -182,6 +182,7 @@ type (
 		tg      *threadgroup.ThreadGroup
 
 		contractRejectBuffer              time.Duration
+		disableCIDRChecks                 bool
 		expiredContractBroadcastBuffer    uint64
 		expiredContractPruneBuffer        uint64
 		expiredContractSectorsPruneBuffer uint64
@@ -196,6 +197,13 @@ type (
 func WithLogger(l *zap.Logger) ContractManagerOpt {
 	return func(cm *ContractManager) {
 		cm.log = l
+	}
+}
+
+// WithDisabledCIDRChecks disables the CIDR checks for the contract manager.
+func WithDisabledCIDRChecks() ContractManagerOpt {
+	return func(cm *ContractManager) {
+		cm.disableCIDRChecks = true
 	}
 }
 
@@ -513,7 +521,7 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	}
 
 	// refresh any good contracts that are either out of collateral or funds
-	if err := cm.performContractRefreshes(ctx, log); err != nil {
+	if err := cm.performContractRefreshes(ctx, settings.Period, log); err != nil {
 		return fmt.Errorf("failed to perform contract refreshes: %w", err)
 	}
 
@@ -523,7 +531,7 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	}
 
 	// form new contracts until there are enough good contracts to use
-	if err := cm.performContractFormation(ctx, settings.Period, settings.WantedContracts, log); err != nil {
+	if err := cm.performContractFormation(ctx, settings.Period, int64(settings.WantedContracts), log); err != nil {
 		return fmt.Errorf("failed to form contracts: %w", err)
 	}
 
