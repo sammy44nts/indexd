@@ -29,12 +29,10 @@ func TestHostDialer(t *testing.T) {
 	}
 	time.Sleep(3 * time.Second)
 
-	dialer := NewDialer(app, a1, zap.NewNop())
-	cancel, err := dialer.Start(context.Background())
+	dialer, err := NewDialer(app, a1, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	hks := dialer.Hosts()
 	if len(hks) != 1 {
@@ -88,12 +86,10 @@ func TestHostDialerParallel(t *testing.T) {
 	}
 	time.Sleep(3 * time.Second)
 
-	dialer := NewDialer(app, a1, logger.Named("Dialer"))
-	cancel, err := dialer.Start(context.Background())
+	dialer, err := NewDialer(app, a1, logger.Named("Dialer"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 
 	hks := dialer.Hosts()
 	if len(hks) != 2 {

@@ -17,6 +17,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/api"
 	"go.uber.org/zap"
 )
@@ -37,56 +38,55 @@ type Dialer struct {
 	c      AppClient
 	appKey types.PrivateKey
 
+	tg             *threadgroup.ThreadGroup
 	addrs          map[types.PublicKey][]chain.NetAddress
 	conns          map[types.PublicKey]*connEntry
 	cachedSettings map[types.PublicKey]proto.HostSettings
 }
 
 // NewDialer returns a new Dialer.
-func NewDialer(c AppClient, appKey types.PrivateKey, log *zap.Logger) *Dialer {
-	return &Dialer{
+func NewDialer(c AppClient, appKey types.PrivateKey, log *zap.Logger) (*Dialer, error) {
+	d := &Dialer{
 		log: log,
 
 		c:      c,
 		appKey: appKey,
 
+		tg:             threadgroup.New(),
 		addrs:          make(map[types.PublicKey][]chain.NetAddress),
 		conns:          make(map[types.PublicKey]*connEntry),
 		cachedSettings: make(map[types.PublicKey]proto.HostSettings),
 	}
-}
 
-// Start starts the goroutine that periodically refreshes the map of host
-// addresses
-func (d *Dialer) Start(ctx context.Context) (func(), error) {
-	if err := d.updateHosts(ctx); err != nil {
+	// Run immediately
+	if err := d.updateHosts(context.Background()); err != nil {
 		return nil, err
 	}
+	go d.refreshHosts()
 
-	ctx, cancel := context.WithCancel(ctx)
+	return d, nil
+}
+
+func (d *Dialer) refreshHosts() {
 	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				if err := d.updateHosts(ctx); err != nil {
-					d.log.Warn("Failed to refresh hosts list", zap.Error(err))
-				}
-			case <-ctx.Done():
-				return
+	for {
+		select {
+		case <-ticker.C:
+			if err := d.updateHosts(context.Background()); err != nil {
+				d.log.Warn("Failed to refresh hosts list", zap.Error(err))
 			}
+		case <-d.tg.Done():
+			return
 		}
-	}()
-
-	return func() {
-		ticker.Stop()
-		cancel()
-	}, nil
+	}
 }
 
 // Close closes all the open connections on the dialer.
 func (d *Dialer) Close() {
+	d.tg.Stop()
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
