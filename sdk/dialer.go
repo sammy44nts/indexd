@@ -287,7 +287,7 @@ func (d *Dialer) WriteSector(ctx context.Context, hostKey types.PublicKey, secto
 
 	var result rhp.RPCWriteSectorResult
 	err = d.retry(ctx, hostKey, func(tc rhp.TransportClient) (err error) {
-		token := (&proto.Account{}).Token(d.appKey, hostKey)
+		token := proto.NewAccountToken(d.appKey, hostKey)
 		result, err = rhp.RPCWriteSector(ctx, tc, prices, token, bytes.NewReader(sector[:]), proto.SectorSize)
 		return
 	})
@@ -307,7 +307,7 @@ func (d *Dialer) ReadSector(ctx context.Context, hostKey types.PublicKey, sector
 
 	var buf bytes.Buffer
 	err = d.retry(ctx, hostKey, func(tc rhp.TransportClient) (err error) {
-		token := (&proto.Account{}).Token(d.appKey, hostKey)
+		token := proto.NewAccountToken(d.appKey, hostKey)
 		_, err = rhp.RPCReadSector(ctx, tc, prices, token, &buf, sectorRoot, 0, proto.SectorSize)
 		return
 	})
