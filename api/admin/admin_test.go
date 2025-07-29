@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
@@ -38,8 +37,8 @@ func TestAccountsAPI(t *testing.T) {
 	}
 
 	err := indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
-	if err == nil || !strings.Contains(err.Error(), accounts.ErrExists.Error()) {
-		t.Fatal("expected ErrExists", err)
+	if err != nil {
+		t.Fatalf("expected re-adding an account to be treated as a no-op, instead %v", err)
 	}
 
 	accounts, err := indexer.Accounts(context.Background())
