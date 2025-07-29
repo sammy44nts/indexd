@@ -34,14 +34,6 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, acc := range existing {
-		indexer.AccountsDelete(context.Background(), acc)
-	}
-
-	existing, err := indexer.Accounts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, acc := range existing {
 		if err := indexer.AccountsDelete(context.Background(), acc); err != nil {
 			t.Fatal(err)
 		}

@@ -19,7 +19,6 @@ func TestDataIntegrityE2E(t *testing.T) {
 	logger := testutils.NewLogger(false)
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(3), testutils.WithIndexer(testutils.WithSlabOptions(slabs.WithHealthCheckInterval(100*time.Millisecond), slabs.WithIntegrityCheckIntervals(50*time.Millisecond, 50*time.Millisecond))))
 	indexer := cluster.Indexer
-	time.Sleep(time.Second)
 
 	// add an account
 	a1 := types.GeneratePrivateKey()
@@ -29,7 +28,7 @@ func TestDataIntegrityE2E(t *testing.T) {
 	}
 
 	// assert we have 3 usable hosts
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 	hosts, err := indexer.Hosts(context.Background(), admin.WithUsable(true), admin.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)

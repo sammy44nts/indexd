@@ -44,6 +44,12 @@ var (
 	ErrContractRenewed = errors.New("contract got renewed")
 )
 
+var (
+	// minVersionPartialRefresh defines the minimum protocol version that
+	// supports partial refreshes
+	minVersionPartialRefresh = [3]uint8{5, 0, 0}
+)
+
 type (
 	// ChainManager defines an interface to access the chain state as well as
 	// interact with the transaction pool.
@@ -183,7 +189,11 @@ func (c *HostClient) ReadSector(ctx context.Context, hostPrices proto.HostPrices
 func (c *HostClient) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
 	var res rhp.RPCRefreshContractResult
 	if err := c.withRevision(ctx, params.ContractID, func(contract rhp.ContractRevision) (_ rhp.ContractRevision, err error) {
-		res, err = rhp.RPCRefreshContractPartialRollover(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, contract.Revision, params)
+		if settings.ProtocolVersion.Cmp(minVersionPartialRefresh) >= 0 {
+			res, err = rhp.RPCRefreshContractPartialRollover(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, contract.Revision, params)
+		} else {
+			res, err = rhp.RPCRefreshContractFullRollover(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, contract.Revision, params)
+		}
 		if err != nil {
 			return rhp.ContractRevision{}, err
 		}
