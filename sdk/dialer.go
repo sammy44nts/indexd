@@ -27,7 +27,9 @@ var _ HostDialer = (*Dialer)(nil)
 type connEntry struct {
 	mu   sync.Mutex
 	dial chan struct{} // signals dial completion
-	tc   rhp.TransportClient
+
+	hostKey types.PublicKey
+	tc      rhp.TransportClient
 }
 
 // Dialer implements the HostDialer interface.
@@ -69,19 +71,23 @@ func (d *Dialer) Close() {
 	d.tg.Stop()
 
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	conns := slices.Collect(maps.Values(d.conns))
+	d.mu.Unlock()
 
-	for hostKey, entry := range d.conns {
+	for _, entry := range conns {
 		entry.mu.Lock()
 		if entry.tc != nil {
 			if err := entry.tc.Close(); err != nil {
-				d.log.Debug("Failed to close connection", zap.Stringer("pk", hostKey), zap.Error(err))
+				d.log.Debug("Failed to close connection", zap.Stringer("pk", entry.hostKey), zap.Error(err))
 			}
 		}
 		entry.tc = nil
 		entry.mu.Unlock()
 	}
+
+	d.mu.Lock()
 	clear(d.conns)
+	d.mu.Unlock()
 }
 
 func (d *Dialer) initHosts() error {
@@ -188,7 +194,7 @@ func (d *Dialer) dialHost(ctx context.Context, hostKey types.PublicKey) (rhp.Tra
 	// Get or create connection entry
 	entry, exists := d.conns[hostKey]
 	if !exists {
-		entry = &connEntry{}
+		entry = &connEntry{hostKey: hostKey}
 		d.conns[hostKey] = entry
 	}
 	d.mu.Unlock()
