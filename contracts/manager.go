@@ -392,37 +392,40 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 }
 
 func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger) bool {
-	var once sync.Once
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
-
+	isSynced := func() (bool, error) {
 		ci, err := cm.store.LastScannedIndex(ctx)
 		if err != nil {
-			log.Debug("failed to get last scanned index", zap.Error(err))
-			continue
+			return false, fmt.Errorf("failed to get last scanned index: %w", err)
 		}
 
 		block, ok := cm.cm.Block(ci.ID)
 		if !ok {
-			log.Debug("failed to get block for last scanned index", zap.Stringer("id", ci.ID))
-			continue
-		}
-		if time.Since(block.Timestamp) < 3*time.Hour {
-			return true
+			return false, fmt.Errorf("failed to get block for last scanned index %v", ci.ID)
 		}
 
-		once.Do(func() {
-			log.Info("waiting for wallet to be synced before doing contract maintenance")
-		})
+		return time.Since(block.Timestamp) < 3*time.Hour, nil
+	}
 
+	// check if we are synced
+	synced, _ := isSynced()
+	if synced {
+		return true
+	}
+
+	// if not, check again every minute
+	log.Info("waiting for wallet to be scanned before doing contract maintenance")
+	for {
 		select {
 		case <-ctx.Done():
 			return false
 		case <-time.After(time.Minute):
+		}
+
+		synced, err := isSynced()
+		if synced {
+			return true
+		} else if err != nil {
+			log.Debug(err.Error())
 		}
 	}
 }
