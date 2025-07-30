@@ -32,12 +32,12 @@ type connEntry struct {
 
 // Dialer implements the HostDialer interface.
 type Dialer struct {
-	mu  sync.Mutex
 	log *zap.Logger
 
 	c      AppClient
 	appKey types.PrivateKey
 
+	mu             sync.Mutex
 	tg             *threadgroup.ThreadGroup
 	addrs          map[types.PublicKey][]chain.NetAddress
 	conns          map[types.PublicKey]*connEntry
@@ -57,30 +57,11 @@ func NewDialer(c AppClient, appKey types.PrivateKey, log *zap.Logger) (*Dialer, 
 		conns:          make(map[types.PublicKey]*connEntry),
 		cachedSettings: make(map[types.PublicKey]proto.HostSettings),
 	}
-
-	// Run immediately
-	if err := d.updateHosts(context.Background()); err != nil {
+	if err := d.initHosts(); err != nil {
 		return nil, err
 	}
-	go d.refreshHosts()
 
 	return d, nil
-}
-
-func (d *Dialer) refreshHosts() {
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := d.updateHosts(context.Background()); err != nil {
-				d.log.Warn("Failed to refresh hosts list", zap.Error(err))
-			}
-		case <-d.tg.Done():
-			return
-		}
-	}
 }
 
 // Close closes all the open connections on the dialer.
@@ -101,6 +82,43 @@ func (d *Dialer) Close() {
 		entry.mu.Unlock()
 	}
 	clear(d.conns)
+}
+
+func (d *Dialer) initHosts() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// init hosts
+	err := d.updateHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to refresh hosts list: %w", err)
+	}
+
+	// refresh in bg thread
+	ctx, cancel, err = d.tg.AddContext(context.Background())
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer cancel()
+
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := d.updateHosts(context.Background()); err != nil {
+					d.log.Warn("Failed to refresh hosts list", zap.Error(err))
+				}
+			case <-d.tg.Done():
+				return
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (d *Dialer) updateHosts(ctx context.Context) error {
