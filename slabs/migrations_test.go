@@ -254,7 +254,7 @@ func TestSectorsToMigrate(t *testing.T) {
 	// helper to assert result of contractsForRepair
 	assertResult := func(availableHosts []hosts.Host, availableContracts []contracts.Contract, expectedRoots, expectedHosts []int) {
 		t.Helper()
-		toRepair, toUse := sectorsToMigrate(slab, availableHosts, availableContracts, 100, true)
+		toRepair, toUse := sectorsToMigrate(slab, availableHosts, availableContracts, 100, false)
 		if len(toRepair) != len(expectedRoots) {
 			t.Fatalf("expected %d roots to repair, got %d: %v", len(expectedRoots), len(toRepair), toRepair)
 		} else if len(toUse) != len(expectedHosts) {
