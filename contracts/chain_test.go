@@ -254,6 +254,10 @@ func (s *storeMock) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 	return filter, nil
 }
 
+func (s *storeMock) LastScannedIndex(ctx context.Context) (ci types.ChainIndex, err error) {
+	return types.ChainIndex{}, nil
+}
+
 func (s *storeMock) MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error) {
 	return s.settings, nil
 }
@@ -413,6 +417,10 @@ func (cm *chainManagerMock) AddV2PoolTransactions(basis types.ChainIndex, txns [
 	cm.tpool = append(cm.tpool, txns...)
 	cm.mu.Unlock()
 	return false, nil
+}
+
+func (cm *chainManagerMock) Block(id types.BlockID) (types.Block, bool) {
+	return types.Block{Timestamp: time.Now()}, true
 }
 
 func (cm *chainManagerMock) TipState() consensus.State {

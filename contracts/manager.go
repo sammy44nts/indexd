@@ -53,6 +53,7 @@ type (
 	// ContractManager requires.
 	ChainManager interface {
 		AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error)
+		Block(id types.BlockID) (types.Block, bool)
 		RecommendedFee() types.Currency
 		TipState() consensus.State
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
@@ -100,6 +101,7 @@ type (
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
 		HostsForPruning(ctx context.Context) ([]types.PublicKey, error)
 		HostsForPinning(ctx context.Context) ([]types.PublicKey, error)
+		LastScannedIndex(ctx context.Context) (ci types.ChainIndex, err error)
 		MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error)
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
 		MarkBroadcastAttempt(ctx context.Context, contractID types.FileContractID) error
@@ -338,16 +340,16 @@ func (cm *ContractManager) Close() error {
 // maintenanceLoop performs any background tasks that the contract manager needs
 // to perform on contracts
 func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
-	// block until we are online and the consensus is synced
 	log := cm.log.Named("maintenance")
-	if !cm.blockUntilReady(log) {
-		return // shutdown
-	}
 
 	ticker := time.NewTicker(cm.maintenanceFrequency)
 	defer ticker.Stop()
 
 	for {
+		if !cm.waitUntilSynced(ctx, log) {
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -389,7 +391,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 	}
 }
 
-func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
+func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger) bool {
 	var once sync.Once
 	for {
 		select {
@@ -397,11 +399,24 @@ func (cm *ContractManager) blockUntilReady(log *zap.Logger) bool {
 			return false
 		case <-time.After(time.Second):
 		}
-		if time.Since(cm.cm.TipState().PrevTimestamps[0]) < 3*time.Hour {
+
+		ci, err := cm.store.LastScannedIndex(ctx)
+		if err != nil {
+			log.Debug("failed to get last scanned index", zap.Error(err))
+			continue
+		}
+
+		block, ok := cm.cm.Block(ci.ID)
+		if !ok {
+			log.Debug("failed to get block for last scanned index", zap.Stringer("id", ci.ID))
+			continue
+		}
+
+		if time.Since(block.Timestamp) < 3*time.Hour {
 			return true
 		}
 		once.Do(func() {
-			log.Info("waiting for consensus to be synced before starting maintenance")
+			log.Info("waiting for wallet to be synced before doing contract maintenance")
 		})
 	}
 }

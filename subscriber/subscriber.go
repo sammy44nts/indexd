@@ -181,7 +181,7 @@ func (s *Subscriber) Sync(ctx context.Context) error {
 			break
 		}
 
-		updateCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		updateCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 		err = s.store.UpdateChainState(updateCtx, func(tx UpdateTx) error {
 			if err := s.hm.UpdateChainState(tx, aus); err != nil {
 				return fmt.Errorf("failed to update host chain state: %w", err)
