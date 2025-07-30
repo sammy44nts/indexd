@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 type testProofUpdater struct{ fn func(*types.StateElement) }
@@ -191,5 +192,40 @@ func TestUpdateChainState(t *testing.T) {
 		t.Fatal(err)
 	} else if tip != expectedTip {
 		t.Fatal("unexpected tip", tip, expectedTip)
+	}
+}
+
+func BenchmarkUpdateWalletSiacoinElementProofs(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+
+	for range 1000 {
+		se := newTestSiacoinElement()
+		frand.Read(se.ID[:])
+		if _, err := store.pool.Exec(context.Background(), `INSERT INTO wallet_siacoin_elements (output_id, value, address, merkle_proof, leaf_index, maturity_height) VALUES ($1, $2, $3, $4, $5, $6)`,
+			sqlHash256(se.ID),
+			sqlCurrency(se.SiacoinOutput.Value),
+			sqlHash256(se.SiacoinOutput.Address),
+			sqlMerkleProof(se.StateElement.MerkleProof),
+			se.StateElement.LeafIndex,
+			se.MaturityHeight,
+		); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	for b.Loop() {
+		if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+			return tx.UpdateWalletSiacoinElementProofs(testProofUpdater{
+				fn: func(se *types.StateElement) {
+					se.LeafIndex++
+					se.MerkleProof = append(se.MerkleProof, frand.Entropy256())
+					if len(se.MerkleProof) > 16 {
+						se.MerkleProof = se.MerkleProof[len(se.MerkleProof)-16:]
+					}
+				},
+			})
+		}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

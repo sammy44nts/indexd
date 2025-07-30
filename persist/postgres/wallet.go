@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 )
@@ -173,32 +174,23 @@ func (u *updateTx) UpdateWalletSiacoinElementProofs(updater wallet.ProofUpdater)
 	}
 	defer rows.Close()
 
-	type sce struct {
-		id          sqlHash256
-		leafIndex   uint64
-		merkleProof sqlMerkleProof
-	}
-
-	sces := make(map[sqlHash256]*types.StateElement)
+	batch := &pgx.Batch{}
 	for rows.Next() {
-		var sce sce
-		if err := rows.Scan(&sce.id, &sce.leafIndex, &sce.merkleProof); err != nil {
+		var id sqlHash256
+		var el types.StateElement
+		if err := rows.Scan(&id, &el.LeafIndex, (*sqlMerkleProof)(&el.MerkleProof)); err != nil {
 			return fmt.Errorf("failed to scan siacoin element: %w", err)
 		}
-		sces[sce.id] = &types.StateElement{
-			LeafIndex:   sce.leafIndex,
-			MerkleProof: sce.merkleProof,
-		}
-		updater.UpdateElementProof(sces[sce.id])
+		updater.UpdateElementProof(&el)
+		batch.Queue(`UPDATE wallet_siacoin_elements SET leaf_index = $1, merkle_proof = $2 WHERE output_id = $3`, el.LeafIndex, sqlMerkleProof(el.MerkleProof), id)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	for id, se := range sces {
-		const query = `UPDATE wallet_siacoin_elements SET leaf_index = $1, merkle_proof = $2 WHERE output_id = $3`
-		if _, err := u.tx.Exec(u.ctx, query, se.LeafIndex, sqlMerkleProof(se.MerkleProof), id); err != nil {
-			return fmt.Errorf("failed to update siacoin element: %w", err)
+	if batch.Len() > 0 {
+		if err := u.tx.Tx.SendBatch(u.ctx, batch).Close(); err != nil {
+			return fmt.Errorf("failed to update siacoin element proofs: %w", err)
 		}
 	}
 	return nil
