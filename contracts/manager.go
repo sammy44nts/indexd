@@ -191,6 +191,7 @@ type (
 		maintenanceFrequency              time.Duration
 		pruneIntervalSuccess              time.Duration
 		pruneIntervalFailure              time.Duration
+		syncPollInterval                  time.Duration
 		revisionBroadcastInterval         time.Duration
 	}
 )
@@ -214,6 +215,14 @@ func WithDisabledCIDRChecks() ContractManagerOpt {
 func WithMaintenanceFrequency(frequency time.Duration) ContractManagerOpt {
 	return func(cm *ContractManager) {
 		cm.maintenanceFrequency = frequency
+	}
+}
+
+// WithSyncPollInterval sets the interval at which the contract manager checks
+// if the wallet is synced. The default is 1 minute.
+func WithSyncPollInterval(interval time.Duration) ContractManagerOpt {
+	return func(cm *ContractManager) {
+		cm.syncPollInterval = interval
 	}
 }
 
@@ -277,6 +286,7 @@ func newContractManager(renterKey types.PublicKey, accountManager AccountManager
 		pruneIntervalSuccess:              24 * time.Hour,     // 1 day
 		pruneIntervalFailure:              3 * time.Hour,      // 3 hours
 		revisionBroadcastInterval:         7 * 24 * time.Hour, // 1 week,
+		syncPollInterval:                  time.Minute,
 	}
 	for _, opt := range opts {
 		opt(cm)
@@ -418,7 +428,7 @@ func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger)
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(time.Minute):
+		case <-time.After(cm.syncPollInterval):
 		}
 
 		synced, err := isSynced()
