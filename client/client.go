@@ -199,6 +199,7 @@ func (c *HostClient) RenewContract(ctx context.Context, settings proto.HostSetti
 		if err != nil {
 			return rhp.ContractRevision{}, err
 		}
+
 		// renewals return the old (or 'renewed') revision, the revision of the
 		// renewal will be persisted in the database when the renewed contract
 		// is added

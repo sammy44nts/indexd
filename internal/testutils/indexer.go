@@ -15,8 +15,11 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
+	"go.sia.tech/indexd/keys"
+	"go.sia.tech/indexd/slabs"
 
 	"go.sia.tech/indexd/client"
 	"go.sia.tech/indexd/contracts"
@@ -110,6 +113,11 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
 
+	slabs, err := slabs.NewManager(am, hm, store, dialer, alerts.NewManager(), keys.DeriveKey(walletKey, "migration"), keys.DeriveKey(walletKey, "integrity"))
+	if err != nil {
+		t.Fatalf("failed to create slabs manager: %v", err)
+	}
+
 	subscriber, err := subscriber.New(c.cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
 	if err != nil {
 		t.Fatalf("failed to create subscriber: %v", err)
@@ -193,6 +201,9 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		}
 		if err := closeWithTimeout(am.Close); err != nil {
 			t.Errorf("failed to close account manager: %v", err)
+		}
+		if err := closeWithTimeout(slabs.Close); err != nil {
+			t.Errorf("failed to close slabs manager: %v", err)
 		}
 		if err := closeWithTimeout(subscriber.Close); err != nil {
 			t.Errorf("failed to close subscriber: %v", err)

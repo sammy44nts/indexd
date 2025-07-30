@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"go.sia.tech/core/rhp/v4"
-	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -82,7 +81,8 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		renewed := res.Contract
 		minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
 
-		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, types.ZeroCurrency); err != nil {
+		usedCollateral := renewed.Revision.TotalCollateral.Sub(renewed.Revision.MissedHostValue)
+		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, usedCollateral); err != nil {
 			return fmt.Errorf("failed to store renewed contract: %w", err)
 		}
 		contractLog.Debug("successfully renewed contract")

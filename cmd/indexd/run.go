@@ -21,6 +21,7 @@ import (
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/client"
@@ -28,8 +29,10 @@ import (
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/explorer"
 	"go.sia.tech/indexd/hosts"
+	"go.sia.tech/indexd/keys"
 	"go.sia.tech/indexd/persist/postgres"
 	"go.sia.tech/indexd/pins"
+	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -119,6 +122,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}
 	defer contracts.Close()
+
+	slabs, err := slabs.NewManager(am, hm, store, dialer, alerts.NewManager(), keys.DeriveKey(walletKey, "migration"), keys.DeriveKey(walletKey, "integrity"))
+	if err != nil {
+		return fmt.Errorf("failed to create slabs manager: %w", err)
+	}
+	defer slabs.Close()
 
 	subscriber, err := subscriber.New(cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
 	if err != nil {

@@ -87,7 +87,7 @@ type (
 		AddAccount(ctx context.Context, ak types.PublicKey) error
 		Contracts(ctx context.Context, offset, limit int, queryOpts ...contracts.ContractQueryOpt) ([]contracts.Contract, error)
 		Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts.HostQueryOpt) ([]hosts.Host, error)
-		HostsForIntegrityChecks(ctx context.Context, limit int) ([]types.PublicKey, error)
+		HostsForIntegrityChecks(ctx context.Context, maxLastCheck time.Time, limit int) ([]types.PublicKey, error)
 		HostsWithLostSectors(ctx context.Context) ([]types.PublicKey, error)
 		MaintenanceSettings(ctx context.Context) (contracts.MaintenanceSettings, error)
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
@@ -96,8 +96,9 @@ type (
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
 		RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
+		Slab(ctx context.Context, slabID SlabID) (Slab, error)
 		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
-		UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) ([]Slab, error)
+		UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) ([]SlabID, error)
 	}
 
 	// AlertsManager defines an interface to register alerts.
@@ -135,8 +136,8 @@ func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr st
 }
 
 // NewManager creates a new slab manager.
-func NewManager(am AccountManager, hm HostManager, store Store, dialer *client.SiamuxDialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	sm, err := newSlabManager(am, hm, store, &wrapper{d: dialer}, alerter, migrationAccount, serviceAccount, opts...)
+func NewManager(am AccountManager, hm HostManager, store Store, dialer *client.SiamuxDialer, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+	sm, err := newSlabManager(am, hm, store, &wrapper{d: dialer}, alerter, migrationAccount, integrityAccount, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +155,7 @@ func NewManager(am AccountManager, hm HostManager, store Store, dialer *client.S
 	return sm, nil
 }
 
-func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, serviceAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Dialer, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		integrityCheckInterval:       7 * 24 * time.Hour,
 		failedIntegrityCheckInterval: 6 * time.Hour,
@@ -170,7 +171,7 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 		dialer:   dialer,
 		hm:       hm,
 		store:    store,
-		verifier: NewSectorVerifier(am, dialer, serviceAccount),
+		verifier: NewSectorVerifier(am, dialer, integrityAccount),
 		alerter:  alerter,
 		tg:       threadgroup.New(),
 		log:      zap.NewNop(),
@@ -179,24 +180,34 @@ func newSlabManager(am AccountManager, hm HostManager, store Store, dialer Diale
 		opt(m)
 	}
 
-	// add accounts to store
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := store.AddAccount(ctx, types.PublicKey(m.migrationAccount)); err != nil && !errors.Is(err, accounts.ErrExists) {
-		return nil, fmt.Errorf("failed to add migration account: %w", err)
-	} else if err := store.AddAccount(ctx, types.PublicKey(proto.Account(serviceAccount.PublicKey()))); err != nil && !errors.Is(err, accounts.ErrExists) {
-		return nil, fmt.Errorf("failed to add service account: %w", err)
+	err := m.initServiceAccounts(migrationAccount, integrityAccount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize service accounts: %w", err)
 	}
 
-	// let AccountManager know about the service accounts
-	am.RegisterServiceAccount(m.migrationAccount)
-	am.RegisterServiceAccount(proto.Account(serviceAccount.PublicKey()))
 	return m, nil
 }
 
 // Close closes the manager.
 func (m *SlabManager) Close() error {
 	m.tg.Stop()
+	return nil
+}
+
+func (m *SlabManager) initServiceAccounts(sks ...types.PrivateKey) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, sk := range sks {
+		// ensure account is added to the store
+		err := m.store.AddAccount(ctx, sk.PublicKey())
+		if err != nil && !errors.Is(err, accounts.ErrExists) {
+			return fmt.Errorf("failed to add service account: %w", err)
+		}
+
+		// ensure account is registered with the AccountManager
+		m.am.RegisterServiceAccount(proto.Account(sk.PublicKey()))
+	}
 	return nil
 }
 
@@ -242,7 +253,7 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 	logger.Debug("starting integrity checks", zap.Time("start", start))
 
 	for {
-		usedHosts, err := m.store.HostsForIntegrityChecks(ctx, 100)
+		usedHosts, err := m.store.HostsForIntegrityChecks(ctx, start, 100)
 		if err != nil {
 			return fmt.Errorf("failed to fetch hosts to block: %w", err)
 		} else if len(usedHosts) == 0 {

@@ -118,6 +118,10 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	// helpers for CIDR check
 	usedCidrs := make(map[string]types.PublicKey)
 	addHost := func(host hosts.Host) {
+		// NOTE: in testing CIDR checks are disabled because the hosts' network
+		// is an unspecified IPv6 address, in those cases we use the host's
+		// public key to ensure we don't keep forming contracts with the same
+		// host.
 		if cm.disableCIDRChecks {
 			usedCidrs[host.PublicKey.String()] = host.PublicKey
 		} else {
@@ -125,6 +129,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				usedCidrs[network.IP.String()] = host.PublicKey
 			}
 		}
+
 		wanted--
 	}
 	hasCidrConflict := func(host hosts.Host) (types.PublicKey, bool) {
