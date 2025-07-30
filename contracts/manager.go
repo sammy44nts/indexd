@@ -395,9 +395,9 @@ func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger)
 	var once sync.Once
 	for {
 		select {
-		case <-cm.tg.Done():
+		case <-ctx.Done():
 			return false
-		case <-time.After(time.Second):
+		default:
 		}
 
 		ci, err := cm.store.LastScannedIndex(ctx)
@@ -411,13 +411,19 @@ func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger)
 			log.Debug("failed to get block for last scanned index", zap.Stringer("id", ci.ID))
 			continue
 		}
-
 		if time.Since(block.Timestamp) < 3*time.Hour {
 			return true
 		}
+
 		once.Do(func() {
 			log.Info("waiting for wallet to be synced before doing contract maintenance")
 		})
+
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Minute):
+		}
 	}
 }
 
