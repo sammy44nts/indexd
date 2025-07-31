@@ -523,19 +523,19 @@ paths:
           "200":
             description: Successfully connected to syncer
 
-    /txpool/recommendfee:
-     get:
-      tags:
-        - misc
-      summary: Get recommended fee
-      description: Returns the recommended fee for a transaction.
-      responses:
-        "200":
-          description: Successfully retrieved recommended fee
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Currency"
+    /txpool/recommendedfee:
+      get:
+        tags:
+          - misc
+        summary: Get recommended fee
+        description: Returns the recommended fee for a transaction.
+        responses:
+          "200":
+            description: Successfully retrieved recommended fee
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Currency"
 
     /wallet:
       get:
