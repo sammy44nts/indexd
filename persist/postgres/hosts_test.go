@@ -285,7 +285,7 @@ func TestHostChecks(t *testing.T) {
 	assertCheckOK("ProtocolVersion")
 
 	// adjust price validity so we pass the check
-	hs.Prices.ValidUntil = time.Now().Add(time.Second * 3601)
+	hs.Prices.ValidUntil = time.Now().Add(time.Second * 1801)
 	_ = db.UpdateHost(context.Background(), hk, testNetworks, hs, true, time.Now())
 	assertCheckOK("PriceValidity")
 
@@ -331,6 +331,17 @@ func TestHostChecks(t *testing.T) {
 	} else if !h.Usability.Usable() {
 		t.Fatal("expected host to be usable")
 	}
+
+	// assert valid until takes into account the last successful scan time
+	// instead of the current time when calculating whether the price validity
+	// check passes
+	if _, err := db.pool.Exec(context.Background(), `
+		UPDATE hosts SET 
+			last_successful_scan = last_successful_scan - INTERVAL '1 day', 
+			settings_valid_until = settings_valid_until - INTERVAL '1 day'`); err != nil {
+		t.Fatal(err)
+	}
+	assertCheckOK("PriceValidity")
 }
 
 func TestHosts(t *testing.T) {
@@ -764,6 +775,75 @@ func TestHostsWithLostSectors(t *testing.T) {
 
 	// hk1 and hk2 should be returned after both have lost sectors
 	assertHosts([]types.PublicKey{hk1, hk2})
+}
+
+func TestHostsWithUnpinnableSectors(t *testing.T) {
+	// create database
+	log := zaptest.NewLogger(t)
+	db := initPostgres(t, log.Named("postgres"))
+
+	// add account
+	account := proto4.Account{1}
+	if err := db.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+
+	// add hosts
+
+	// host1 has no contracts and no sectors -> not returned
+	db.addTestHost(t)
+
+	// host2 has a contract but no sectors -> not returned
+	hk2 := db.addTestHost(t)
+	db.addTestContract(t, hk2)
+
+	// host3 has no contracts but a sector -> returned
+	hk3 := db.addTestHost(t)
+
+	// host4 has a contract and a pinned sector -> not returned
+	hk4 := db.addTestHost(t)
+	db.addTestContract(t, hk4)
+
+	_, err := db.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: [32]byte{},
+		MinShards:     1,
+		Sectors: []slabs.SectorPinParams{
+			{
+				Root:    types.Hash256(hk3),
+				HostKey: hk3,
+			},
+			{
+				Root:    frand.Entropy256(),
+				HostKey: hk3,
+			},
+			{
+				Root:    types.Hash256(hk4),
+				HostKey: hk4,
+			},
+			{
+				Root:    frand.Entropy256(),
+				HostKey: hk4,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// pin sector for host4 but not host3
+	err = db.PinSectors(context.Background(), types.FileContractID(hk4), []types.Hash256{types.Hash256(hk4)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hosts, err := db.HostsWithUnpinnableSectors(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if len(hosts) != 1 {
+		t.Fatalf("expected 1 host with unpinned sectors, got %d", len(hosts))
+	} else if hosts[0] != hk3 {
+		t.Fatalf("expected host %v with unpinned sectors, got %v", hk3, hosts[0])
+	}
 }
 
 func TestHostsRecentUptime(t *testing.T) {
@@ -1763,6 +1843,61 @@ func BenchmarkHostsWithLostSectors(b *testing.B) {
 			b.Fatal(err)
 		} else if len(batch) == 0 {
 			b.Fatal("expected hosts, got none")
+		}
+	}
+}
+
+func BenchmarkHostsWithUnpinnableSectors(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+	account := proto4.Account{1}
+
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		b.Fatal("failed to add account:", err)
+	}
+
+	const (
+		nHosts          = 1000
+		dbBaseSize      = 1 << 40 // 1TiB of sectors
+		nSectorsPerHost = dbBaseSize / proto4.SectorSize / nHosts
+	)
+
+	// add hosts
+	for i := range nHosts {
+		hk := store.addTestHost(b)
+
+		// add sectors
+		for remainingSectors := nSectorsPerHost; remainingSectors > 0; {
+			batchSize := min(remainingSectors, 10000)
+			remainingSectors -= batchSize
+			var sectors []slabs.SectorPinParams
+			for range batchSize {
+				root := frand.Entropy256()
+				sectors = append(sectors, slabs.SectorPinParams{
+					Root:    root,
+					HostKey: hk,
+				})
+			}
+			if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+				MinShards:     1,
+				EncryptionKey: frand.Entropy256(),
+				Sectors:       sectors,
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		// 10% of hosts have unpinned sectors which results in 100 out of 1000.
+		if i%10 != 0 {
+			store.addTestContract(b, hk)
+		}
+	}
+
+	for b.Loop() {
+		batch, err := store.HostsWithUnpinnableSectors(context.Background())
+		if err != nil {
+			b.Fatal(err)
+		} else if len(batch) != 100 {
+			b.Fatal("expected 100 hosts, got", len(batch))
 		}
 	}
 }

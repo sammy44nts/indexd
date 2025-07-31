@@ -896,8 +896,8 @@ func TestUnhealthySlabs(t *testing.T) {
 	store.addTestContract(t, hk)
 
 	// add two slabs & immediately reset the LRA-time
-	slabID1 := store.addTestSlab(t, account, 1, 2, []types.PublicKey{hk})
-	slabID2 := store.addTestSlab(t, account, 1, 2, []types.PublicKey{hk})
+	slabID1 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
+	slabID2 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
 	resetLastRepairAttempt(oneHourAgo)
 
 	// pin all sectors to the contract
@@ -2027,17 +2027,17 @@ func BenchmarkMigrateSector(b *testing.B) {
 	}
 }
 
-func (s *Store) addTestSlab(t testing.TB, account proto.Account, dataShards, parityShards int, hks []types.PublicKey) slabs.SlabID {
+func (s *Store) pinTestSlab(t testing.TB, account proto.Account, minShards uint, hks []types.PublicKey) slabs.SlabID {
 	params := slabs.SlabPinParams{
 		EncryptionKey: [32]byte(types.GeneratePrivateKey()),
-		MinShards:     1,
-		Sectors:       make([]slabs.SectorPinParams, dataShards+parityShards),
+		MinShards:     minShards,
+		Sectors:       make([]slabs.SectorPinParams, len(hks)),
 	}
 
-	for i := range dataShards + parityShards {
+	for i, hk := range hks {
 		params.Sectors[i] = slabs.SectorPinParams{
 			Root:    frand.Entropy256(),
-			HostKey: hks[i%len(hks)],
+			HostKey: hk,
 		}
 	}
 	slabId, err := s.PinSlab(context.Background(), account, time.Time{}, params)

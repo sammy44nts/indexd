@@ -90,7 +90,7 @@ WITH globals AS (
 	has_settings AND settings_max_contract_duration >= globals.contracts_period,
 	has_settings AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
 	has_settings AND settings_version >= globals.host_min_version,
-	has_settings AND settings_valid_until >= (NOW() + INTERVAL '15 minutes'),
+	has_settings AND settings_valid_until >= last_successful_scan + INTERVAL '15 minutes',
 	has_settings AND settings_accepting_contracts,
 	has_settings AND settings_contract_price <= globals.one_sc,
 	has_settings AND settings_collateral >= globals.hosts_min_collateral AND settings_collateral >= 2 * settings_storage_price,
@@ -165,7 +165,7 @@ WITH globals AS (
 	has_settings AND settings_max_contract_duration >= globals.contracts_period,
 	has_settings AND settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period,
 	has_settings AND settings_version >= globals.host_min_version,
-	has_settings AND settings_valid_until >= (NOW() + INTERVAL '15 minutes'),
+	has_settings AND settings_valid_until >= last_successful_scan + INTERVAL '15 minutes',
 	has_settings AND settings_accepting_contracts,
 	has_settings AND settings_contract_price <= globals.one_sc,
 	has_settings AND settings_collateral >= globals.hosts_min_collateral AND settings_collateral >= 2 * settings_storage_price,
@@ -182,7 +182,7 @@ WHERE
 		settings_max_contract_duration >= globals.contracts_period AND
 		settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period AND
 		settings_version >= globals.host_min_version AND
-		settings_valid_until >= (NOW() + INTERVAL '15 minutes') AND
+		settings_valid_until >= last_successful_scan + INTERVAL '15 minutes' AND
 		settings_accepting_contracts AND
 		settings_contract_price <= globals.one_sc AND
 		settings_collateral >= globals.hosts_min_collateral AND
@@ -292,6 +292,41 @@ func (s *Store) BlockHosts(ctx context.Context, hks []types.PublicKey, reason st
 		}
 		return nil
 	})
+}
+
+// HostsWithUnpinnableSectors returns a list of host public keys for hosts that
+// don't have any contracts but unpinned sectors.
+func (s *Store) HostsWithUnpinnableSectors(ctx context.Context) ([]types.PublicKey, error) {
+	var hosts []types.PublicKey
+	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		rows, err := tx.Query(ctx, `
+			SELECT public_key
+			FROM hosts
+			WHERE EXISTS (
+				SELECT 1
+				FROM sectors
+				WHERE sectors.host_id = hosts.id AND sectors.contract_sectors_map_id IS NULL
+			) AND NOT EXISTS (
+				SELECT 1
+				FROM contracts
+				WHERE contracts.host_id = hosts.id AND (contracts.state <> $1 OR contracts.state <> $2)
+			)
+		`, contracts.ContractStatePending, contracts.ContractStateActive)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var hostKey types.PublicKey
+			if err := rows.Scan((*sqlPublicKey)(&hostKey)); err != nil {
+				return fmt.Errorf("failed to scan host key: %w", err)
+			}
+			hosts = append(hosts, hostKey)
+		}
+		return rows.Err()
+	}); err != nil {
+		return nil, err
+	}
+	return hosts, nil
 }
 
 // UnblockHost removes the given host key from the blocklist and marks its
@@ -516,19 +551,20 @@ WITH globals AS (
 		id,
 		hosts.public_key,
 		recent_uptime,
+		last_successful_scan,
 		settings_protocol_version,
 		settings_release,
 		settings_wallet_address,
-		settings_accepting_contracts, 
-		settings_max_collateral, 
+		settings_accepting_contracts,
+		settings_max_collateral,
 		settings_max_contract_duration,
-		settings_remaining_storage, 
-		settings_total_storage, 
+		settings_remaining_storage,
+		settings_total_storage,
 		settings_contract_price,
-		settings_collateral, 
-		settings_storage_price, 
+		settings_collateral,
+		settings_storage_price,
 		settings_ingress_price,
-		settings_egress_price, 
+		settings_egress_price,
 		settings_free_sector_price,
 		settings_tip_height,
 		settings_valid_until,
@@ -537,11 +573,11 @@ WITH globals AS (
 	FROM hosts
 	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
 	WHERE hb.public_key IS NULL AND last_successful_scan IS NOT NULL -- not blocked and has settings
-) 
-SELECT 
+)
+SELECT
 	hosts.id,
 	hosts.public_key
-FROM hosts 
+FROM hosts
 CROSS JOIN globals
 WHERE
 	-- usable
@@ -549,7 +585,7 @@ WHERE
 	settings_max_contract_duration >= globals.contracts_period AND
 	settings_max_collateral >= settings_collateral * globals.one_tb * globals.contracts_period AND
 	settings_version >= globals.host_min_version AND
-	settings_valid_until >= (NOW() + INTERVAL '15 minutes') AND
+	settings_valid_until >= last_successful_scan + INTERVAL '15 minutes' AND
 	settings_accepting_contracts AND
 	settings_contract_price <= globals.one_sc AND
 	settings_collateral >= globals.hosts_min_collateral AND
@@ -557,7 +593,7 @@ WHERE
 	settings_storage_price <= globals.hosts_max_storage_price AND
 	settings_ingress_price <= globals.hosts_max_ingress_price AND
 	settings_egress_price <= globals.hosts_max_egress_price AND
-	settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb AND 
+	settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb AND
 	-- active contracts
 	EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state <= 1)
 LIMIT $1 OFFSET $2;`, limit, offset)
@@ -815,8 +851,8 @@ func (s *Store) HostsForPruning(ctx context.Context) ([]types.PublicKey, error) 
 					WHERE contracts.host_id = h.id AND contracts.state <= $1 AND contracts.good = TRUE AND contracts.next_prune < NOW()
 				) AND
 				NOT EXISTS (
-					SELECT 1 
-					FROM hosts_blocklist hb 
+					SELECT 1
+					FROM hosts_blocklist hb
 					WHERE hb.public_key = h.public_key
 				)`, contracts.ContractStateActive)
 		if err != nil {

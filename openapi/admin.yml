@@ -13,11 +13,16 @@ tags:
   - name: contracts
     description: View and manage storage contracts and their metadata.
 
+  - name: debug
+    description: >
+      Access debugging and profiling tools for performance analysis and troubleshooting. 
+      These routes are only available when running the indexer in debug mode.
+
   - name: hosts
     description: Query host details, filter usable or blocked hosts, and manage the host blocklist.
 
   - name: misc
-    description: Access general indexer state and exchange rate information.
+    description: Access general indexer state, recommended transaction fee or exchange rate information.
 
   - name: settings
     description: Configure contract maintenance, host selection criteria, and price pinning behavior.
@@ -214,6 +219,56 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/Contract"
+
+    /debug/pprof/{handler}:
+      get:
+        tags:
+          - debug
+        summary: Get pprof profiling data
+        description: >
+          Returns profiling data for the specified handler. This is useful for
+          debugging and performance analysis. This route is only available in
+          debug mode.
+        operationId: getPprofData
+        parameters:
+          - name: handler
+            in: path
+            required: true
+            schema:
+              type: string
+              enum: [allocs, block, cmdline, goroutine, heap, mutex, profile, threadcreate, trace]
+        responses:
+          '200':
+            description: Profiling data in binary format
+            content:
+              application/octet-stream:
+                schema:
+                  type: string
+                  format: binary
+
+    /debug/trigger/{action}:
+      post:
+        tags:
+          - debug
+        summary: Trigger a specific debug action
+        description: >
+          Triggers a specific action such as contract maintenance or pruning.
+          This is useful for testing and debugging purposes. This route is only
+          available in debug mode.
+
+        operationId: triggerDebugAction
+        parameters:
+          - name: action
+            in: path
+            required: true
+            schema:
+              type: string
+              enum: [funding, maintenance, pruning, scanning]
+        responses:
+          '204':
+            description: Action triggered successfully
+          '400':
+            description: Invalid action specified
 
     /explorer/exchange-rate/siacoin/{currency}:
       get:
@@ -451,6 +506,37 @@ paths:
           '200':
             description: Price pinning settings updated successfully
 
+    /syncer/connect:
+      post:
+        tags:
+          - misc
+        summary: Connect to a syncer
+        description: Connects to the specified syncer.
+        requestBody:
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SyncerAddress"
+                  - description: The address of the syncer to connect to
+        responses:
+          "200":
+            description: Successfully connected to syncer
+
+    /txpool/recommendedfee:
+      get:
+        tags:
+          - misc
+        summary: Get recommended fee
+        description: Returns the recommended fee for a transaction.
+        responses:
+          "200":
+            description: Successfully retrieved recommended fee
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Currency"
+
     /wallet:
       get:
         tags:
@@ -581,34 +667,14 @@ components:
 
     Address:
       $ref: './components.yml#/components/schemas/Address'
-    BlockID:
-      $ref: './components.yml#/components/schemas/BlockID'
-    ChainIndex:
-      $ref: './components.yml#/components/schemas/ChainIndex'
     Currency:
       $ref: './components.yml#/components/schemas/Currency'
-    EncryptionKey:
-      $ref: './components.yml#/components/schemas/EncryptionKey'
     Event:
       $ref: './components.yml#/components/schemas/Event'
     FileContractID:
       $ref: './components.yml#/components/schemas/FileContractID'
-    Hash256:
-      $ref: './components.yml#/components/schemas/Hash256'
-    HostPrices:
-      $ref: './components.yml#/components/schemas/HostPrices'
-    HostSettings:
-      $ref: './components.yml#/components/schemas/HostSettings'
-    IPNet:
-      $ref: './components.yml#/components/schemas/IPNet'
-    NetAddress:
-      $ref: './components.yml#/components/schemas/NetAddress'
     PublicKey:
       $ref: './components.yml#/components/schemas/PublicKey'
-    SemVer:
-      $ref: './components.yml#/components/schemas/SemVer'
-    Signature:
-      $ref: './components.yml#/components/schemas/Signature'
     TransactionID:
       $ref: './components.yml#/components/schemas/TransactionID'
 
@@ -618,25 +684,19 @@ components:
     #
     #############################
 
-    BlockHeight:
-      $ref: './components.yml#/components/schemas/BlockHeight'
     BuildState:
       $ref: './components.yml#/components/schemas/BuildState'
     Contract:
       $ref: './components.yml#/components/schemas/Contract'
-    ContractSpending:
-      $ref: './components.yml#/components/schemas/ContractSpending'
     Host:
       $ref: './components.yml#/components/schemas/Host'
-    HostUsability:
-      $ref: './components.yml#/components/schemas/HostUsability'
     MaintenanceSettings:
       $ref: './components.yml#/components/schemas/MaintenanceSettings'
     PinnedSettings:
       $ref: './components.yml#/components/schemas/PinnedSettings'
-    RevisionNumber:
-      $ref: './components.yml#/components/schemas/RevisionNumber'
-    SlabID:
-      $ref: './components.yml#/components/schemas/SlabID'
+    SyncerAddress:
+      type: string
+      description: The address of the syncer
+      example: "118.92.232.145:9981"
     UsabilitySettings:
       $ref: './components.yml#/components/schemas/UsabilitySettings'

@@ -271,7 +271,7 @@ func (a *admin) handlePOSTAccount(jc jape.Context) {
 
 	err := a.store.AddAccount(jc.Request.Context(), ak)
 	if errors.Is(err, accounts.ErrExists) {
-		jc.Error(err, http.StatusConflict)
+		jc.Encode(nil) // treat as no-op, no need to trigger funding
 		return
 	} else if jc.Check("failed to add account", err) != nil {
 		return

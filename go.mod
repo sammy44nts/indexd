@@ -1,15 +1,16 @@
 module go.sia.tech/indexd
 
-go 1.24.1
+go 1.24.3
 
 require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/klauspost/reedsolomon v1.12.5
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.15.0
-	go.sia.tech/coreutils v0.16.6-0.20250729003636-d3d65bdcd41a
+	go.sia.tech/core v0.16.0
+	go.sia.tech/coreutils v0.17.0
 	go.sia.tech/jape v0.14.0
+	go.sia.tech/web/indexd v0.0.1
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.40.0
@@ -32,6 +33,7 @@ require (
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	go.etcd.io/bbolt v1.4.2 // indirect
 	go.sia.tech/mux v1.4.0 // indirect
+	go.sia.tech/web v0.0.0-20240422221546-c1709d16b6ef // indirect
 	go.uber.org/mock v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/mod v0.26.0 // indirect
