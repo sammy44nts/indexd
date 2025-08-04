@@ -33,7 +33,9 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, acc := range existing {
-		indexer.AccountsDelete(context.Background(), acc)
+		if err := indexer.AccountsDelete(context.Background(), acc); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var accs []types.PublicKey
