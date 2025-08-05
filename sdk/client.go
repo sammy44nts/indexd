@@ -538,16 +538,25 @@ func initSDK(client AppClient, dialer HostDialer, appKey types.PrivateKey) (*SDK
 }
 
 type (
-	sdkOptions struct {
+	option struct {
 		logger *zap.Logger
 	}
 
-	SDKOption func(*sdkOptions)
+	// Option is a functional option for configuring the SDK.
+	Option func(*option)
 )
 
+// WithLogger sets the logger for the SDK. The default behavior is to not log
+// anything.
+func WithLogger(logger *zap.Logger) Option {
+	return func(o *option) {
+		o.logger = logger
+	}
+}
+
 // NewSDK creates a new indexd client with the given app key and base URL.
-func NewSDK(baseURL string, appKey types.PrivateKey, opts ...SDKOption) (*SDK, error) {
-	options := sdkOptions{
+func NewSDK(baseURL string, appKey types.PrivateKey, opts ...Option) (*SDK, error) {
+	options := option{
 		logger: zap.NewNop(), // no logging by default
 	}
 	for _, opt := range opts {
