@@ -18,11 +18,23 @@ type (
 		Password string `yaml:"password"`
 	}
 
+	// TLS contains the configuration for TLS
+	TLS struct {
+		Disable bool `yaml:"disable"`
+
+		CertFile string `yaml:"certFile"`
+		KeyFile  string `yaml:"keyFile"`
+	}
+
 	// ApplicationAPI contains the configuration for the HTTP server serving the
 	// application API
 	ApplicationAPI struct {
-		Address  string `yaml:"address"`
+		Address string `yaml:"address"`
+		// Password is used to register new app keys with the indexer.
+		Password string `yaml:"password"`
 		Hostname string `yaml:"hostname"`
+
+		TLS TLS `yaml:"tls"`
 	}
 
 	// Syncer contains the configuration for the p2p syncer.

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Register Application</title>
+</head>
+<body>
+	<h1>Connect {{.Request.Name}}</h1>
+	<p>{{.Request.Description}}</p>
+	<p>Connecting to this application will allow it to upload data on your behalf.</p>
+	<p>Apps cannot access data from other apps and you can revoke access at any time.</p>
+    <input type="password" id="appPassword" placeholder="Enter your app password" required>
+	<button id="rejectButton">Reject</button>
+	<button id="acceptButton">Accept</button>
+	</form>
+
+	<script type="text/javascript">
+        async function respondToRequest(approve) {
+            const response = await fetch("{{.ResponseURL}}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Basic ${btoa(`:${document.getElementById("appPassword").value}`)}`
+                },
+                body: JSON.stringify({ approve }),
+            });
+
+            if (response.status !== 204) {
+                const error = await response.text();
+                throw new Error(error);
+            }
+        }
+
+		document.getElementById("acceptButton").addEventListener("click", async (event) => {
+			event.preventDefault();
+            try {
+			    await respondToRequest(true);
+                document.body.innerHTML = "<h2>Connection Approved</h2><p>Please return to the application.</p>";
+            } catch (error) {
+                console.error(error);
+            }
+		});
+
+        document.getElementById("rejectButton").addEventListener("click", async (event) => {
+            event.preventDefault();
+            try {
+                await respondToRequest(false);
+                document.body.innerHTML = "<h2>Connection Rejected</h2><p>Please return to the application.</p>";
+            } catch (error) {
+                console.error(error);
+            }
+        });
+	</script>
+</body>
+</html>

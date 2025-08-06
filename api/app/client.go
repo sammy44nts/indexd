@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -101,6 +103,36 @@ func (c *Client) SlabIDs(ctx context.Context, opts ...api.URLQueryParameterOptio
 	return slabIDs, nil
 }
 
+func (c *Client) RequestAppConnection(ctx context.Context, request RegisterAppRequest) (resp RegisterAppResponse, err error) {
+	err = c.c.POST(ctx, c.sign("/auth/connect"), request, &resp)
+	return
+}
+
+func (c *Client) CheckAppAuth(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sign(fmt.Sprintf("%s/auth/check", c.c.BaseURL)), nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to check app auth: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return false, nil // not authenticated
+	case http.StatusNoContent:
+		return true, nil // authenticated
+	default:
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if err != nil {
+			return false, fmt.Errorf("failed to read response body: %w", err)
+		}
+		return false, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, body)
+	}
+}
+
 // NewClient creates a new AppClient that can be used to interact with the
 // application API of the indexer. The address should be the full URL to the
 // application API, including the scheme (e.g., "http://indexer.sia.tech").
@@ -114,6 +146,6 @@ func NewClient(address string, appKey types.PrivateKey) (*Client, error) {
 		c: jape.Client{BaseURL: address},
 
 		appkey:   appKey,
-		hostname: parsedURL.Hostname(),
+		hostname: parsedURL.Host,
 	}, nil
 }

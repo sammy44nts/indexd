@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"testing"
 	"time"
 
@@ -173,6 +172,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 
 	appAPIOpts := []app.Option{
 		app.WithLogger(log.Named("api.application")),
+		app.WithAuthRequiresTLS(false), // allow non-TLS connections for testing
 	}
 
 	appListener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -180,14 +180,8 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		t.Fatalf("failed to listen on application address: %v", err)
 	}
 	appAPIAddr := fmt.Sprintf("http://%s", appListener.Addr().String())
-
-	parsedURL, err := url.Parse(appAPIAddr)
-	if err != nil {
-		t.Fatalf("failed to parse address %q: %v", appAPIAddr, err)
-	}
-
 	appAPI := http.Server{
-		Handler: app.NewAPI(parsedURL.Hostname(), store, store, appAPIOpts...),
+		Handler: app.NewAPI(appListener.Addr().String(), store, "foobar", appAPIOpts...),
 	}
 
 	go func() {

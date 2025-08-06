@@ -1,7 +1,10 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,12 +12,40 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api"
+	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
 )
 
+func respondToAppConnection(t *testing.T, responseURL string, approve bool) {
+	t.Helper()
+
+	buf, err := json.Marshal(app.ApproveAppRequest{
+		Approve: approve,
+	})
+	if err != nil {
+		t.Fatal("failed to marshal approve request:", err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, responseURL, bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal("failed to create request:", err)
+	}
+	req.SetBasicAuth("", "foobar")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal("failed to send request:", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatal("unexpected response status:", resp.Status)
+	}
+}
+
 func TestApplicationAPI(t *testing.T) {
+	ctx := t.Context()
 	// create cluster with three hosts
 	logger := testutils.NewLogger(false)
 	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
@@ -22,7 +53,7 @@ func TestApplicationAPI(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// assert hosts are registered
-	hosts, err := indexer.Hosts(context.Background())
+	hosts, err := indexer.Hosts(ctx)
 	if err != nil {
 		t.Fatal("failed to get hosts:", err)
 	} else if len(hosts) != 3 {
@@ -35,8 +66,33 @@ func TestApplicationAPI(t *testing.T) {
 
 	// prepare account
 	sk := types.GeneratePrivateKey()
-	if err := indexer.AccountsAdd(context.Background(), sk.PublicKey()); err != nil {
+	client := indexer.App(sk)
+
+	connectResp, err := client.RequestAppConnection(ctx, app.RegisterAppRequest{
+		Name:        "Test App",
+		Description: "A test application",
+		LogoURL:     "foo",
+		ServiceURL:  "bar",
+	})
+	if err != nil {
+		t.Fatal("failed to request app connection:", err)
+	}
+
+	// check the app is not authenticated yet
+	if ok, err := client.CheckAppAuth(ctx); err != nil {
 		t.Fatal(err)
+	} else if ok {
+		t.Fatal("expected app to not be authenticated yet")
+	}
+
+	// approve the app
+	respondToAppConnection(t, connectResp.ResponseURL, true)
+
+	// check the app is not authenticated yet
+	if ok, err := client.CheckAppAuth(ctx); err != nil {
+		t.Fatal(err)
+	} else if !ok {
+		t.Fatal("expected app to be authenticated")
 	}
 
 	// helper to generate slab pin parameters
@@ -62,27 +118,27 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// pin the slab
-	slabID, err := indexer.App(sk).PinSlab(context.Background(), params())
+	slabID, err := client.PinSlab(context.Background(), params())
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
 
 	// unpin the slab
-	if err := indexer.App(sk).UnpinSlab(context.Background(), slabID); err != nil {
+	if err := client.UnpinSlab(context.Background(), slabID); err != nil {
 		t.Fatal("failed to unpin slab:", err)
 	}
 
 	// assert minimum redundancy is enforced
 	p := params()
 	p.Sectors = p.Sectors[:2]
-	_, err = indexer.App(sk).PinSlab(context.Background(), p)
+	_, err = client.PinSlab(context.Background(), p)
 	if err == nil || !strings.Contains(err.Error(), slabs.ErrInsufficientRedundancy.Error()) {
 		t.Fatal("expected [slabs.ErrInsufficientRedundancy], got:", err)
 	}
 
 	// assert hosts returns all usable hosts
 	time.Sleep(time.Second) // allow some time to form contracts
-	usableHosts, err := indexer.App(sk).Hosts(context.Background())
+	usableHosts, err := client.Hosts(context.Background())
 	if err != nil {
 		t.Fatal("failed to get hosts:", err)
 	} else if len(usableHosts) != 3 {
@@ -96,7 +152,7 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// assert host is no longer returned
-	usableHosts, err = indexer.App(sk).Hosts(context.Background())
+	usableHosts, err = client.Hosts(context.Background())
 	if err != nil {
 		t.Fatal("failed to get hosts:", err)
 	} else if len(usableHosts) != 2 {
@@ -104,11 +160,11 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// assert limit and offset are applied
-	if usableHosts, err := indexer.App(sk).Hosts(context.Background(), api.WithLimit(1)); err != nil {
+	if usableHosts, err := client.Hosts(context.Background(), api.WithLimit(1)); err != nil {
 		t.Fatal("failed to get hosts with limit:", err)
 	} else if len(usableHosts) != 1 {
 		t.Fatal("expected 1 usable host, got", len(usableHosts))
-	} else if usableHosts, err := indexer.App(sk).Hosts(context.Background(), api.WithOffset(2), api.WithLimit(1)); err != nil {
+	} else if usableHosts, err := client.Hosts(context.Background(), api.WithOffset(2), api.WithLimit(1)); err != nil {
 		t.Fatal("failed to get hosts with limit:", err)
 	} else if len(usableHosts) != 0 {
 		t.Fatal("expected 0 usable hosts, got", len(usableHosts))
@@ -117,17 +173,17 @@ func TestApplicationAPI(t *testing.T) {
 	// pin 2 slabs
 	slab1Params := params()
 	slab2Params := params()
-	slabID1, err := indexer.App(sk).PinSlab(context.Background(), slab1Params)
+	slabID1, err := client.PinSlab(context.Background(), slab1Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
-	slabID2, err := indexer.App(sk).PinSlab(context.Background(), slab2Params)
+	slabID2, err := client.PinSlab(context.Background(), slab2Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
 
 	// assert slab IDs are returned
-	slabsIDs, err := indexer.App(sk).SlabIDs(context.Background())
+	slabsIDs, err := client.SlabIDs(context.Background())
 	if err != nil {
 		t.Fatal("failed to fetch slabs:", err)
 	} else if len(slabsIDs) != 2 {
@@ -137,7 +193,7 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// assert offset and limit are passed
-	slabsIDs, err = indexer.App(sk).SlabIDs(context.Background(), api.WithOffset(1), api.WithLimit(1))
+	slabsIDs, err = client.SlabIDs(context.Background(), api.WithOffset(1), api.WithLimit(1))
 	if err != nil {
 		t.Fatal("failed to fetch slabs with offset and limit:", err)
 	} else if len(slabsIDs) != 1 {
@@ -147,7 +203,7 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// assert slab is returned
-	slab1, err := indexer.App(sk).Slab(context.Background(), slabID1)
+	slab1, err := client.Slab(context.Background(), slabID1)
 	if err != nil {
 		t.Fatal("failed to fetch slab:", err)
 	} else if slab1.EncryptionKey != slab1Params.EncryptionKey {
@@ -159,7 +215,7 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// assert slab is returned
-	slab2, err := indexer.App(sk).Slab(context.Background(), slabID2)
+	slab2, err := client.Slab(context.Background(), slabID2)
 	if err != nil {
 		t.Fatal("failed to fetch slab:", err)
 	} else if slab2.EncryptionKey != slab2Params.EncryptionKey {

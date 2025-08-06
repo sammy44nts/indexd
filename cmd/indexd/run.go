@@ -2,8 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -39,7 +45,34 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/web/indexd"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
+
+func selfSignedCert(hostname string) ([]tls.Certificate, error) {
+	key, err := rsa.GenerateKey(frand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate key: %w", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: hostname,
+		},
+		DNSNames: []string{hostname},
+	}
+	certDER, err := x509.CreateCertificate(frand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cert: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tls cert: %w", err)
+	}
+	return []tls.Certificate{cert}, nil
+}
 
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) error {
 	store, err := postgres.NewStore(ctx, cfg.Database, contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log.Named("postgres"))
@@ -94,7 +127,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	log.Debug("starting syncer", zap.String("syncer address", syncerAddr))
 	s := syncer.New(syncerListener, cm, store, gateway.Header{
 		GenesisID:  genesis.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
@@ -191,15 +223,51 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		app.WithLogger(log.Named("api.application")),
 	}
 
+	hostname := cfg.ApplicationAPI.Hostname
+	if hostname == "" {
+		host, port, _ := net.SplitHostPort(appAPIListener.Addr().String())
+		if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
+			hostname = net.JoinHostPort("127.0.0.1", port)
+		} else {
+			hostname = net.JoinHostPort(host, port)
+		}
+	}
+
+	if cfg.ApplicationAPI.TLS.Disable {
+		appAPIOpts = append(appAPIOpts, app.WithAuthRequiresTLS(false))
+	} else if cfg.ApplicationAPI.TLS.CertFile != "" || cfg.ApplicationAPI.TLS.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.ApplicationAPI.TLS.CertFile, cfg.ApplicationAPI.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+
+		appAPIListener = tls.NewListener(appAPIListener, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		defer appAPIListener.Close()
+	} else {
+		log.Warn("TLS is enabled but no certificate or key file is provided,using self-signed certificate. Some apps may not be able to connect")
+		cert, err := selfSignedCert(hostname)
+		if err != nil {
+			return fmt.Errorf("failed to generate self-signed certificate: %w", err)
+		}
+		appAPIListener = tls.NewListener(appAPIListener, &tls.Config{
+			Certificates: cert,
+			MinVersion:   tls.VersionTLS12,
+		})
+		defer appAPIListener.Close()
+	}
+
 	appAPI := http.Server{
-		Handler:      app.NewAPI(cfg.ApplicationAPI.Hostname, store, store, appAPIOpts...),
+		Handler:      app.NewAPI(hostname, store, cfg.ApplicationAPI.Password, appAPIOpts...),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 	defer appAPI.Close()
 
 	go func() {
-		log.Debug("starting application API", zap.String("applicationAddress", cfg.ApplicationAPI.Address))
+		log.Debug("starting application API", zap.String("hostname", hostname), zap.String("applicationAddress", cfg.ApplicationAPI.Address))
 		if err := appAPI.Serve(appAPIListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("failed to serve application API", zap.Error(err))
 		}
