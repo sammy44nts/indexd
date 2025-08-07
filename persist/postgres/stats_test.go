@@ -3,12 +3,15 @@ package postgres
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/rhp/v4"
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api/admin"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -80,4 +83,75 @@ func TestSectorStats(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStats(3, 1, 1, 1)
+}
+
+func BenchmarkSectorStats(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+		b.Fatal("failed to add account:", err)
+	}
+
+	// 100 hosts with contracts
+	nHosts := 100
+	var hks []types.PublicKey
+	for i := byte(0); i < byte(nHosts); i++ {
+		hk := store.addTestHost(b, types.PublicKey{i})
+		hks = append(hks, hk)
+		fcid := store.addTestContract(b, hk)
+
+		// 10% of the contracts are bad
+		if i%10 == 0 {
+			res, err := store.pool.Exec(context.Background(), "UPDATE contracts SET good = FALSE WHERE contract_id = $1", sqlHash256(fcid))
+			if err != nil {
+				b.Fatal(err)
+			} else if res.RowsAffected() != 1 {
+				b.Fatal("expected to update 1 row")
+			}
+		}
+	}
+
+	// create 'dbBaseSize' bytes worth of sectors
+	var dbBaseSize = 1 << 40 // 1TiB
+
+	// each slab has a size of 4MiB per host since we add 1 shard per host
+	var slabSize = nHosts * 1 << 20 // 400MiB
+
+	// prepare base db
+	for range dbBaseSize / slabSize {
+		store.pinTestSlab(b, account, 1, hks)
+	}
+
+	// pin every sector to a contract
+	_, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = (sectors.id % (SELECT COUNT(*) FROM contract_sectors_map) + 1)")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// 10% of the sectors are lost
+	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET host_id = NULL WHERE sectors.id % 10 + 1 = 0")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// 10% of the sectors are unpinned
+	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = NULL WHERE sectors.id % 10 + 2 = 0")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	var once sync.Once
+	for b.Loop() {
+		if err := store.RefreshSectorStats(context.Background()); err != nil {
+			b.Fatal(err)
+		} else if stats, err := store.SectorStats(context.Background()); err != nil {
+			b.Fatal(err)
+		} else {
+			once.Do(func() {
+				b.Logf("stats: %+v", stats)
+			})
+		}
+	}
 }
