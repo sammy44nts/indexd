@@ -256,6 +256,14 @@ CREATE TABLE sectors (
     consecutive_failed_checks SMALLINT NOT NULL DEFAULT 0
 );
 
+CREATE MATERIALIZED VIEW sectors_stats AS
+  SELECT
+    NOW() AS updated_at,
+    (SELECT COUNT(*) FROM sectors) AS num_sectors,
+    (SELECT COUNT(*) FROM sectors WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NULL) AS num_unpinned_sectors,
+    (SELECT COUNT(*) FROM sectors INNER JOIN contract_sectors_map ON sectors.contract_sectors_map_id = contract_sectors_map.id INNER JOIN contracts ON contract_sectors_map.contract_id = contracts.contract_id WHERE contracts.good = FALSE) AS num_sectors_bad_contracts,
+    (SELECT COUNT(*) FROM sectors WHERE host_id IS NULL AND contract_sectors_map_id IS NULL) AS num_sectors_no_host;
+
 -- quick lookup of sectors that failed the integrity checks too many times
 CREATE INDEX sectors_consecutive_failed_checks_idx ON sectors(host_id, consecutive_failed_checks) WHERE consecutive_failed_checks > 0;
 
