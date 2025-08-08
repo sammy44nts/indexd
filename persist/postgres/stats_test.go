@@ -3,11 +3,9 @@ package postgres
 import (
 	"context"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
-	"go.sia.tech/core/rhp/v4"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/api/admin"
@@ -46,7 +44,7 @@ func TestSectorStats(t *testing.T) {
 
 	// pin a slab with 3 sectors
 	store.AddAccount(context.Background(), types.PublicKey{})
-	slabID := store.pinTestSlab(t, rhp.Account{}, 1, []types.PublicKey{hk, hk, hk})
+	slabID := store.pinTestSlab(t, proto.Account{}, 1, []types.PublicKey{hk, hk, hk})
 
 	// assert 3 unpinned sectors after refreshing the stats
 	assertStats(0, 0, 0, 0)
@@ -124,34 +122,42 @@ func BenchmarkSectorStats(b *testing.B) {
 	}
 
 	// pin every sector to a contract
-	_, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = (sectors.id % (SELECT COUNT(*) FROM contract_sectors_map) + 1)")
+	_, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = ((sectors.id-1) % (SELECT COUNT(*) FROM contract_sectors_map) + 1)")
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// 10% of the sectors are lost
-	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET host_id = NULL WHERE sectors.id % 10 + 1 = 0")
+	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET host_id = NULL, contract_sectors_map_id = NULL WHERE sectors.id % 10 = 0")
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// 10% of the sectors are unpinned
-	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = NULL WHERE sectors.id % 10 + 2 = 0")
+	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = NULL WHERE (sectors.id + 1) % 10 = 0")
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
-	var once sync.Once
 	for b.Loop() {
 		if err := store.RefreshSectorStats(context.Background()); err != nil {
 			b.Fatal(err)
-		} else if stats, err := store.SectorStats(context.Background()); err != nil {
+		}
+		stats, err := store.SectorStats(context.Background())
+		if err != nil {
 			b.Fatal(err)
-		} else {
-			once.Do(func() {
-				b.Logf("stats: %+v", stats)
-			})
+		} else if stats.UpdatedAt.IsZero() {
+			b.Fatal("expected stats to be updated, got zero timestamp")
+		}
+		stats.UpdatedAt = time.Time{}
+		if !reflect.DeepEqual(stats, admin.SectorsStatsResponse{
+			NumSectors:             1048500,
+			NumUnpinnedSectors:     104850,
+			NumSectorsBadContracts: 104850,
+			NumSectorsNoHosts:      104850,
+		}) {
+			b.Fatal("unexpected stats")
 		}
 	}
 }

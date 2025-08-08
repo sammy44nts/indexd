@@ -6,6 +6,8 @@ import (
 	"go.sia.tech/indexd/api/admin"
 )
 
+// SectorStats reports statistics about the sectors stored in the database. The
+// response is cached and requires a call to RefreshSectorStats to be updated.
 func (s *Store) SectorStats(ctx context.Context) (admin.SectorsStatsResponse, error) {
 	var stats admin.SectorsStatsResponse
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
@@ -15,6 +17,9 @@ func (s *Store) SectorStats(ctx context.Context) (admin.SectorsStatsResponse, er
 	return stats, err
 }
 
+// RefreshSectorStats refreshes the cached sector statistics in the database.
+// This is an expensive operation and should be called sparingly from a
+// background thread.
 func (s *Store) RefreshSectorStats(ctx context.Context) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		_, err := tx.Exec(ctx, "REFRESH MATERIALIZED VIEW sectors_stats")
