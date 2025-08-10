@@ -251,7 +251,10 @@ func (a *app) handleGETAuthConnectUI(jc jape.Context) {
 		return
 	}
 
-	authTemplate.Execute(jc.ResponseWriter, authReq) // skip error check since it could be an io error
+	if err := authTemplate.Execute(jc.ResponseWriter, authReq); err != nil {
+		// cannot return an error at this point, just log it
+		a.log.Debug("failed to execute auth template", zap.Error(err))
+	}
 }
 
 func (a *app) handlePOSTAuthConnect(jc jape.Context) {
