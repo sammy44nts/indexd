@@ -57,6 +57,12 @@ type (
 		CallbackURL string `json:"callbackURL"`
 	}
 
+	// AuthConnectStatusResponse is the response body for checking the status of an
+	// application connection request.
+	AuthConnectStatusResponse struct {
+		Approved bool `json:"approved"`
+	}
+
 	// RegisterAppResponse is the response body for registering a new application.
 	// It contains the URL to redirect the user to for authentication.
 	// The user must approve the request before the expiration time.
@@ -242,10 +248,6 @@ func (a *app) handleAuthRegister(jc jape.Context) {
 
 func (a *app) handleGETAuthCheck(jc jape.Context, _ types.PublicKey) {
 	jc.Encode(nil) // if we reached this point, account is already authenticated
-}
-
-type AuthConnectStatusResponse struct {
-	Approved bool `json:"approved"`
 }
 
 func (a *app) handleGETAuthConnectStatus(jc jape.Context) {
