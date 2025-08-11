@@ -344,11 +344,14 @@ func NewAPI(advertiseURL string, store Store, opts ...Option) (http.Handler, err
 			}
 
 			ok, err := store.ValidAppConnectKey(jc.Request.Context(), password)
-			if err != nil {
+			if errors.Is(err, ErrKeyNotFound) {
+				jc.Error(errors.New("invalid app connect key"), http.StatusUnauthorized)
+				return
+			} else if err != nil {
 				jc.Error(ErrInternalError, http.StatusInternalServerError)
 				return
 			} else if !ok {
-				jc.Error(errors.New("unauthorized"), http.StatusUnauthorized)
+				jc.Error(errors.New("no more uses"), http.StatusForbidden)
 				return
 			}
 
