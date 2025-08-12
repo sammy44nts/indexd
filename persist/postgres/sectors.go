@@ -148,11 +148,18 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	}
 	return digest, s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var accountID int64
-		err := tx.QueryRow(ctx, "SELECT id FROM accounts WHERE public_key = $1", sqlPublicKey(account)).Scan(&accountID)
+		var pinnedData, maxPinnedData uint64
+		err := tx.QueryRow(ctx, "SELECT id, pinned_data, max_pinned_data FROM accounts WHERE public_key = $1", sqlPublicKey(account)).Scan(&accountID, &pinnedData, &maxPinnedData)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
 			return err
+		}
+
+		// check if pinning the slab would exceed the account's storage limit
+		newPinnedData := slab.Size()
+		if newPinnedData > maxPinnedData {
+			return accounts.ErrStorageLimitExceeded
 		}
 
 		// insert slab
@@ -174,12 +181,20 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 		}
 
 		// insert slab into join table
-		_, err = tx.Exec(ctx, `
+		res, err := tx.Exec(ctx, `
 			INSERT INTO account_slabs (account_id, slab_id) VALUES ($1, $2)
 			ON CONFLICT (account_id, slab_id) DO NOTHING
 		`, accountID, slabID)
 		if err != nil {
 			return fmt.Errorf("failed to insert slab into account_slabs: %w", err)
+		}
+
+		// update the account's pinned data
+		if res.RowsAffected() > 0 {
+			_, err := tx.Exec(ctx, `UPDATE accounts SET pinned_data = $1 WHERE id = $2`, newPinnedData, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to update account's pinned data: %w", err)
+			}
 		}
 
 		// if the slab already existed, we don't need to insert the sectors
@@ -241,6 +256,17 @@ func (s *Store) UnpinSlab(ctx context.Context, accountID proto.Account, slabID s
 		} else if err != nil {
 			return fmt.Errorf("failed to unpin slab: %w", err)
 		}
+
+		// update the account's pinned data
+		_, err = tx.Exec(ctx, `
+			UPDATE accounts
+			SET pinned_data = pinned_data - (
+				SELECT COUNT(*) * $1
+				FROM slabs
+				INNER JOIN slab_sectors ON slabs.id = slab_sectors.slab_id
+			)
+			WHERE public_key = $2
+		`, proto.SectorSize, sqlPublicKey(accountID))
 
 		// return early if the slab is pinned by another account
 		var pinned bool

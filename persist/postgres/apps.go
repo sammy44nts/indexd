@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api/app"
 )
 
@@ -31,12 +32,14 @@ func scanConnectKey(s scanner) (key app.ConnectKey, err error) {
 func (s *Store) AddAppConnectKey(ctx context.Context, meta app.UpdateAppConnectKey) (key app.ConnectKey, err error) {
 	if meta.RemainingUses <= 0 {
 		return app.ConnectKey{}, app.ErrKeyExhausted
+	} else if meta.MaxPinnedData == 0 {
+		return app.ConnectKey{}, fmt.Errorf("max pinned data must be greater than 0")
 	}
 	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		key, err = scanConnectKey(tx.QueryRow(ctx, `
-			INSERT INTO app_connect_keys (app_key, use_description, remaining_uses) VALUES ($1, $2, $3)
+			INSERT INTO app_connect_keys (app_key, use_description, remaining_uses, max_pinned_data) VALUES ($1, $2, $3, $4)
 			RETURNING app_key, use_description, remaining_uses, total_uses, created_at, updated_at, last_used;
-		`, meta.Key, meta.Description, meta.RemainingUses))
+		`, meta.Key, meta.Description, meta.RemainingUses, meta.MaxPinnedData))
 		return err
 	})
 	return
@@ -114,15 +117,12 @@ func (s *Store) DeleteAppConnectKey(ctx context.Context, connectKey string) erro
 // and adds the app account.
 func (s *Store) UseAppConnectKey(ctx context.Context, connectKey string, appKey types.PublicKey) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		if err := addAccount(ctx, tx, appKey); err != nil {
-			return fmt.Errorf("failed to add app account: %w", err)
-		}
-
 		var uses int
+		var storageLimit uint64
 		err := tx.QueryRow(ctx, `
 			UPDATE app_connect_keys SET (remaining_uses, total_uses, last_used) = (remaining_uses - 1, total_uses + 1, NOW())
-			WHERE app_key = $1 RETURNING remaining_uses
-		`, connectKey).Scan(&uses)
+			WHERE app_key = $1 RETURNING remaining_uses, max_pinned_data
+		`, connectKey).Scan(&uses, &storageLimit)
 		if errors.Is(err, sql.ErrNoRows) {
 			return app.ErrKeyNotFound
 		} else if err != nil {
@@ -130,6 +130,10 @@ func (s *Store) UseAppConnectKey(ctx context.Context, connectKey string, appKey 
 		} else if uses < 0 {
 			// uses is returned after updating, -1 would mean the key is exhausted
 			return app.ErrKeyExhausted
+		}
+
+		if err := addAccount(ctx, tx, appKey, accounts.WithMaxPinnedData(storageLimit)); err != nil {
+			return fmt.Errorf("failed to add app account: %w", err)
 		}
 		return nil
 	})

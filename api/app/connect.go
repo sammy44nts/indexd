@@ -29,6 +29,7 @@ type (
 	// AddConnectKeyRequest is the request type for adding a new app connect key.
 	AddConnectKeyRequest struct {
 		Description   string `json:"description"`
+		MaxPinnedData uint64 `json:"maxPinnedData,omitempty"`
 		RemainingUses int    `json:"remainingUses"`
 	}
 
@@ -37,6 +38,7 @@ type (
 	UpdateAppConnectKey struct {
 		Key           string `json:"key"`
 		Description   string `json:"description"`
+		MaxPinnedData uint64 `json:"maxPinnedData,omitempty"`
 		RemainingUses int    `json:"remainingUses"`
 	}
 )

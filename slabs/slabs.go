@@ -114,6 +114,11 @@ func (s SlabPinParams) Digest() (SlabID, error) {
 	return SlabID(hasher.Sum()), nil
 }
 
+// Size returns the size of the slab in bytes including redundancy.
+func (s SlabPinParams) Size() uint64 {
+	return uint64(len(s.Sectors)) * proto.SectorSize
+}
+
 // Validate checks if the SlabPinParams are valid. It ensures that the
 // encryption key is set, the minimum number of shards is met, and that there
 // are no duplicate host keys or empty roots in the sectors.
