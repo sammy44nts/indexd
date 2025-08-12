@@ -99,11 +99,13 @@ func TestAppConnectKeys(t *testing.T) {
 
 	key := generated[0]
 	key.Description = "foobar"
+	key.MaxPinnedData = 32
 
 	err = admin.UpdateAppConnectKey(context.Background(), app.UpdateAppConnectKey{
 		Key:           key.Key,
 		Description:   key.Description,
 		RemainingUses: key.RemainingUses,
+		MaxPinnedData: key.MaxPinnedData,
 	})
 	if err != nil {
 		t.Fatal(err)
