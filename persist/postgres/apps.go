@@ -50,10 +50,12 @@ func (s *Store) AddAppConnectKey(ctx context.Context, meta app.UpdateAppConnectK
 func (s *Store) UpdateAppConnectKey(ctx context.Context, meta app.UpdateAppConnectKey) (key app.ConnectKey, err error) {
 	if meta.RemainingUses <= 0 {
 		return app.ConnectKey{}, app.ErrKeyExhausted
+	} else if meta.MaxPinnedData == 0 {
+		return app.ConnectKey{}, fmt.Errorf("max pinned data must be greater than 0")
 	}
 	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		key, err = scanConnectKey(tx.QueryRow(ctx, `
-			UPDATE app_connect_keys SET (use_description, remaining_uses) = ($2, $3) WHERE app_key = $1
+			UPDATE app_connect_keys SET (use_description, remaining_uses, max_pinned_data) = ($2, $3, $4) WHERE app_key = $1
 			RETURNING app_key, use_description, remaining_uses, total_uses, created_at, updated_at, last_used;
 		`, meta.Key, meta.Description, meta.RemainingUses))
 		return err
