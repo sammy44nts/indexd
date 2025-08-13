@@ -18,11 +18,11 @@ import (
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/keys"
+	"go.sia.tech/indexd/pins"
 	"go.sia.tech/indexd/slabs"
 
 	"go.sia.tech/indexd/client"
 	"go.sia.tech/indexd/contracts"
-	"go.sia.tech/indexd/explorer"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/persist/postgres"
 	"go.sia.tech/indexd/subscriber"
@@ -54,11 +54,12 @@ type (
 		*admin.Client
 		App func(types.PrivateKey) *app.Client
 
-		cm     *chain.Manager
-		dialer *client.SiamuxDialer
-		store  *postgres.Store
-		syncer *Syncer
-		wallet *wallet.SingleAddressWallet
+		cm      *chain.Manager
+		dialer  *client.SiamuxDialer
+		alerter *alerts.Manager
+		store   *postgres.Store
+		syncer  *Syncer
+		wallet  *wallet.SingleAddressWallet
 	}
 
 	// IndexerOpt is a functional option for configuring an indexer for testing
@@ -138,6 +139,12 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		t.Fatalf("failed to create subscriber: %v", err)
 	}
 
+	explorer := NewExplorer()
+	pm, err := pins.NewManager(explorer, hm, store)
+	if err != nil {
+		t.Fatalf("failed to create pin manager: %v", err)
+	}
+
 	// sync subscriber
 	syncFn := func() {
 		t.Helper()
@@ -150,12 +157,13 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 	adminAPIOpts := []admin.Option{
 		admin.WithDebug(),
 		admin.WithLogger(log.Named("api.admin")),
-		admin.WithExplorer(explorer.New("https://api.siascan.com")),
+		admin.WithExplorer(explorer),
 	}
+	alerter := alerts.NewManager()
 
 	password := hex.EncodeToString(frand.Bytes(16))
 	adminAPI := http.Server{
-		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, contracts, hm, syncer, wm, store, adminAPIOpts...)),
+		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, contracts, hm, pm, syncer, wm, store, alerter, adminAPIOpts...)),
 	}
 
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -179,7 +187,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		t.Fatalf("failed to listen on application address: %v", err)
 	}
 	appAPIAddr := fmt.Sprintf("http://%s", appListener.Addr().String())
-	appHandler, err := app.NewAPI(appAPIAddr, store, appAPIOpts...)
+	appHandler, err := app.NewAPI(appAPIAddr, store, contracts, appAPIOpts...)
 	if err != nil {
 		t.Fatalf("failed to create application API: %v", err)
 	}
@@ -222,6 +230,9 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		if err := closeWithTimeout(subscriber.Close); err != nil {
 			t.Errorf("failed to close subscriber: %v", err)
 		}
+		if err := pm.Close(); err != nil {
+			t.Errorf("failed to close pin manager: %v", err)
+		}
 		if err := closeWithTimeout(store.Close); err != nil {
 			t.Errorf("failed to close store: %v", err)
 		}
@@ -234,11 +245,12 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 			return client
 		},
 
-		cm:     c.cm,
-		dialer: dialer,
-		store:  store,
-		syncer: syncer,
-		wallet: wm,
+		cm:      c.cm,
+		dialer:  dialer,
+		alerter: alerter,
+		store:   store,
+		syncer:  syncer,
+		wallet:  wm,
 	}
 }
 
@@ -253,6 +265,11 @@ func (idx *Indexer) HostClient(t *testing.T, hk types.PublicKey) *client.HostCli
 		t.Fatalf("failed to dial host %s: %v", hk, err) // developer error
 	}
 	return hc
+}
+
+// Alerter returns the underlying alert manager.
+func (idx *Indexer) Alerter() *alerts.Manager {
+	return idx.alerter
 }
 
 // Store returns the underlying store.
@@ -296,4 +313,22 @@ func shutdownWithTimeout(shutdownFn func(context.Context) error) error {
 	return closeWithTimeout(func() error {
 		return shutdownFn(context.Background())
 	})
+}
+
+// WaitForHosts waits for the given number of hosts and returns them.
+func WaitForHosts(t *testing.T, app *app.Client, n int) []hosts.HostInfo {
+	t.Helper()
+	start := time.Now()
+	limit := 10 * time.Second
+	for {
+		hosts, err := app.Hosts(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		} else if len(hosts) == n {
+			return hosts
+		} else if time.Since(start) > limit {
+			t.Fatalf("timed out waiting for %d hosts, got %d", n, len(hosts))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

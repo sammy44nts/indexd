@@ -125,7 +125,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer contracts.Close()
 
-	slabs, err := slabs.NewManager(am, hm, store, dialer, alerts.NewManager(), keys.DeriveKey(walletKey, "migration"), keys.DeriveKey(walletKey, "integrity"))
+	alerter := alerts.NewManager()
+	slabs, err := slabs.NewManager(am, hm, store, dialer, alerter, keys.DeriveKey(walletKey, "migration"), keys.DeriveKey(walletKey, "integrity"))
 	if err != nil {
 		return fmt.Errorf("failed to create slabs manager: %w", err)
 	}
@@ -165,7 +166,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	adminAPI := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.AdminAPI.Password)(admin.NewAPI(cm, contracts, hm, s, wm, store, adminAPIOpts...)),
+			api: jape.BasicAuth(cfg.AdminAPI.Password)(admin.NewAPI(cm, contracts, hm, pm, s, wm, store, alerter, adminAPIOpts...)),
 			ui:  indexd.Handler(),
 		},
 		ReadTimeout:  30 * time.Second,
@@ -200,7 +201,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	appHandler, err := app.NewAPI(advertiseURL, store, appAPIOpts...)
+	appHandler, err := app.NewAPI(advertiseURL, store, contracts, appAPIOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to create application API: %w", err)
 	}

@@ -1,11 +1,13 @@
 package admin_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
@@ -134,17 +137,6 @@ func TestAccountsAPI(t *testing.T) {
 	c := testutils.NewConsensusNode(t, zap.NewNop())
 	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
-	// remove all existing accounts (slab related service accounts)
-	existing, err := indexer.Accounts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, acc := range existing {
-		if err := indexer.AccountsDelete(context.Background(), acc); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	var accs []types.PublicKey
 	for range 10 {
 		accs = append(accs, types.GeneratePrivateKey().PublicKey())
@@ -154,26 +146,28 @@ func TestAccountsAPI(t *testing.T) {
 		}
 	}
 
-	err = indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
+	err := indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
 	if err != nil {
 		t.Fatalf("expected re-adding an account to be treated as a no-op, instead %v", err)
 	}
 
-	accounts, err := indexer.Accounts(context.Background())
+	opt := api.WithServiceAccount(false) // ignore service accounts
+
+	accounts, err := indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(accs, accounts) {
 		t.Fatal("unexpected accounts", accounts)
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(7), api.WithLimit(2))
+	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(7), api.WithLimit(2), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(accs[7:9], accounts) {
 		t.Fatal("unexpected accounts", accounts)
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(10), api.WithLimit(2))
+	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(10), api.WithLimit(2), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -186,7 +180,7 @@ func TestAccountsAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -199,7 +193,7 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -214,13 +208,99 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
 		t.Fatal("unexpected accounts", len(accounts))
 	} else if accounts[0] != pk2 {
 		t.Fatal("unexpected key", accounts[0])
+	}
+}
+
+func TestAlertsAPI(t *testing.T) {
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
+	alerter := indexer.Alerter()
+
+	// no alerts registered at this point
+	if alerts, err := indexer.Alerts(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 0 {
+		t.Fatalf("expected 0 alerts, got %d", len(alerts))
+	}
+
+	// first alert has info severity
+	a1 := alerts.Alert{
+		ID:        types.Hash256{0: 1},
+		Severity:  alerts.SeverityInfo,
+		Timestamp: time.Now().UTC(),
+	}
+	if err := alerter.RegisterAlert(a1); err != nil {
+		t.Fatal(err)
+	}
+
+	// we should have the 1 alert we just registered
+	if alerts, err := indexer.Alerts(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 1 {
+		t.Fatalf("expected 1 alerts, got %d", len(alerts))
+	} else if !reflect.DeepEqual(alerts[0], a1) {
+		t.Fatalf("expected alert %v, got %v", a1, alerts[0])
+	}
+
+	// offset = 1 with only 1 alert registered should mean no results
+	if alerts, err := indexer.Alerts(context.Background(), admin.AlertQueryParameterOption(api.WithOffset(1))); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 0 {
+		t.Fatalf("expected 0 alerts, got %d", len(alerts))
+	}
+
+	// seocnd alert has error severity
+	a2 := alerts.Alert{
+		ID:        types.Hash256{0: 2},
+		Severity:  alerts.SeverityError,
+		Timestamp: time.Now().UTC(),
+	}
+	if err := alerter.RegisterAlert(a2); err != nil {
+		t.Fatal(err)
+	}
+
+	// we should only get the second alert if we filter with SeverityError
+	if alerts, err := indexer.Alerts(context.Background(), admin.WithSeverity(alerts.SeverityError)); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 1 {
+		t.Fatalf("expected 1 alerts, got %d", len(alerts))
+	} else if !reflect.DeepEqual(alerts[0], a2) {
+		t.Fatalf("expected alert %v, got %v", a2, alerts[0])
+	}
+
+	alerts, err := indexer.Alerts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(alerts, func(i, j int) bool {
+		return bytes.Compare(alerts[i].ID[:], alerts[j].ID[:]) < 0
+	})
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 alerts, got %d", len(alerts))
+	} else if !reflect.DeepEqual(alerts[0], a1) {
+		t.Fatalf("expected alert %v, got %v", a1, alerts[0])
+	} else if !reflect.DeepEqual(alerts[1], a2) {
+		t.Fatalf("expected alert %v, got %v", a2, alerts[1])
+	}
+
+	if err := indexer.DismissAlerts(context.Background(), a1.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// we should only have the second alert left after dismissing the first one
+	if alerts, err := indexer.Alerts(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(alerts) != 1 {
+		t.Fatalf("expected 1 alerts, got %d", len(alerts))
+	} else if !reflect.DeepEqual(alerts[0], a2) {
+		t.Fatalf("expected alert %v, got %v", a2, alerts[0])
 	}
 }
 
@@ -330,6 +410,7 @@ func TestContractsAPI(t *testing.T) {
 		t.Fatal("expected contract to be renewed", contracts[0].RenewedFrom, contract.ID)
 	}
 }
+
 func TestExplorerAPI(t *testing.T) {
 	c := testutils.NewConsensusNode(t, zap.NewNop())
 	indexer := testutils.NewIndexer(t, c, zap.NewNop())
@@ -564,7 +645,7 @@ func TestSettingsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ps.Currency = "eur"
+	ps.Currency = "usd"
 	ps.MaxEgressPrice = pins.Pin(frand.Float64())
 	ps.MaxIngressPrice = pins.Pin(frand.Float64())
 	ps.MaxStoragePrice = pins.Pin(frand.Float64())

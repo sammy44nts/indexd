@@ -85,6 +85,23 @@ func (s Severity) String() string {
 	}
 }
 
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *Severity) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case severityInfoStr:
+		*s = SeverityInfo
+	case severityWarningStr:
+		*s = SeverityWarning
+	case severityErrorStr:
+		*s = SeverityError
+	case severityCriticalStr:
+		*s = SeverityCritical
+	default:
+		return fmt.Errorf("unrecognized severity %s", b)
+	}
+	return nil
+}
+
 // MarshalJSON implements the json.Marshaler interface.
 func (s Severity) MarshalJSON() ([]byte, error) {
 	return fmt.Appendf(nil, "%q", s.String()), nil

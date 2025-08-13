@@ -17,16 +17,28 @@ import (
 )
 
 // Accounts returns a list of account keys.
-func (s *Store) Accounts(ctx context.Context, offset, limit int) ([]types.PublicKey, error) {
+func (s *Store) Accounts(ctx context.Context, offset, limit int, opts ...accounts.QueryAccountsOpt) ([]types.PublicKey, error) {
 	if err := validateOffsetLimit(offset, limit); err != nil {
 		return nil, err
 	} else if limit == 0 {
 		return nil, nil
 	}
 
+	queryOpts := accounts.QueryAccountsOptions{
+		ServiceAccount: nil, // default to all accounts
+	}
+	for _, opt := range opts {
+		opt(&queryOpts)
+	}
+
 	var accs []types.PublicKey
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		rows, err := tx.Query(ctx, `SELECT public_key FROM accounts LIMIT $1 OFFSET $2`, limit, offset)
+		rows, err := tx.Query(ctx, `
+			SELECT public_key
+			FROM accounts
+			WHERE ($1::boolean IS NULL OR service_account = $1::boolean)
+			LIMIT $2 OFFSET $3
+		`, queryOpts.ServiceAccount, limit, offset)
 		if err != nil {
 			return fmt.Errorf("failed to query accounts: %w", err)
 		}
@@ -47,10 +59,28 @@ func (s *Store) Accounts(ctx context.Context, offset, limit int) ([]types.Public
 	return accs, nil
 }
 
+// Account returns information about the account with the given public key.
+func (s *Store) Account(ctx context.Context, ak types.PublicKey) (accounts.Account, error) {
+	var account accounts.Account
+	account.AccountKey = proto.Account(ak) // no need to fetch key
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		return tx.QueryRow(ctx, `SELECT service_account FROM accounts WHERE public_key = $1`, sqlPublicKey(ak)).Scan(&account.ServiceAccount)
+	})
+	return account, err
+}
+
 // AddAccount adds a new account in the database with given account key.
 func (s *Store) AddAccount(ctx context.Context, ak types.PublicKey) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		return addAccount(ctx, tx, ak)
+		return addAccount(ctx, tx, ak, false)
+	})
+}
+
+// AddServiceAccount adds a new service account in the database with given
+// account key.
+func (s *Store) AddServiceAccount(ctx context.Context, ak types.PublicKey) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		return addAccount(ctx, tx, ak, true)
 	})
 }
 
@@ -69,11 +99,14 @@ func (s *Store) HasAccount(ctx context.Context, ak types.PublicKey) (bool, error
 // DeleteAccount deletes the account in the database with given account key.
 func (s *Store) DeleteAccount(ctx context.Context, ak types.PublicKey) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		res, err := tx.Exec(ctx, `DELETE FROM accounts WHERE public_key = $1`, sqlPublicKey(ak))
-		if err != nil {
-			return fmt.Errorf("failed to delete account: %w", err)
-		} else if res.RowsAffected() != 1 {
+		var serviceAccount bool
+		err := tx.QueryRow(ctx, `DELETE FROM accounts WHERE public_key = $1 RETURNING service_account`, sqlPublicKey(ak)).Scan(&serviceAccount)
+		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to delete account: %w", err)
+		} else if serviceAccount {
+			return accounts.ErrServiceAccount
 		}
 		return nil
 	})
@@ -248,8 +281,8 @@ func (s *Store) ServiceAccountBalance(ctx context.Context, hostKey types.PublicK
 	return balance, err
 }
 
-func addAccount(ctx context.Context, tx *txn, account types.PublicKey) error {
-	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key) VALUES ($1) ON CONFLICT DO NOTHING`, sqlPublicKey(account))
+func addAccount(ctx context.Context, tx *txn, account types.PublicKey, serviceAccount bool) error {
+	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, service_account) VALUES ($1, $2) ON CONFLICT DO NOTHING`, sqlPublicKey(account), serviceAccount)
 	if err != nil {
 		return fmt.Errorf("failed to add account: %w", err)
 	} else if res.RowsAffected() == 0 {
@@ -263,7 +296,7 @@ func newHostAccountsForFunding(ctx context.Context, tx *txn, hk types.PublicKey,
 
 	rows, err := tx.Query(ctx, `
 SELECT a.public_key
-FROM accounts a 
+FROM accounts a
 LEFT JOIN account_hosts ah ON a.id = ah.account_id AND ah.host_id = $1
 WHERE ah.account_id IS NULL
 LIMIT $2;`, hostID, limit)

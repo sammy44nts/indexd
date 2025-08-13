@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api"
 	"go.uber.org/zap"
 )
@@ -79,5 +80,16 @@ func WithUsable(usable bool) HostQueryParameterOption {
 func WithActiveContracts(activeContracts bool) HostQueryParameterOption {
 	return func(q url.Values) {
 		q.Set("activecontracts", fmt.Sprint(activeContracts))
+	}
+}
+
+// AlertQueryParameterOption is an option to configure the query string for the
+// Alerts endpoint.
+type AlertQueryParameterOption api.URLQueryParameterOption
+
+// WithSeverity sets the 'severity' parameter.
+func WithSeverity(severity alerts.Severity) AlertQueryParameterOption {
+	return func(q url.Values) {
+		q.Set("severity", severity.String())
 	}
 }
