@@ -90,7 +90,7 @@ func (c *Client) Alerts(ctx context.Context, opts ...AlertQueryParameterOption) 
 }
 
 // DismissAlerts dismisses registered alerts.
-func (c *Client) DismissAlert(ctx context.Context, ids ...types.Hash256) (err error) {
+func (c *Client) DismissAlerts(ctx context.Context, ids ...types.Hash256) (err error) {
 	err = c.c.POST(ctx, "/alerts/dismiss", ids, nil)
 	return
 }
