@@ -136,17 +136,6 @@ func TestAccountsAPI(t *testing.T) {
 	c := testutils.NewConsensusNode(t, zap.NewNop())
 	indexer := testutils.NewIndexer(t, c, zap.NewNop())
 
-	// remove all existing accounts (slab related service accounts)
-	existing, err := indexer.Accounts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, acc := range existing {
-		if err := indexer.AccountsDelete(context.Background(), acc); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	var accs []types.PublicKey
 	for range 10 {
 		accs = append(accs, types.GeneratePrivateKey().PublicKey())
@@ -156,26 +145,28 @@ func TestAccountsAPI(t *testing.T) {
 		}
 	}
 
-	err = indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
+	err := indexer.AccountsAdd(context.Background(), accs[len(accs)-1])
 	if err != nil {
 		t.Fatalf("expected re-adding an account to be treated as a no-op, instead %v", err)
 	}
 
-	accounts, err := indexer.Accounts(context.Background())
+	opt := api.WithServiceAccount(false) // ignore service accounts
+
+	accounts, err := indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(accs, accounts) {
 		t.Fatal("unexpected accounts", accounts)
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(7), api.WithLimit(2))
+	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(7), api.WithLimit(2), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(accs[7:9], accounts) {
 		t.Fatal("unexpected accounts", accounts)
 	}
 
-	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(10), api.WithLimit(2))
+	accounts, err = indexer.Accounts(context.Background(), api.WithOffset(10), api.WithLimit(2), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -188,7 +179,7 @@ func TestAccountsAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 0 {
@@ -201,7 +192,7 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {
@@ -216,7 +207,7 @@ func TestAccountsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	accounts, err = indexer.Accounts(context.Background())
+	accounts, err = indexer.Accounts(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accounts) != 1 {

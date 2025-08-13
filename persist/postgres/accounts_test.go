@@ -30,11 +30,12 @@ func TestAccounts(t *testing.T) {
 	}
 
 	pk2 := types.GeneratePrivateKey().PublicKey()
-	err = store.AddAccount(context.Background(), pk2)
+	err = store.AddServiceAccount(context.Background(), pk2)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// fetch all
 	accs, err := store.Accounts(context.Background(), 0, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -42,30 +43,98 @@ func TestAccounts(t *testing.T) {
 		t.Fatal("unexpected accounts", accs)
 	}
 
-	err = store.AddAccount(context.Background(), pk2)
-	if !errors.Is(err, accounts.ErrExists) {
-		t.Fatal("unexpected error")
+	// fetch all with limit and offset
+	accs, err = store.Accounts(context.Background(), 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accs) != 1 {
+		t.Fatal("unexpected accounts", accs)
+	} else if accs[0] != pk2 {
+		t.Fatalf("expected service account %s, got %s", pk2, accs[0])
+	}
+
+	// fetch only user accounts
+	accs, err = store.Accounts(context.Background(), 0, 2, accounts.WithServiceAccount(false))
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accs) != 1 {
+		t.Fatal("unexpected accounts", accs)
+	} else if accs[0] != pk1 {
+		t.Fatalf("expected service account %s, got %s", pk1, accs[0])
+	}
+
+	// fetch only service accounts
+	accs, err = store.Accounts(context.Background(), 0, 2, accounts.WithServiceAccount(true))
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accs) != 1 {
+		t.Fatal("unexpected accounts", accs)
+	} else if accs[0] != pk2 {
+		t.Fatalf("expected service account %s, got %s", pk2, accs[0])
+	}
+}
+
+func TestAccount(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+	pk := types.GeneratePrivateKey().PublicKey()
+	if err := store.AddServiceAccount(context.Background(), pk); err != nil {
+		t.Fatal(err)
+	}
+
+	acc, err := store.Account(context.Background(), pk)
+	if err != nil {
+		t.Fatal(err)
+	} else if acc.AccountKey != proto.Account(pk) {
+		t.Fatalf("expected public key %s, got %s", pk, acc.AccountKey)
+	} else if !acc.ServiceAccount {
+		t.Fatalf("expected service account to be true, got false")
 	}
 }
 
 func TestAddAccount(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	pk := types.GeneratePrivateKey().PublicKey()
-	err := store.AddAccount(context.Background(), pk)
-	if err != nil {
-		t.Fatal(err)
+	test := func(t *testing.T, addAccount func(types.PublicKey) (bool, error)) {
+		pk := types.GeneratePrivateKey().PublicKey()
+		serviceAccount, err := addAccount(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = addAccount(pk)
+		if !errors.Is(err, accounts.ErrExists) {
+			t.Fatal("expected ErrExists, got", err)
+		}
+		accs, err := store.Accounts(context.Background(), 0, 1, accounts.WithServiceAccount(serviceAccount))
+		if err != nil {
+			t.Fatal(err)
+		} else if len(accs) != 1 || accs[0] != pk {
+			t.Fatal("unexpected accounts", accs)
+		}
+		acc, err := store.Account(context.Background(), pk)
+		if err != nil {
+			t.Fatal(err)
+		} else if acc.ServiceAccount != serviceAccount {
+			t.Fatalf("expected service account %t, got %t", serviceAccount, acc.ServiceAccount)
+		}
 	}
-	err = store.AddAccount(context.Background(), pk)
-	if !errors.Is(err, accounts.ErrExists) {
-		t.Fatal("expected ErrExists, got", err)
-	}
-	accs, err := store.Accounts(context.Background(), 0, 1)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(accs) != 1 || accs[0] != pk {
-		t.Fatal("unexpected accounts", accs)
-	}
+
+	t.Run("user account", func(t *testing.T) {
+		test(t, func(pk types.PublicKey) (bool, error) {
+			if err := store.AddAccount(context.Background(), pk); err != nil {
+				return false, err
+			}
+			return false, nil // 'false' for user account
+		})
+	})
+
+	t.Run("service account", func(t *testing.T) {
+		test(t, func(pk types.PublicKey) (bool, error) {
+			if err := store.AddServiceAccount(context.Background(), pk); err != nil {
+				return true, err
+			}
+			return true, nil // 'true' for service account
+		})
+	})
 }
 
 func TestDeleteAccount(t *testing.T) {
@@ -105,6 +174,29 @@ func TestDeleteAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(accs) != 0 {
+		t.Fatal("unexpected accounts", accs)
+	}
+
+	// check service account deletion fails
+	pk2 := types.GeneratePrivateKey().PublicKey()
+	accs, err = store.Accounts(context.Background(), 0, 1, accounts.WithServiceAccount(true))
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accs) != 0 {
+		t.Fatal("unexpected accounts", accs)
+	}
+	err = store.AddServiceAccount(context.Background(), pk2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.DeleteAccount(context.Background(), pk2)
+	if !errors.Is(err, accounts.ErrServiceAccount) {
+		t.Fatal(err)
+	}
+	accs, err = store.Accounts(context.Background(), 0, 1, accounts.WithServiceAccount(true))
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accs) != 1 {
 		t.Fatal("unexpected accounts", accs)
 	}
 }

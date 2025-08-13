@@ -40,6 +40,13 @@ func WithLimit(limit int) URLQueryParameterOption {
 	}
 }
 
+// WithServiceAccount sets the 'serviceaccount' parameter.
+func WithServiceAccount(serviceAccount bool) URLQueryParameterOption {
+	return func(q url.Values) {
+		q.Set("serviceaccount", fmt.Sprint(serviceAccount))
+	}
+}
+
 // ParseOffsetLimit parses the 'offset' and 'limit' query parameters from the
 // request context. It returns the offset and limit values, and a boolean
 // indicating whether the parsing was successful. If the parameters are not

@@ -16,9 +16,37 @@ var (
 	// ErrNotFound is returned by database operations that fail due to an
 	// account not being found.
 	ErrNotFound = errors.New("account not found")
+
+	// ErrServiceAccount is returned by operations that fail due to an account
+	// being a service account.
+	ErrServiceAccount = errors.New("account is a service account")
 )
 
 type (
+	// QueryAccountsOptions holds options for querying accounts.
+	QueryAccountsOptions struct {
+		ServiceAccount *bool
+	}
+
+	// QueryAccountsOpt is a functional option for querying accounts.
+	QueryAccountsOpt func(o *QueryAccountsOptions)
+)
+
+// WithServiceAccount sets the service account filter for querying accounts.
+// Defaults to all accounts.
+func WithServiceAccount(serviceAccount bool) QueryAccountsOpt {
+	return func(opt *QueryAccountsOptions) {
+		opt.ServiceAccount = &serviceAccount
+	}
+}
+
+type (
+	// Account represents an account in the indexer.
+	Account struct {
+		AccountKey     proto.Account `json:"accountKey"`
+		ServiceAccount bool          `json:"serviceAccount"`
+	}
+
 	// HostAccount represents an ephemeral account on a host.
 	HostAccount struct {
 		AccountKey             proto.Account

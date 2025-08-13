@@ -1,6 +1,7 @@
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
-    public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32)
+    public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
+    service_account BOOLEAN NOT NULL DEFAULT FALSE -- true if this is a service account
 );
 
 CREATE TABLE app_connect_keys (

@@ -114,7 +114,7 @@ func (s *Store) DeleteAppConnectKey(ctx context.Context, connectKey string) erro
 // and adds the app account.
 func (s *Store) UseAppConnectKey(ctx context.Context, connectKey string, appKey types.PublicKey) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		if err := addAccount(ctx, tx, appKey); err != nil {
+		if err := addAccount(ctx, tx, appKey, false); err != nil {
 			return fmt.Errorf("failed to add app account: %w", err)
 		}
 

@@ -72,7 +72,8 @@ type (
 
 	// A Store is a persistent store for the indexer.
 	Store interface {
-		Accounts(ctx context.Context, offset, limit int) ([]types.PublicKey, error)
+		Account(ctx context.Context, ak types.PublicKey) (accounts.Account, error)
+		Accounts(ctx context.Context, offset, limit int, opts ...accounts.QueryAccountsOpt) ([]types.PublicKey, error)
 		AddAccount(ctx context.Context, ak types.PublicKey) error
 		DeleteAccount(ctx context.Context, ak types.PublicKey) error
 		UpdateAccount(ctx context.Context, oldAK, newAK types.PublicKey) error
@@ -166,6 +167,7 @@ func NewAPI(chain ChainManager, contracts ContractManager, hosts HostManager, pm
 
 		// accounts endpoints
 		"GET    /accounts":            a.handleGETAccounts,
+		"GET    /account/:accountkey": a.handleGETAccount,
 		"POST   /account/:accountkey": a.handlePOSTAccount,
 		"PUT    /account/:accountkey": a.handlePUTAccount,
 		"DELETE /account/:accountkey": a.handleDELETEAccount,
@@ -347,13 +349,36 @@ func (a *admin) handleDELETEAppConnectKeys(jc jape.Context) {
 	jc.Encode(nil)
 }
 
+func (a *admin) handleGETAccount(jc jape.Context) {
+	var ak types.PublicKey
+	if jc.DecodeParam("accountkey", &ak) != nil {
+		return
+	}
+	acc, err := a.store.Account(jc.Request.Context(), ak)
+	if errors.Is(err, accounts.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if jc.Check("failed to get account", err) != nil {
+		return
+	}
+	jc.Encode(acc)
+}
+
 func (a *admin) handleGETAccounts(jc jape.Context) {
 	offset, limit, ok := api.ParseOffsetLimit(jc)
 	if !ok {
 		return
 	}
+	var opts []accounts.QueryAccountsOpt
+	if jc.Request.FormValue("serviceaccount") != "" {
+		var serviceAccount bool
+		if jc.DecodeForm("serviceaccount", &serviceAccount) != nil {
+			return
+		}
+		opts = append(opts, accounts.WithServiceAccount(serviceAccount))
+	}
 
-	accounts, err := a.store.Accounts(jc.Request.Context(), offset, limit)
+	accounts, err := a.store.Accounts(jc.Request.Context(), offset, limit, opts...)
 	if jc.Check("failed to get accounts", err) != nil {
 		return
 	}
