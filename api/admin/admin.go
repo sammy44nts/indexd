@@ -75,7 +75,7 @@ type (
 	Store interface {
 		Account(ctx context.Context, ak types.PublicKey) (accounts.Account, error)
 		Accounts(ctx context.Context, offset, limit int, opts ...accounts.QueryAccountsOpt) ([]types.PublicKey, error)
-		AddAccount(ctx context.Context, ak types.PublicKey) error
+		AddAccount(ctx context.Context, ak types.PublicKey, opts ...accounts.AddAccountOption) error
 		DeleteAccount(ctx context.Context, ak types.PublicKey) error
 		UpdateAccount(ctx context.Context, oldAK, newAK types.PublicKey) error
 		BlockHosts(ctx context.Context, hks []types.PublicKey, reason string) error
@@ -306,15 +306,19 @@ func (a *admin) handleGETAppConnectKeys(jc jape.Context) {
 }
 
 func (a *admin) handlePOSTAppConnectKeys(jc jape.Context) {
-	var key app.AddConnectKeyRequest
-	if jc.Decode(&key) != nil {
+	var req app.AddConnectKeyRequest
+	if jc.Decode(&req) != nil {
 		return
+	}
+	if req.MaxPinnedData == 0 {
+		req.MaxPinnedData = 1e12 // default to 1TB
 	}
 
 	created, err := a.store.AddAppConnectKey(jc.Request.Context(), app.UpdateAppConnectKey{
 		Key:           hex.EncodeToString(frand.Bytes(16)),
-		Description:   key.Description,
-		RemainingUses: key.RemainingUses,
+		Description:   req.Description,
+		MaxPinnedData: req.MaxPinnedData,
+		RemainingUses: req.RemainingUses,
 	})
 	if jc.Check("failed to update app connect key", err) != nil {
 		return
@@ -397,7 +401,15 @@ func (a *admin) handlePOSTAccount(jc jape.Context) {
 		return
 	}
 
-	err := a.store.AddAccount(jc.Request.Context(), ak)
+	var req AddAccountRequest
+	var opts []accounts.AddAccountOption
+	if jc.Decode(&req) != nil {
+		return
+	} else if req.StorageLimit > 0 {
+		opts = append(opts, accounts.WithMaxPinnedData(req.StorageLimit))
+	}
+
+	err := a.store.AddAccount(jc.Request.Context(), ak, opts...)
 	if errors.Is(err, accounts.ErrExists) {
 		jc.Encode(nil) // treat as no-op, no need to trigger funding
 		return

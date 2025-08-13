@@ -67,9 +67,23 @@ func (c *Client) Accounts(ctx context.Context, opts ...api.URLQueryParameterOpti
 	return
 }
 
+// AccountsAddOption defines a functional option for the AccountsAdd.
+type AccountsAddOption func(req *AddAccountRequest)
+
+// WithStorageLimit sets the storage limit for the account being added.
+func WithStorageLimit(limit int64) AccountsAddOption {
+	return func(req *AddAccountRequest) {
+		req.StorageLimit = limit
+	}
+}
+
 // AccountsAdd adds the account with the given account key.
-func (c *Client) AccountsAdd(ctx context.Context, accountKey types.PublicKey) (err error) {
-	err = c.c.POST(ctx, fmt.Sprintf("/account/%s", accountKey), nil, nil)
+func (c *Client) AccountsAdd(ctx context.Context, accountKey types.PublicKey, opts ...AccountsAddOption) (err error) {
+	var req AddAccountRequest
+	for _, opt := range opts {
+		opt(&req)
+	}
+	err = c.c.POST(ctx, fmt.Sprintf("/account/%s", accountKey), req, nil)
 	return
 }
 

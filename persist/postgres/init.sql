@@ -1,6 +1,8 @@
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
+    pinned_data BIGINT NOT NULL DEFAULT 0 CHECK (pinned_data >= 0), -- total pinned data in bytes
+    max_pinned_data BIGINT NOT NULL CHECK (max_pinned_data >= 0), -- max pinned data in bytes
     service_account BOOLEAN NOT NULL DEFAULT FALSE -- true if this is a service account
 );
 
@@ -11,7 +13,8 @@ CREATE TABLE app_connect_keys (
     total_uses INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    last_used TIMESTAMP WITH TIME ZONE
+    last_used TIMESTAMP WITH TIME ZONE,
+    max_pinned_data BIGINT NOT NULL CHECK (max_pinned_data >= 0)
 );
 
 CREATE TABLE hosts (

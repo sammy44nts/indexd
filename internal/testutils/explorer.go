@@ -22,6 +22,11 @@ func NewExplorer() *Explorer {
 	}
 }
 
+// BaseURL returns the base URL of the explorer.
+func (e *Explorer) BaseURL() string {
+	return "https://explorer.internal"
+}
+
 // SiacoinExchangeRate returns the exchange rate for a given currency.
 func (e *Explorer) SiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error) {
 	if rate, ok := e.rates[currency]; ok {

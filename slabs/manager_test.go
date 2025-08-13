@@ -11,6 +11,7 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 )
@@ -40,7 +41,7 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey) error {
+func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey, opts ...accounts.AddAccountOption) error {
 	s.accounts[proto.Account(account)] = struct{}{}
 	return nil
 }

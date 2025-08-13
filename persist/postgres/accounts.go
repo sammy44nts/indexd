@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -70,9 +71,9 @@ func (s *Store) Account(ctx context.Context, ak types.PublicKey) (accounts.Accou
 }
 
 // AddAccount adds a new account in the database with given account key.
-func (s *Store) AddAccount(ctx context.Context, ak types.PublicKey) error {
+func (s *Store) AddAccount(ctx context.Context, ak types.PublicKey, opts ...accounts.AddAccountOption) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		return addAccount(ctx, tx, ak, false)
+		return addAccount(ctx, tx, ak, false, opts...)
 	})
 }
 
@@ -281,8 +282,14 @@ func (s *Store) ServiceAccountBalance(ctx context.Context, hostKey types.PublicK
 	return balance, err
 }
 
-func addAccount(ctx context.Context, tx *txn, account types.PublicKey, serviceAccount bool) error {
-	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, service_account) VALUES ($1, $2) ON CONFLICT DO NOTHING`, sqlPublicKey(account), serviceAccount)
+func addAccount(ctx context.Context, tx *txn, account types.PublicKey, serviceAccount bool, opts ...accounts.AddAccountOption) error {
+	aao := accounts.AddAccountOptions{
+		MaxPinnedData: math.MaxInt64, // no limit by default
+	}
+	for _, opt := range opts {
+		opt(&aao)
+	}
+	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, service_account, max_pinned_data) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, sqlPublicKey(account), serviceAccount, aao.MaxPinnedData)
 	if err != nil {
 		return fmt.Errorf("failed to add account: %w", err)
 	} else if res.RowsAffected() == 0 {

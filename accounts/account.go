@@ -20,7 +20,29 @@ var (
 	// ErrServiceAccount is returned by operations that fail due to an account
 	// being a service account.
 	ErrServiceAccount = errors.New("account is a service account")
+
+	// ErrStorageLimitExceeded is returned when an operation fails due to the
+	// account exceeding its storage limit.
+	ErrStorageLimitExceeded = errors.New("storage limit exceeded")
 )
+
+type (
+	// AddAccountOptions holds optional parameters for account creation.
+	AddAccountOptions struct {
+		MaxPinnedData int64
+	}
+
+	// AddAccountOption is a functional option for configuring optional
+	// parameters during account creation.
+	AddAccountOption func(*AddAccountOptions)
+)
+
+// WithMaxPinnedData sets the maximum amount of data that can be pinned
+func WithMaxPinnedData(maxPinnedData int64) AddAccountOption {
+	return func(opts *AddAccountOptions) {
+		opts.MaxPinnedData = maxPinnedData
+	}
+}
 
 type (
 	// QueryAccountsOptions holds options for querying accounts.
