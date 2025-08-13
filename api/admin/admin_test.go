@@ -23,6 +23,7 @@ import (
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/pins"
+	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
@@ -759,6 +760,57 @@ func TestWalletAPI(t *testing.T) {
 		t.Fatal(err)
 	} else if len(pending) != 0 {
 		t.Fatal("expected no pending transaction")
+	}
+}
+
+func TestSectorStatsAPI(t *testing.T) {
+	// create indexer
+	c := testutils.NewConsensusNode(t, zap.NewNop())
+	indexer := testutils.NewIndexer(t, c, zap.NewNop())
+
+	// assert 0 slabs
+	stats, err := indexer.StatsSectors(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if stats.NumSlabs != 0 {
+		t.Fatalf("expected no slabs, got %d", stats.NumSlabs)
+	}
+
+	// pin a slab
+	account := types.GeneratePrivateKey()
+	store := indexer.Store()
+	store.AddAccount(context.Background(), account.PublicKey())
+	slabID, err := indexer.App(account).PinSlab(context.Background(), slabs.SlabPinParams{
+		EncryptionKey: [32]byte{1},
+		MinShards:     1,
+		Sectors: []slabs.SectorPinParams{
+			{Root: frand.Entropy256(), HostKey: types.PublicKey{1}},
+			{Root: frand.Entropy256(), HostKey: types.PublicKey{2}},
+			{Root: frand.Entropy256(), HostKey: types.PublicKey{3}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// assert 1 slab
+	stats, err = indexer.StatsSectors(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if stats.NumSlabs != 1 {
+		t.Fatalf("expected 1 slab, got %d", stats.NumSlabs)
+	}
+
+	// unpin the slab
+	if err := indexer.App(account).UnpinSlab(context.Background(), slabID); err != nil {
+		t.Fatal(err)
+	}
+
+	// assert 0 slabs
+	stats, err = indexer.StatsSectors(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if stats.NumSlabs != 0 {
+		t.Fatalf("expected no slabs, got %d", stats.NumSlabs)
 	}
 }
 

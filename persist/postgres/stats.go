@@ -1,0 +1,28 @@
+package postgres
+
+import (
+	"context"
+
+	"go.sia.tech/indexd/api/admin"
+)
+
+func (s *Store) incrementNumSlabs(ctx context.Context, tx *txn, delta int64) error {
+	_, err := tx.Exec(ctx, "UPDATE sectors_stats SET num_slabs = num_slabs + $1", delta)
+	return err
+}
+
+func (s *Store) initSectorStats(ctx context.Context, tx *txn) error {
+	_, err := tx.Exec(ctx, "INSERT INTO sectors_stats (id) VALUES (0) ON CONFLICT(id) DO NOTHING")
+	return err
+}
+
+// SectorStats reports statistics about the sectors and slabs stored in the
+// database.
+func (s *Store) SectorStats(ctx context.Context) (admin.SectorsStatsResponse, error) {
+	var stats admin.SectorsStatsResponse
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		row := tx.QueryRow(ctx, "SELECT num_slabs FROM sectors_stats")
+		return row.Scan(&stats.NumSlabs)
+	})
+	return stats, err
+}
