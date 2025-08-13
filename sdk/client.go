@@ -51,6 +51,9 @@ type (
 		// upload or download.
 		Hosts() []types.PublicKey
 
+		// ActiveHosts returns hosts that there is an active connection with.
+		ActiveHosts() []types.PublicKey
+
 		// WriteSector writes a sector to the host identified by the public key.
 		WriteSector(context.Context, types.PublicKey, *[proto4.SectorSize]byte) (types.Hash256, error)
 		// ReadSector reads a sector from the host identified by the public key.
@@ -113,7 +116,22 @@ func (s *SDK) uploadSlab(ctx context.Context, encryptionKey [32]byte, shards [][
 	}
 
 	var hostsMu sync.Mutex
-	hosts := shuffle(s.dialer.Hosts())
+	activeHosts := shuffle(s.dialer.ActiveHosts())
+	allHosts := shuffle(s.dialer.Hosts())
+
+	hosts := make([]types.PublicKey, 0, len(allHosts))
+	seen := make(map[types.PublicKey]struct{}, len(activeHosts))
+	for _, pk := range activeHosts {
+		seen[pk] = struct{}{}
+		hosts = append(hosts, pk)
+	}
+	for _, pk := range allHosts {
+		if _, ok := seen[pk]; ok {
+			continue
+		}
+		hosts = append(hosts, pk)
+	}
+
 	if len(hosts) < len(shards) {
 		return slabs.SlabPinParams{}, fmt.Errorf("not enough hosts available: %d, required: %d", len(hosts), len(shards))
 	}
@@ -334,7 +352,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 		err    error
 	}
 	workCh := make(chan work, 1)
-	go func(ctx context.Context, slabs []Slab) {
+	go func() {
 		for i, meta := range metadata {
 			pinned, err := s.client.Slab(ctx, meta.ID)
 			if err != nil {
@@ -363,7 +381,7 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts .
 			workCh <- work{shards: shards[:pinned.MinShards]}
 		}
 		workCh <- work{err: io.EOF}
-	}(ctx, metadata)
+	}()
 
 	bw := bufio.NewWriterSize(w, 1<<16)
 	for i := 0; ; i++ {

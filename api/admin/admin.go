@@ -60,6 +60,11 @@ type (
 		ScanHost(ctx context.Context, hk types.PublicKey) (hosts.Host, error)
 	}
 
+	// PinManager defines an interface for managing pinned settings.
+	PinManager interface {
+		UpdatePinnedSettings(ctx context.Context, ps pins.PinnedSettings) error
+	}
+
 	// Explorer retrieves data about the Sia network from an external source.
 	Explorer interface {
 		SiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error)
@@ -125,6 +130,7 @@ type (
 		chain     ChainManager
 		contracts ContractManager
 		hosts     HostManager
+		pins      PinManager
 		explorer  Explorer
 		store     Store
 		syncer    Syncer
@@ -139,11 +145,12 @@ type (
 // API exposes endpoints to manage accounts, hosts, settings and the wallet.
 // This is different from the application API, which users, or rather their
 // applications, can use to pin slabs.
-func NewAPI(chain ChainManager, contracts ContractManager, hosts HostManager, syncer Syncer, wallet Wallet, store Store, alerter Alerter, opts ...Option) http.Handler {
+func NewAPI(chain ChainManager, contracts ContractManager, hosts HostManager, pm PinManager, syncer Syncer, wallet Wallet, store Store, alerter Alerter, opts ...Option) http.Handler {
 	a := &admin{
 		chain:     chain,
 		contracts: contracts,
 		hosts:     hosts,
+		pins:      pm,
 		store:     store,
 		syncer:    syncer,
 		wallet:    wallet,
@@ -711,7 +718,7 @@ func (a *admin) handlePUTSettingsPricePinning(jc jape.Context) {
 		return
 	}
 
-	jc.Check("failed to update price pinning settings", a.store.UpdatePinnedSettings(jc.Request.Context(), s))
+	jc.Check("failed to update price pinning settings", a.pins.UpdatePinnedSettings(jc.Request.Context(), s))
 }
 
 func (a *admin) handleGETWallet(jc jape.Context) {
