@@ -298,6 +298,7 @@ func shutdownWithTimeout(shutdownFn func(context.Context) error) error {
 	})
 }
 
+// WaitForHosts waits for the given number of hosts and returns them.
 func WaitForHosts(t *testing.T, app *app.Client, n int) []hosts.HostInfo {
 	t.Helper()
 	start := time.Now()
@@ -309,7 +310,7 @@ func WaitForHosts(t *testing.T, app *app.Client, n int) []hosts.HostInfo {
 		} else if len(hosts) == n {
 			return hosts
 		} else if time.Since(start) > limit {
-			t.Fatal(fmt.Sprintf("timed out waiting for %d hosts, got %d", n, len(hosts)))
+			t.Fatalf("timed out waiting for %d hosts, got %d", n, len(hosts))
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
