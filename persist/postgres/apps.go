@@ -80,6 +80,21 @@ func (s *Store) ValidAppConnectKey(ctx context.Context, key string) (bool, error
 	return uses > 0, nil
 }
 
+// AppConnectKey retrieves an application connection key from the database.
+func (s *Store) AppConnectKey(ctx context.Context, key string) (connectKey app.ConnectKey, err error) {
+	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		connectKey, err = scanConnectKey(tx.QueryRow(ctx, `
+			SELECT app_key, use_description, remaining_uses, total_uses, created_at, updated_at, last_used, max_pinned_data
+			FROM app_connect_keys
+			WHERE app_key = $1`, key))
+		if errors.Is(err, sql.ErrNoRows) {
+			return app.ErrKeyNotFound
+		}
+		return err
+	})
+	return
+}
+
 // AppConnectKeys retrieves a list of application connection keys from the database.
 func (s *Store) AppConnectKeys(ctx context.Context, offset, limit int) (keys []app.ConnectKey, err error) {
 	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
