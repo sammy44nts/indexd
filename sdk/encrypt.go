@@ -18,15 +18,19 @@ type rekeyStream struct {
 	nonce   uint64
 }
 
+const (
+	maxBytes = 64 * math.MaxUint32
+)
+
 func (rs *rekeyStream) XORKeyStream(dst, src []byte) {
 	rs.counter += uint64(len(src))
-	if rs.counter < 64*math.MaxUint32 {
+	if rs.counter < maxBytes {
 		rs.c.XORKeyStream(dst, src)
 		return
 	}
 	// counter overflow; xor remaining bytes, then increment nonce and xor again
-	rem := 64*math.MaxUint32 - (rs.counter - uint64(len(src)))
-	rs.counter -= 64 * math.MaxUint32
+	rem := maxBytes - (rs.counter - uint64(len(src)))
+	rs.counter -= maxBytes
 	rs.c.XORKeyStream(dst[:rem], src[:rem])
 	// NOTE: we increment the last 8 bytes because XChaCha uses the
 	// first 16 bytes to derive a new key; leaving them alone means
@@ -44,8 +48,8 @@ func encrypt(key *[32]byte, r io.Reader, offset uint64) (cipher.StreamReader, er
 	if offset%64 != 0 {
 		return cipher.StreamReader{}, fmt.Errorf("offset must be a multiple of 64, got %v", offset)
 	}
-	nonce64 := offset / (64 * math.MaxUint32)
-	offset %= 64 * math.MaxUint32
+	nonce64 := offset / (maxBytes)
+	offset %= maxBytes
 
 	nonce := make([]byte, 24)
 	binary.LittleEndian.PutUint64(nonce[16:], nonce64)
@@ -58,8 +62,8 @@ func encrypt(key *[32]byte, r io.Reader, offset uint64) (cipher.StreamReader, er
 // decrypt returns a cipher.StreamWriter that decrypts w with k, starting at the
 // specified offset.
 func decrypt(key *[32]byte, w io.Writer, offset uint64) cipher.StreamWriter {
-	nonce64 := offset / (64 * math.MaxUint32)
-	offset %= 64 * math.MaxUint32
+	nonce64 := offset / (maxBytes)
+	offset %= maxBytes
 
 	nonce := make([]byte, 24)
 	binary.LittleEndian.PutUint64(nonce[16:], nonce64)
