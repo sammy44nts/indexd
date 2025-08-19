@@ -239,7 +239,14 @@ top:
 // Upload uploads the data to hosts and pins it to the indexer.
 //
 // Returns the metadata of the slabs that were pinned
-func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]Slab, error) {
+func (s *SDK) Upload(ctx context.Context, key *[32]byte, r io.Reader, opts ...UploadOption) ([]Slab, error) {
+	if key != nil {
+		var err error
+		if r, err = encrypt(key, r, 0); err != nil {
+			return nil, fmt.Errorf("failed to get stream cipher: %w", err)
+		}
+	}
+
 	uo := uploadOption{
 		dataShards:   10,
 		parityShards: 20,
@@ -334,7 +341,11 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) ([]
 // Download downloads object metadata
 //
 // TODO: support seeks
-func (s *SDK) Download(ctx context.Context, w io.Writer, metadata []Slab, opts ...DownloadOption) error {
+func (s *SDK) Download(ctx context.Context, key *[32]byte, w io.Writer, metadata []Slab, opts ...DownloadOption) error {
+	if key != nil {
+		w = decrypt(key, w, 0)
+	}
+
 	if len(metadata) == 0 {
 		return errors.New("no slabs to download")
 	}
