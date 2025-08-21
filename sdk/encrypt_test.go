@@ -16,10 +16,9 @@ func TestEncryptRoundtrip(t *testing.T) {
 	var key [32]byte
 	frand.Read(key[:])
 
-	for _, offset := range []uint64{0, 64, 128, 2048, 4096} {
+	for _, offset := range []uint64{0, 64, 128, 2048, 4096, maxBytesPerNonce - 128, maxBytesPerNonce - 64, maxBytesPerNonce, 2 * maxBytesPerNonce} {
 		t.Run(fmt.Sprint(offset), func(t *testing.T) {
-			expected := data[offset:]
-			r, err := encrypt(&key, bytes.NewReader(expected), offset)
+			r, err := encrypt(&key, bytes.NewReader(data[:]), offset)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -35,34 +34,8 @@ func TestEncryptRoundtrip(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if !bytes.Equal(expected, buf.Bytes()) {
-				t.Fatalf("data mismatch: expected %v, got %v", expected, buf.Bytes())
-			}
-		})
-	}
-
-	// test offset beyond max bytes
-	for _, offset := range []uint64{maxBytesPerNonce, 2 * maxBytesPerNonce} {
-		t.Run(fmt.Sprint(offset), func(t *testing.T) {
-			expected := data[:]
-			r, err := encrypt(&key, bytes.NewReader(expected), offset)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			read, err := io.ReadAll(r)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			var buf bytes.Buffer
-			decrypted := decrypt(&key, &buf, offset)
-			if _, err := decrypted.Write(read); err != nil {
-				t.Fatal(err)
-			}
-
-			if !bytes.Equal(expected, buf.Bytes()) {
-				t.Fatalf("data mismatch: expected %v, got %v", expected, buf.Bytes())
+			if !bytes.Equal(data[:], buf.Bytes()) {
+				t.Fatalf("data mismatch: expected %v, got %v", data[:], buf.Bytes())
 			}
 		})
 	}
