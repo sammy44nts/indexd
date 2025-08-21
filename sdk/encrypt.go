@@ -57,12 +57,12 @@ func encrypt(key *[32]byte, r io.Reader, offset uint64) (cipher.StreamReader, er
 		return cipher.StreamReader{}, fmt.Errorf("offset must be a multiple of 64, got %v", offset)
 	}
 
-	n, _ := nonce(offset)
+	n, n64 := nonce(offset)
 	offset %= maxBytesPerNonce
 
 	c, _ := chacha20.NewUnauthenticatedCipher(key[:], n[:])
 	c.SetCounter(uint32(offset / 64))
-	rs := &rekeyStream{key: key[:], c: c}
+	rs := &rekeyStream{key: key[:], c: c, counter: offset, nonce: n64}
 	return cipher.StreamReader{S: rs, R: r}, nil
 }
 
