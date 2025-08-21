@@ -255,6 +255,8 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 
 	if (uo.parityShards+uo.dataShards)/uo.dataShards < 2 {
 		return Object{}, errors.New("redundancy must be at least 2x")
+	} else if uo.disableEncryption && uo.customKey != nil {
+		return Object{}, errors.New("custom key provided but encryption disabled ")
 	}
 
 	var obj Object

@@ -79,6 +79,10 @@ func TestRoundtrip(t *testing.T) {
 	if !bytes.Equal(buf.Bytes(), data) {
 		t.Fatal("data mismatch")
 	}
+
+	if _, err = s.Upload(context.Background(), bytes.NewReader(data), WithDisableEncryption(), WithXChaCha20Secret(key)); err == nil {
+		t.Fatal("expected error when disabling encryption but still passing custom key")
+	}
 }
 
 type countWriter struct {
