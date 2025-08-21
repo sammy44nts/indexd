@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
 )
 
@@ -24,6 +25,20 @@ func TestRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// each upload has varying encryption configurations so we should get
+	// different slab IDs every time
+	seen := make(map[slabs.SlabID]struct{})
+	checkSlabIDs := func(slabs []Slab) {
+		t.Helper()
+
+		for _, slab := range slabs {
+			if _, ok := seen[slab.ID]; ok {
+				t.Fatal("slab ID seen twice")
+			}
+			seen[slab.ID] = struct{}{}
+		}
+	}
+
 	// without client side encryption
 	data := frand.Bytes(4096)
 	obj, err := s.Upload(context.Background(), bytes.NewReader(data), WithDisableEncryption())
@@ -34,6 +49,7 @@ func TestRoundtrip(t *testing.T) {
 	} else if obj.Slabs[0].Length != uint32(len(data)) {
 		t.Fatalf("expected slab length %d, got %d", len(data), obj.Slabs[0].Length)
 	}
+	checkSlabIDs(obj.Slabs)
 
 	buf := bytes.NewBuffer(nil)
 	if err := s.Download(context.Background(), buf, obj); err != nil {
@@ -49,6 +65,7 @@ func TestRoundtrip(t *testing.T) {
 	} else if obj.Slabs[0].Length != uint32(len(data)) {
 		t.Fatalf("expected slab length %d, got %d", len(data), obj.Slabs[0].Length)
 	}
+	checkSlabIDs(obj.Slabs)
 
 	buf = bytes.NewBuffer(nil)
 	if err := s.Download(context.Background(), buf, obj); err != nil {
@@ -70,6 +87,7 @@ func TestRoundtrip(t *testing.T) {
 	} else if obj.Slabs[0].Length != uint32(len(data)) {
 		t.Fatalf("expected slab length %d, got %d", len(data), obj.Slabs[0].Length)
 	}
+	checkSlabIDs(obj.Slabs)
 
 	buf = bytes.NewBuffer(nil)
 	if err := s.Download(context.Background(), buf, obj); err != nil {
