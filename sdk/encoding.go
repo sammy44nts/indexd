@@ -5,33 +5,33 @@ import (
 )
 
 // EncodeTo implements types.EncoderTo.
-func (x Slab) EncodeTo(e *types.Encoder) {
-	e.Write(x.ID[:])
-	e.WriteUint64(uint64(x.Offset))
-	e.WriteUint64(uint64(x.Length))
+func (s Slab) EncodeTo(e *types.Encoder) {
+	e.Write(s.ID[:])
+	e.WriteUint64(uint64(s.Offset))
+	e.WriteUint64(uint64(s.Length))
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (x *Slab) DecodeFrom(d *types.Decoder) {
-	d.Read(x.ID[:])
-	x.Offset = uint32(d.ReadUint64())
-	x.Length = uint32(d.ReadUint64())
+func (s *Slab) DecodeFrom(d *types.Decoder) {
+	d.Read(s.ID[:])
+	s.Offset = uint32(d.ReadUint64())
+	s.Length = uint32(d.ReadUint64())
 }
 
 // EncodeTo implements types.EncoderTo.
-func (x Object) EncodeTo(e *types.Encoder) {
-	e.WriteBool(x.Key != nil)
-	if x.Key != nil {
-		e.Write((*x.Key)[:])
+func (obj Object) EncodeTo(e *types.Encoder) {
+	e.WriteBool(obj.Key != nil)
+	if obj.Key != nil {
+		e.Write((*obj.Key)[:])
 	}
-	types.EncodeSlice(e, x.Slabs)
+	types.EncodeSlice(e, obj.Slabs)
 }
 
 // DecodeFrom implements types.DecoderFrom.
-func (x *Object) DecodeFrom(d *types.Decoder) {
+func (obj *Object) DecodeFrom(d *types.Decoder) {
 	if d.ReadBool() {
-		x.Key = new([32]byte)
-		d.Read((*x.Key)[:])
+		obj.Key = new([32]byte)
+		d.Read((*obj.Key)[:])
 	}
-	types.DecodeSlice(d, &x.Slabs)
+	types.DecodeSlice(d, &obj.Slabs)
 }
