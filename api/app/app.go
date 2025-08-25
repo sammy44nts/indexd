@@ -35,7 +35,7 @@ type (
 		PinnedSlab(context.Context, slabs.SlabID) (slabs.PinnedSlab, error)
 		SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]slabs.SlabID, error)
 		UnpinSlab(context.Context, proto.Account, slabs.SlabID) error
-		UsableHosts(ctx context.Context, protocol *chain.Protocol, offset, limit int) ([]hosts.HostInfo, error)
+		UsableHosts(ctx context.Context, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error)
 	}
 
 	// Accounts defines the account management interface for the application API.
@@ -135,13 +135,12 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
-	var protocol *chain.Protocol
+	var opts []hosts.UsableHostQueryOpt
 	if p != "" {
-		protocol = new(chain.Protocol)
-		*protocol = chain.Protocol(p)
+		opts = append(opts, hosts.WithProtocol(chain.Protocol(p)))
 	}
 
-	hosts, err := a.store.UsableHosts(jc.Request.Context(), protocol, offset, limit)
+	hosts, err := a.store.UsableHosts(jc.Request.Context(), offset, limit, opts...)
 	if jc.Check("failed to get hosts", err) != nil {
 		return
 	}

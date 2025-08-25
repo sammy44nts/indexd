@@ -619,11 +619,9 @@ func TestUsableHosts(t *testing.T) {
 	uh2 := addHost(9, bothProtocols, true, false, true) // second usable host
 
 	// assert only h6 and h9 are returned
-	hosts, err := db.UsableHosts(context.Background(), nil, 0, 10)
-	if err != nil {
+	if hosts, err := db.UsableHosts(context.Background(), 0, 10); err != nil {
 		t.Fatal("unexpected", err)
-	}
-	if len(hosts) != 2 {
+	} else if len(hosts) != 2 {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh2 || hosts[1].PublicKey != uh1 {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
@@ -632,30 +630,28 @@ func TestUsableHosts(t *testing.T) {
 	}
 
 	// assert offset and limit are applied
-	if hosts, err := db.UsableHosts(context.Background(), nil, 0, 1); err != nil {
+	if hosts, err := db.UsableHosts(context.Background(), 0, 1); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 1 {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh2 {
 		t.Fatal("unexpected host", hosts[0].PublicKey)
-	} else if hosts, err := db.UsableHosts(context.Background(), nil, 1, 1); err != nil {
+	} else if hosts, err := db.UsableHosts(context.Background(), 1, 1); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 1 {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh1 {
 		t.Fatal("unexpected host", hosts[0].PublicKey)
-	} else if hosts, err := db.UsableHosts(context.Background(), nil, 2, 1); err != nil {
+	} else if hosts, err := db.UsableHosts(context.Background(), 2, 1); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 0 {
 		t.Fatal("expected no hosts, got", len(hosts))
 	}
 
 	// filter protocols
-	hosts, err = db.UsableHosts(context.Background(), &bothProtocols[0], 0, 10)
-	if err != nil {
+	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.WithProtocol(siamux.Protocol)); err != nil {
 		t.Fatal("unexpected", err)
-	}
-	if len(hosts) != 2 {
+	} else if len(hosts) != 2 {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh2 || hosts[1].PublicKey != uh1 {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
@@ -663,11 +659,9 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("expected hosts to have addresses")
 	}
 
-	hosts, err = db.UsableHosts(context.Background(), &bothProtocols[1], 0, 10)
-	if err != nil {
+	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.WithProtocol(quic.Protocol)); err != nil {
 		t.Fatal("unexpected", err)
-	}
-	if len(hosts) != 1 {
+	} else if len(hosts) != 1 {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh2 {
 		t.Fatal("unexpected host", hosts[0])
