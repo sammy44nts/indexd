@@ -45,6 +45,8 @@ type (
 	// UsableHostQueryOpt is a functional option for querying usable hosts.
 	UsableHostQueryOpt func(*UsableHostsQueryOpts)
 
+	// UsableHostsQueryOpts holds optional parameters for querying usable
+	// hosts.
 	UsableHostsQueryOpts struct {
 		Protocol *chain.Protocol
 	}
