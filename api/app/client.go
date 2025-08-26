@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -72,30 +73,59 @@ func sign(appKey types.PrivateKey, method, endpointURL string, req any) (string,
 	return u.String(), body, nil
 }
 
-func (c *Client) signedRequest(ctx context.Context, method, route string, data any, resp any) error {
+func (c *Client) signedRequestCustom(ctx context.Context, accept, method, route string, data any) (io.ReadCloser, error) {
 	u, body, err := sign(c.appkey, method, fmt.Sprintf("%s%s", c.baseURL, route), data)
 	if err != nil {
-		return fmt.Errorf("failed to sign request: %w", err)
+		return nil, fmt.Errorf("failed to sign request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", accept)
+
 	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !(200 <= r.StatusCode && r.StatusCode < 300) {
+		defer io.Copy(io.Discard, r.Body)
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return nil, errors.New(strings.TrimSpace(string(b)))
+	} else if contentType := r.Header.Get("Content-Type"); r.StatusCode != http.StatusNoContent && accept != contentType {
+		return nil, fmt.Errorf("expected content type %s, got %s", accept, contentType)
+	}
+
+	return r.Body, nil
+}
+
+func (c *Client) signedRequestJSON(ctx context.Context, method, route string, data, resp any) error {
+	body, err := c.signedRequestCustom(ctx, applicationJSON, method, route, data)
 	if err != nil {
 		return err
 	}
-	defer io.Copy(io.Discard, r.Body)
-	defer r.Body.Close()
-	if !(200 <= r.StatusCode && r.StatusCode < 300) {
-		err, _ := io.ReadAll(r.Body)
-		return errors.New(strings.TrimSpace(string(err)))
-	}
+	defer io.Copy(io.Discard, body)
+	defer body.Close()
+
 	if resp == nil {
 		return nil
 	}
-	return json.NewDecoder(r.Body).Decode(resp)
+	return json.NewDecoder(body).Decode(resp)
+}
+
+func (c *Client) signedRequestBinary(ctx context.Context, method, route string, data any, resp types.DecoderFrom) error {
+	body, err := c.signedRequestCustom(ctx, applicationOctetStream, method, route, data)
+	if err != nil {
+		return err
+	}
+	defer io.Copy(io.Discard, body)
+	defer body.Close()
+
+	d := types.NewDecoder(io.LimitedReader{R: body, N: math.MaxInt64})
+	resp.DecodeFrom(d)
+	return d.Err()
 }
 
 // Hosts returns all usable hosts.
@@ -105,42 +135,42 @@ func (c *Client) Hosts(ctx context.Context, opts ...api.URLQueryParameterOption)
 		opt(values)
 	}
 
-	err = c.signedRequest(ctx, http.MethodGet, "/hosts?"+values.Encode(), nil, &hosts)
+	err = c.signedRequestJSON(ctx, http.MethodGet, "/hosts?"+values.Encode(), nil, &hosts)
 	return
 }
 
 // PinSlab pins a slab to the indexer.
 func (c *Client) PinSlab(ctx context.Context, params slabs.SlabPinParams) (slabID slabs.SlabID, err error) {
-	err = c.signedRequest(ctx, http.MethodPost, "/slabs", params, &slabID)
+	err = c.signedRequestJSON(ctx, http.MethodPost, "/slabs", params, &slabID)
 	return
 }
 
 // UnpinSlab unpins a slab from the indexer.
 func (c *Client) UnpinSlab(ctx context.Context, slabID slabs.SlabID) error {
-	return c.signedRequest(ctx, http.MethodDelete, fmt.Sprintf("/slabs/%s", slabID), nil, nil)
+	return c.signedRequestJSON(ctx, http.MethodDelete, fmt.Sprintf("/slabs/%s", slabID), nil, nil)
 }
 
 // Slab retrieves a slab from the indexer by its ID.
 func (c *Client) Slab(ctx context.Context, slabID slabs.SlabID) (s slabs.PinnedSlab, err error) {
-	err = c.signedRequest(ctx, http.MethodGet, fmt.Sprintf("/slabs/%s", slabID), nil, &s)
+	err = c.signedRequestBinary(ctx, http.MethodGet, fmt.Sprintf("/slabs/%s", slabID), nil, &s)
 	return
 }
 
 // SlabIDs fetches the digests of slabs associated with the account. It supports
 // pagination through the provided options.
-func (c *Client) SlabIDs(ctx context.Context, opts ...api.URLQueryParameterOption) (slabIDs []slabs.SlabID, err error) {
+func (c *Client) SlabIDs(ctx context.Context, opts ...api.URLQueryParameterOption) (resp []slabs.SlabID, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
 	}
 
-	err = c.signedRequest(ctx, http.MethodGet, "/slabs?"+values.Encode(), nil, &slabIDs)
+	err = c.signedRequestJSON(ctx, http.MethodGet, "/slabs?"+values.Encode(), nil, &resp)
 	return
 }
 
 // RequestAppConnection requests an application connection to the indexer.
 func (c *Client) RequestAppConnection(ctx context.Context, request RegisterAppRequest) (resp RegisterAppResponse, err error) {
-	err = c.signedRequest(ctx, http.MethodPost, "/auth/connect", request, &resp)
+	err = c.signedRequestJSON(ctx, http.MethodPost, "/auth/connect", request, &resp)
 	return
 }
 
