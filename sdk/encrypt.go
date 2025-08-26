@@ -31,10 +31,7 @@ func (rs *rekeyStream) XORKeyStream(dst, src []byte) {
 
 	if rs.skip > 0 {
 		// determine how many bytes we can process from the first block.
-		n := 64 - rs.skip
-		if n > len(src) {
-			n = len(src)
-		}
+		n := min(64-rs.skip, len(src))
 
 		// generate the full 64-byte keystream for the initial block.
 		var keyStream [64]byte
