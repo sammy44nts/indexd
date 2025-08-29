@@ -29,10 +29,7 @@ var (
 type (
 	// AddAccountOptions holds optional parameters for account creation.
 	AddAccountOptions struct {
-		Description   string
-		LogoURL       string
 		MaxPinnedData uint64
-		ServiceURL    string
 	}
 
 	// AddAccountOption is a functional option for configuring optional

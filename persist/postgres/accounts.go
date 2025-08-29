@@ -289,7 +289,7 @@ func addAccount(ctx context.Context, tx *txn, account types.PublicKey, serviceAc
 	for _, opt := range opts {
 		opt(&aao)
 	}
-	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, service_account, max_pinned_data, description, logo_url, service_url) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`, sqlPublicKey(account), serviceAccount, aao.MaxPinnedData, aao.Description, aao.LogoURL, aao.ServiceURL)
+	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, service_account, max_pinned_data, description, logo_url, service_url) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`, sqlPublicKey(account), serviceAccount, aao.MaxPinnedData, meta.Description, meta.LogoURL, meta.ServiceURL)
 	if err != nil {
 		return fmt.Errorf("failed to add account: %w", err)
 	} else if res.RowsAffected() == 0 {
