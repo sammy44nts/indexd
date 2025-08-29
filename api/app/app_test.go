@@ -227,7 +227,7 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatal("got wrong quic host")
 	}
 
-	// filtering for AU should only return h1
+	// filtering for AU should only return h2
 	usableHosts, err = client.Hosts(ctx, api.WithCountry(locationAU.CountryCode))
 	if err != nil {
 		t.Fatal("failed to get hosts:", err)
