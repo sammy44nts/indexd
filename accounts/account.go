@@ -68,6 +68,10 @@ type (
 		AccountKey     proto.Account `json:"accountKey"`
 		ServiceAccount bool          `json:"serviceAccount"`
 		MaxPinnedData  uint64        `json:"maxPinnedData"`
+		PinnedData     uint64        `json:"pinnedData"`
+		Description    string        `json:"description,omitempty"`
+		LogoURL        string        `json:"logoURL,omitempty"`
+		ServiceURL     string        `json:"serviceURL,omitempty"`
 	}
 
 	// HostAccount represents an ephemeral account on a host.

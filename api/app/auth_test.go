@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/jape"
 )
 
@@ -27,7 +28,7 @@ func (s *mockAccounts) ValidAppConnectKey(context.Context, string) (bool, error)
 	return true, nil
 }
 
-func (s *mockAccounts) UseAppConnectKey(context.Context, string, types.PublicKey) error {
+func (s *mockAccounts) UseAppConnectKey(ctx context.Context, connectKey string, appKey types.PublicKey, meta accounts.AccountMeta) error {
 	return nil
 }
 

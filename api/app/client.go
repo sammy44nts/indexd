@@ -28,8 +28,7 @@ type Client struct {
 	baseURL string
 
 	// the following fields are used to sign requests
-	appkey   types.PrivateKey
-	hostname string
+	appkey types.PrivateKey
 }
 
 // sign signs the request with the appropriate headers and returns the signed URL
@@ -241,16 +240,10 @@ func (c *Client) CheckAppAuth(ctx context.Context) (bool, error) {
 // NewClient creates a new AppClient that can be used to interact with the
 // application API of the indexer. The address should be the full URL to the
 // application API, including the scheme (e.g., "http://indexer.sia.tech").
-func NewClient(address string, appKey types.PrivateKey) (*Client, error) {
-	parsedURL, err := url.Parse(address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse address %q: %w", address, err)
-	}
-
+func NewClient(address string, appKey types.PrivateKey) *Client {
 	return &Client{
 		baseURL: address,
 
-		appkey:   appKey,
-		hostname: parsedURL.Host,
-	}, nil
+		appkey: appKey,
+	}
 }

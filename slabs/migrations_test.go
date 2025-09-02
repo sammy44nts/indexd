@@ -11,6 +11,7 @@ import (
 	"github.com/klauspost/reedsolomon"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
@@ -38,7 +39,7 @@ func TestMigrateSlab(t *testing.T) {
 
 	// prepare account
 	a1 := types.PublicKey{1}
-	db.AddAccount(context.Background(), a1)
+	db.AddAccount(context.Background(), a1, accounts.AccountMeta{})
 
 	// prepare 4 hosts
 	h1 := newTestHost(types.PublicKey{1})

@@ -25,7 +25,7 @@ func TestMigrateSector(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -153,7 +153,7 @@ func TestRecordIntegrityCheck(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -297,7 +297,7 @@ func TestSectorsForIntegrityCheck(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -381,11 +381,11 @@ func TestSlabIDs(t *testing.T) {
 
 	// add 2 accounts
 	a1 := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(a1)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(a1), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 	a2 := proto.Account{2}
-	if err := store.AddAccount(context.Background(), types.PublicKey(a2)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(a2), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -474,9 +474,9 @@ func TestPinSlabs(t *testing.T) {
 	slabSize := uint64(2 * proto.SectorSize)
 
 	// add accounts - account1 can pin 2 slabs and account2 can pin 3 slabs
-	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.WithMaxPinnedData(2*slabSize)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}, accounts.WithMaxPinnedData(2*slabSize)); err != nil {
 		t.Fatal("failed to add account:", err)
-	} else if err := store.AddAccount(context.Background(), types.PublicKey(account2), accounts.WithMaxPinnedData(3*slabSize)); err != nil {
+	} else if err := store.AddAccount(context.Background(), types.PublicKey(account2), accounts.AccountMeta{}, accounts.WithMaxPinnedData(3*slabSize)); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -750,7 +750,7 @@ func TestUnpinSlab(t *testing.T) {
 
 	// add an account with 2 slabs, 2 sectors each
 	acc1 := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(acc1)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(acc1), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 	if _, err := store.PinSlab(context.Background(), acc1, time.Time{}, params[0]); err != nil {
@@ -761,7 +761,7 @@ func TestUnpinSlab(t *testing.T) {
 
 	// add another account with 2 slabs, the first one is shared with acc1
 	acc2 := proto.Account{2}
-	if err := store.AddAccount(context.Background(), types.PublicKey(acc2)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(acc2), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 	if _, err := store.PinSlab(context.Background(), acc2, time.Time{}, params[1]); err != nil {
@@ -852,7 +852,7 @@ func TestPinSectors(t *testing.T) {
 	// create host and account
 	hk := store.addTestHost(t)
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -990,7 +990,7 @@ func TestUnhealthySlabs(t *testing.T) {
 
 	// add an account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -1131,7 +1131,7 @@ func TestPruneUnpinnableSectors(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -1213,7 +1213,7 @@ func TestUnpinnedSectors(t *testing.T) {
 
 	// create host with account and contract
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 	hk := store.addTestHost(t)
@@ -1295,7 +1295,7 @@ func BenchmarkSlabs(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	account := proto.Account{1}
 
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1432,7 +1432,7 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 
 	// create account, host and contract
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 	hk := store.addTestHost(b)
@@ -1516,7 +1516,7 @@ func BenchmarkSectorsForIntegrityCheck(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 	account := proto.Account{1}
 
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1580,7 +1580,7 @@ func BenchmarkPinSectors(b *testing.B) {
 
 	// create account, host and contract
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 	hk := store.addTestHost(b)
@@ -1669,7 +1669,7 @@ func BenchmarkUnhealthySlabs(b *testing.B) {
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1785,7 +1785,7 @@ func BenchmarkUnpinSlab(b *testing.B) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1844,7 +1844,7 @@ func BenchmarkRecordIntegrityChecks(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 	account := proto.Account{1}
 
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1908,7 +1908,7 @@ func BenchmarkMarkFailingSectorsLost(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 	account := proto.Account{1}
 
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -1974,7 +1974,7 @@ func BenchmarkPruneUnpinnableSectors(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 	account := proto.Account{1}
 
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
@@ -2047,7 +2047,7 @@ func TestMarkSectorsLost(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -2155,7 +2155,7 @@ func BenchmarkMarkSectorsLost(b *testing.B) {
 
 	// create account, host and contract
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 	hk := store.addTestHost(b)
@@ -2269,7 +2269,7 @@ func BenchmarkMigrateSector(b *testing.B) {
 
 	// create account, host and contract
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 

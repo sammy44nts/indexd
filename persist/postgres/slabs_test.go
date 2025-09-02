@@ -9,6 +9,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -19,7 +20,7 @@ func TestSlab(t *testing.T) {
 	account := proto.Account{1}
 
 	// add account
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +107,7 @@ func TestPinnedSlab(t *testing.T) {
 	account := proto.Account{1}
 
 	// add account
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
 

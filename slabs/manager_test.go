@@ -41,12 +41,12 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey, opts ...accounts.AddAccountOption) error {
+func (s *mockStore) AddAccount(ctx context.Context, account types.PublicKey, meta accounts.AccountMeta, opts ...accounts.AddAccountOption) error {
 	s.accounts[proto.Account(account)] = struct{}{}
 	return nil
 }
 
-func (s *mockStore) AddServiceAccount(ctx context.Context, account types.PublicKey) error {
+func (s *mockStore) AddServiceAccount(ctx context.Context, account types.PublicKey, meta accounts.AccountMeta, opts ...accounts.AddAccountOption) error {
 	s.accounts[proto.Account(account)] = struct{}{}
 	return nil
 }

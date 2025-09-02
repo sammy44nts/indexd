@@ -109,7 +109,7 @@ func (s *mockStore) ValidAppConnectKey(ctx context.Context, key string) (bool, e
 	return ck.RemainingUses > 0, nil
 }
 
-func (s *mockStore) UseAppConnectKey(ctx context.Context, key string, pk types.PublicKey) error {
+func (s *mockStore) UseAppConnectKey(ctx context.Context, key string, pk types.PublicKey, meta AccountMeta) error {
 	ck, ok := s.connectKeys[key]
 	if !ok {
 		return ErrNotFound
@@ -131,7 +131,7 @@ func (s *mockStore) DeleteAppConnectKey(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *mockStore) AddAccount(ctx context.Context, pk types.PublicKey, opts ...AddAccountOption) error {
+func (s *mockStore) AddAccount(ctx context.Context, pk types.PublicKey, meta AccountMeta, opts ...AddAccountOption) error {
 	var options AddAccountOptions
 	for _, opt := range opts {
 		opt(&options)

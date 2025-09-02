@@ -626,10 +626,7 @@ func NewSDK(baseURL string, appKey types.PrivateKey, opts ...Option) (*SDK, erro
 
 	options.logger = options.logger.Named("sdk") // decorate logger
 
-	c, err := app.NewClient(baseURL, appKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create app client: %w", err)
-	}
+	c := app.NewClient(baseURL, appKey)
 	dialer, err := NewDialer(c, appKey, options.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host dialer: %w", err)

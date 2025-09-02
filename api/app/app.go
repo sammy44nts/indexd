@@ -43,7 +43,7 @@ type (
 	// Accounts defines the account management interface for the application API.
 	Accounts interface {
 		ValidAppConnectKey(context.Context, string) (bool, error)
-		UseAppConnectKey(context.Context, string, types.PublicKey) error
+		UseAppConnectKey(context.Context, string, types.PublicKey, accounts.AccountMeta) error
 
 		HasAccount(context.Context, types.PublicKey) (bool, error)
 	}
@@ -392,7 +392,11 @@ func (a *app) handlePOSTAuthConnect(jc jape.Context) {
 		return
 	}
 
-	err := a.accounts.UseAppConnectKey(ctx, connectKey, req.AppKey)
+	err := a.accounts.UseAppConnectKey(ctx, connectKey, req.AppKey, accounts.AccountMeta{
+		Description: req.Request.Description,
+		LogoURL:     req.Request.LogoURL,
+		ServiceURL:  req.Request.ServiceURL,
+	})
 	switch {
 	case errors.Is(err, accounts.ErrExists):
 		jc.Encode(nil)

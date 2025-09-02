@@ -9,6 +9,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
@@ -24,7 +25,7 @@ func TestContractPruning(t *testing.T) {
 
 	// add an account
 	a1 := types.GeneratePrivateKey()
-	err := indexer.Accounts().AddAccount(context.Background(), a1.PublicKey())
+	err := indexer.Store().AddAccount(context.Background(), a1.PublicKey(), accounts.AccountMeta{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestSectorPinning(t *testing.T) {
 
 	// add an account
 	a1 := types.GeneratePrivateKey()
-	err := indexer.Accounts().AddAccount(context.Background(), a1.PublicKey())
+	err := indexer.Store().AddAccount(context.Background(), a1.PublicKey(), accounts.AccountMeta{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -63,10 +63,7 @@ func (cr *ConnectAppRequest) WaitForApproval(ctx context.Context) (bool, error) 
 // Connect requests permission to connect an application to the indexer.
 // If the app is already connected, it returns ((), true, nil).
 func Connect(ctx context.Context, indexerURL string, appKey types.PrivateKey, meta app.RegisterAppRequest) (ConnectAppRequest, bool, error) {
-	client, err := app.NewClient(indexerURL, appKey)
-	if err != nil {
-		return ConnectAppRequest{}, false, err
-	}
+	client := app.NewClient(indexerURL, appKey)
 
 	if ok, err := client.CheckAppAuth(ctx); err != nil {
 		return ConnectAppRequest{}, false, fmt.Errorf("failed to check app auth: %w", err)

@@ -9,6 +9,7 @@ import (
 	"github.com/klauspost/reedsolomon"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"lukechampine.com/frand"
@@ -25,7 +26,7 @@ func TestMigrations(t *testing.T) {
 
 	// add an account
 	a1 := types.GeneratePrivateKey()
-	err := indexer.Accounts().AddAccount(context.Background(), a1.PublicKey())
+	err := indexer.Store().AddAccount(context.Background(), a1.PublicKey(), accounts.AccountMeta{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,6 +46,13 @@ type (
 		MaxPinnedData int64  `json:"maxPinnedData,omitempty"`
 		RemainingUses int    `json:"remainingUses"`
 	}
+
+	// AccountMeta contains additional metadata associated with an account.
+	AccountMeta struct {
+		Description string
+		LogoURL     string
+		ServiceURL  string
+	}
 )
 
 // AddAppConnectKey adds a new app connect key.
@@ -77,8 +84,8 @@ func (m *AccountManager) AppConnectKeys(ctx context.Context, offset, limit int) 
 
 // UseAppConnectKey uses an existing app connect key to add an account. If the key is exhausted, it
 // returns [ErrKeyExhausted]. If the key is not found, it returns [ErrKeyNotFound].
-func (m *AccountManager) UseAppConnectKey(ctx context.Context, key string, pk types.PublicKey) error {
-	if err := m.store.UseAppConnectKey(ctx, key, pk); err != nil {
+func (m *AccountManager) UseAppConnectKey(ctx context.Context, key string, pk types.PublicKey, meta AccountMeta) error {
+	if err := m.store.UseAppConnectKey(ctx, key, pk, meta); err != nil {
 		return fmt.Errorf("failed to use app connect key: %w", err)
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/indexd/subscriber"
@@ -460,7 +461,7 @@ func TestPrunableContractRoots(t *testing.T) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
 
@@ -1516,7 +1517,7 @@ func BenchmarkPrunableContractRoots(b *testing.B) {
 
 	// add account
 	account := proto.Account{1}
-	if err := store.AddAccount(context.Background(), types.PublicKey(account)); err != nil {
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
 
