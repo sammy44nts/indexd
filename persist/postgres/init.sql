@@ -54,6 +54,9 @@ CREATE INDEX hosts_next_scan_idx ON hosts(next_scan);
 CREATE INDEX hosts_last_integrity_check_idx ON hosts(last_integrity_check ASC);
 CREATE INDEX hosts_lost_sectors_idx ON hosts(lost_sectors);
 
+-- speed up querying by country
+CREATE INDEX hosts_country_code_idx ON hosts(country_code);
+
 CREATE TABLE account_hosts (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
