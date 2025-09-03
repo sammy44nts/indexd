@@ -125,8 +125,25 @@ func TestObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// the order should be reversed now
 	assertObjects(acc1, 0)
 	objs = assertObjects(acc2, 2)
 	assertObj(obj2, objs[0])
 	assertObj(obj3, objs[1])
+
+	// make sure the limit works
+	objects, err := store.ListObjects(context.Background(), acc2, time.Time{}, 1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(objects) != 1 {
+		t.Fatalf("expected 1 objects, got %d", len(objects))
+	}
+
+	// increasing 'after' to now should not yield any results
+	objects, err = store.ListObjects(context.Background(), acc2, time.Now(), 1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(objects) != 0 {
+		t.Fatalf("expected 0 objects, got %d", len(objects))
+	}
 }

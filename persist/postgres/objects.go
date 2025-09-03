@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/accounts"
@@ -33,6 +34,8 @@ var (
 	ErrObjectNotFound = errors.New("object not found")
 )
 
+// ListObjects lists objects for the given account that were updated after the
+// the given 'after' time.
 func (s *Store) ListObjects(ctx context.Context, account proto.Account, after time.Time, limit int64) ([]Object, error) {
 	var objects []Object
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
@@ -99,6 +102,7 @@ func (s *Store) ListObjects(ctx context.Context, account proto.Account, after ti
 	return objects, err
 }
 
+// DeleteObject deletes the object with the given key for the given account.
 func (s *Store) DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var objectID int64
@@ -121,6 +125,8 @@ func (s *Store) DeleteObject(ctx context.Context, account proto.Account, objectK
 	})
 }
 
+// SaveObject saves the given object for the given account. If an object with
+// the given key exists for an account, it is overwritten.
 func (s *Store) SaveObject(ctx context.Context, account proto.Account, obj Object) error {
 	if len(obj.Slabs) == 0 {
 		return errors.New("object must have at least one slab")
@@ -147,19 +153,19 @@ func (s *Store) SaveObject(ctx context.Context, account proto.Account, obj Objec
 		// TODO: what about objects linking slabs that aren't pinned? Pin them here?
 
 		// delete existing slabs
-		_, err = tx.Exec(context.Background(), `DELETE FROM object_slabs WHERE object_id = $1`, objectID)
-		if err != nil {
-			return fmt.Errorf("failed to delete existing slabs for object: %w", err)
-		}
+		batch := &pgx.Batch{}
+		batch.Queue(`DELETE FROM object_slabs WHERE object_id = $1`, objectID)
 
+		// insert new slabs
 		for i, slab := range obj.Slabs {
-			_, err := tx.Exec(ctx, `
+			batch.Queue(`
 				INSERT INTO object_slabs (object_id, slab_digest, slab_index, slab_offset, slab_length) VALUES ($1, $2, $3, $4, $5)
 			`,
 				objectID, sqlHash256(slab.SlabID), i, slab.Offset, slab.Length)
-			if err != nil {
-				return fmt.Errorf("failed to insert slab %d for object: %w", i, err)
-			}
+		}
+		res := tx.SendBatch(ctx, batch)
+		if err := res.Close(); err != nil {
+			return fmt.Errorf("failed to insert slabs for object: %w", err)
 		}
 		return nil
 	})
