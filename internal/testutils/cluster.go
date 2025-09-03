@@ -169,7 +169,7 @@ func (c *Cluster) FundHosts(ctx context.Context, t testing.TB, hosts ...*Host) {
 	}
 }
 
-// FundHostAccounts funds the service accuont for that host.
+// FundHostAccounts funds the service account for that host.
 func (c *Cluster) FundHostAccounts(ctx context.Context, t testing.TB, pk types.PublicKey, hks ...types.PublicKey) {
 	t.Helper()
 
