@@ -348,7 +348,7 @@ func WaitForHosts(t *testing.T, app *app.Client, n int) []hosts.HostInfo {
 	start := time.Now()
 	limit := 10 * time.Second
 	for {
-		hosts, err := app.Hosts(context.Background())
+		hosts, err := app.Hosts(t.Context(), app.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		} else if len(hosts) == n {

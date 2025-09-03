@@ -540,7 +540,7 @@ WHERE hosts.id = computed.id RETURNING hosts.id`,
 
 // UsableHosts returns a list of hosts that are not blocked, usable and have an
 // active contract. It returns only the host's public key and addresses.
-func (s *Store) UsableHosts(ctx context.Context, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error) {
+func (s *Store) UsableHosts(ctx context.Context, accountKey types.PublicKey, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error) {
 	if err := validateOffsetLimit(offset, limit); err != nil {
 		return nil, err
 	} else if limit == 0 {
@@ -554,6 +554,11 @@ func (s *Store) UsableHosts(ctx context.Context, offset, limit int, opts ...host
 
 	var usable []hosts.HostInfo
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
+		var accountID int64
+		if err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE public_key = $1`, sqlPublicKey(accountKey)).Scan(&accountID); err != nil {
+			return fmt.Errorf("failed to query accounts: %w", err)
+		}
+
 		rows, err := tx.Query(ctx, `
 WITH globals AS (
     SELECT
@@ -622,8 +627,10 @@ WHERE
 	-- active contracts
 	EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state <= 1) AND
 	-- protocol filter
-	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint))
-LIMIT $1 OFFSET $2;`, limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol))
+	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint)) AND
+	-- filter out hosts we don't have a balance with
+	EXISTS (SELECT 1 FROM service_accounts WHERE balance > 0 AND host_id = hosts.id AND account_id = $5)
+LIMIT $1 OFFSET $2;`, limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol), accountID)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts: %w", err)
 		}

@@ -128,13 +128,13 @@ func (c *Client) signedRequestBinary(ctx context.Context, method, route string, 
 }
 
 // Hosts returns all usable hosts.
-func (c *Client) Hosts(ctx context.Context, opts ...api.URLQueryParameterOption) (hosts []hosts.HostInfo, err error) {
+func (c *Client) Hosts(ctx context.Context, accountKey types.PublicKey, opts ...api.URLQueryParameterOption) (hosts []hosts.HostInfo, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
 	}
 
-	err = c.signedRequestJSON(ctx, http.MethodGet, "/hosts?"+values.Encode(), nil, &hosts)
+	err = c.signedRequestJSON(ctx, http.MethodGet, fmt.Sprintf("/hosts/%s?%s", accountKey, values.Encode()), nil, &hosts)
 	return
 }
 
@@ -235,6 +235,11 @@ func (c *Client) CheckAppAuth(ctx context.Context) (bool, error) {
 		}
 		return false, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, body)
 	}
+}
+
+// PublicKey returns the public key associated with the app key of the client.
+func (c *Client) PublicKey() types.PublicKey {
+	return c.appkey.PublicKey()
 }
 
 // NewClient creates a new AppClient that can be used to interact with the

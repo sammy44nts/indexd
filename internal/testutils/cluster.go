@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/testutil"
 	"go.uber.org/zap"
@@ -164,6 +165,17 @@ func (c *Cluster) FundHosts(ctx context.Context, t testing.TB, hosts ...*Host) {
 			t.Fatal(err)
 		} else if res.Confirmed.IsZero() {
 			t.Fatal("host not funded")
+		}
+	}
+}
+
+// FundHostAccounts funds the service accuont for that host.
+func (c *Cluster) FundHostAccounts(ctx context.Context, t testing.TB, pk types.PublicKey, hks ...types.PublicKey) {
+	t.Helper()
+
+	for _, hk := range hks {
+		if err := c.Indexer.store.UpdateServiceAccountBalance(ctx, hk, proto.Account(pk), types.Siacoins(100)); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

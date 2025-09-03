@@ -37,7 +37,7 @@ type (
 		PinnedSlab(context.Context, slabs.SlabID) (slabs.PinnedSlab, error)
 		SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]slabs.SlabID, error)
 		UnpinSlab(context.Context, proto.Account, slabs.SlabID) error
-		UsableHosts(ctx context.Context, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error)
+		UsableHosts(ctx context.Context, accountKey types.PublicKey, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error)
 	}
 
 	// Accounts defines the account management interface for the application API.
@@ -133,6 +133,11 @@ func WithLogger(log *zap.Logger) Option {
 }
 
 func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
+	var ak types.PublicKey
+	if jc.DecodeParam("accountkey", &ak) != nil {
+		return
+	}
+
 	offset, limit, ok := api.ParseOffsetLimit(jc)
 	if !ok {
 		return
@@ -160,7 +165,7 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		opts = append(opts, hosts.WithCountry(countryCode))
 	}
 
-	hosts, err := a.store.UsableHosts(jc.Request.Context(), offset, limit, opts...)
+	hosts, err := a.store.UsableHosts(jc.Request.Context(), ak, offset, limit, opts...)
 	if jc.Check("failed to get hosts", err) != nil {
 		return
 	}
@@ -499,10 +504,10 @@ func NewAPI(advertiseURL string, store Store, am Accounts, contracts Contracts, 
 		"GET /auth/connect/:requestID/status": wrapCORS(a.handleGETAuthConnectStatus),
 		"GET /auth/check":                     wrapCORS(wrapSignedAuth(a.handleGETAuthCheck)),
 
-		"GET /hosts":            wrapCORS(wrapSignedAuth(a.handleGETHosts)),
-		"GET /slabs":            wrapCORS(wrapSignedAuth(a.handleGETSlabs)),
-		"POST /slabs":           wrapCORS(wrapSignedAuth(a.handlePOSTSlabs)),
-		"GET /slabs/:slabid":    wrapCORS(wrapSignedAuth(a.handleGETSlab)),
-		"DELETE /slabs/:slabid": wrapCORS(wrapSignedAuth(a.handleDELETESlab)),
+		"GET /hosts/:accountkey": wrapCORS(wrapSignedAuth(a.handleGETHosts)),
+		"GET /slabs":             wrapCORS(wrapSignedAuth(a.handleGETSlabs)),
+		"POST /slabs":            wrapCORS(wrapSignedAuth(a.handlePOSTSlabs)),
+		"GET /slabs/:slabid":     wrapCORS(wrapSignedAuth(a.handleGETSlab)),
+		"DELETE /slabs/:slabid":  wrapCORS(wrapSignedAuth(a.handleDELETESlab)),
 	}), nil
 }
