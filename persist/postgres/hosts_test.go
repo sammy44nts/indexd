@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	proto "go.sia.tech/core/rhp/v4"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -599,7 +598,7 @@ func TestUsableHosts(t *testing.T) {
 		}, true, time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.UpdateServiceAccountBalance(context.Background(), hk, proto.Account(pk), types.Siacoins(100)); err != nil {
+		if err := db.UpdateServiceAccountBalance(context.Background(), hk, proto4.Account(pk), types.Siacoins(100)); err != nil {
 			t.Fatal(err)
 		}
 
