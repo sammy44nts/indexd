@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	proto "go.sia.tech/core/rhp/v4"
@@ -16,7 +15,7 @@ import (
 
 // ListObjects lists objects for the given account that were updated after the
 // the given 'after' time.
-func (s *Store) ListObjects(ctx context.Context, account proto.Account, after time.Time, limit int64) (objs []objects.Object, _ error) {
+func (s *Store) ListObjects(ctx context.Context, account proto.Account, cursor objects.ObjectsCursor, limit int64) (objs []objects.Object, _ error) {
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var accountID int64
 		err := tx.QueryRow(ctx, "SELECT id FROM accounts WHERE accounts.public_key = $1", sqlPublicKey(account)).Scan(&accountID)
@@ -29,10 +28,10 @@ func (s *Store) ListObjects(ctx context.Context, account proto.Account, after ti
 		rows, err := tx.Query(ctx, `
 			SELECT id, object_key, created_at, updated_at, meta
 			FROM objects
-			WHERE updated_at > $1 AND account_id = $2
-			ORDER BY updated_at ASC, id ASC
-			LIMIT $3
-		`, after, accountID, limit)
+			WHERE (updated_at > $1 OR (updated_at = $1 AND object_key > $2)) AND account_id = $3
+			ORDER BY updated_at ASC, object_key ASC
+			LIMIT $4
+		`, cursor.After, cursor.Key, accountID, limit)
 		if err != nil {
 			return fmt.Errorf("failed to query objects: %w", err)
 		}

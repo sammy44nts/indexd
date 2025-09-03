@@ -38,7 +38,7 @@ func TestObjects(t *testing.T) {
 
 	assertObjects := func(acc proto4.Account, n int) []objects.Object {
 		t.Helper()
-		objects, err := store.ListObjects(context.Background(), acc, time.Time{}, 10)
+		objects, err := store.ListObjects(context.Background(), acc, objects.ObjectsCursor{}, 10)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(objects) != n {
@@ -133,18 +133,18 @@ func TestObjects(t *testing.T) {
 	assertObj(obj3, objs[1])
 
 	// make sure the limit works
-	objects, err := store.ListObjects(context.Background(), acc2, time.Time{}, 1)
+	objs, err := store.ListObjects(context.Background(), acc2, objects.ObjectsCursor{}, 1)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(objects) != 1 {
-		t.Fatalf("expected 1 objects, got %d", len(objects))
+	} else if len(objs) != 1 {
+		t.Fatalf("expected 1 objects, got %d", len(objs))
 	}
 
 	// increasing 'after' to now should not yield any results
-	objects, err = store.ListObjects(context.Background(), acc2, time.Now(), 1)
+	objs, err = store.ListObjects(context.Background(), acc2, objects.ObjectsCursor{After: time.Now()}, 1)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(objects) != 0 {
-		t.Fatalf("expected 0 objects, got %d", len(objects))
+	} else if len(objs) != 0 {
+		t.Fatalf("expected 0 objects, got %d", len(objs))
 	}
 }
