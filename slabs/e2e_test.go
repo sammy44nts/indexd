@@ -15,6 +15,26 @@ import (
 	"lukechampine.com/frand"
 )
 
+func fundAccounts(t *testing.T, cluster *testutils.Cluster, a1 types.PrivateKey, n int) {
+	indexer := cluster.Indexer
+
+	// assert hosts are registered
+	hosts, err := indexer.Admin.Hosts(context.Background())
+	if err != nil {
+		t.Fatal("failed to get hosts:", err)
+	} else if len(hosts) != n {
+		t.Fatalf("expected %d hosts, got %d", n, len(hosts))
+	}
+
+	// now that the account exists, we can fund the hosts
+	var hks []types.PublicKey
+	for _, host := range hosts {
+		hks = append(hks, host.PublicKey)
+	}
+	cluster.FundHostAccounts(t.Context(), t, a1.PublicKey(), hks...)
+	time.Sleep(2 * time.Second)
+}
+
 func TestMigrations(t *testing.T) {
 	// create cluster
 	logger := testutils.NewLogger(false)
@@ -30,6 +50,7 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fundAccounts(t, cluster, a1, 7)
 
 	// convenience variables
 	app := indexer.App(a1)
