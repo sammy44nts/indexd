@@ -128,7 +128,7 @@ func (c *Client) signedRequestBinary(ctx context.Context, method, route string, 
 }
 
 // Hosts returns all usable hosts.
-func (c *Client) Hosts(ctx context.Context, accountKey types.PublicKey, opts ...api.URLQueryParameterOption) (hosts []hosts.HostInfo, err error) {
+func (c *Client) Hosts(ctx context.Context, opts ...api.URLQueryParameterOption) (hosts []hosts.HostInfo, err error) {
 	values := url.Values{}
 	for _, opt := range opts {
 		opt(values)
