@@ -237,11 +237,6 @@ func (c *Client) CheckAppAuth(ctx context.Context) (bool, error) {
 	}
 }
 
-// PublicKey returns the public key associated with the app key of the client.
-func (c *Client) PublicKey() types.PublicKey {
-	return c.appkey.PublicKey()
-}
-
 // NewClient creates a new AppClient that can be used to interact with the
 // application API of the indexer. The address should be the full URL to the
 // application API, including the scheme (e.g., "http://indexer.sia.tech").
