@@ -629,7 +629,7 @@ WHERE
 	-- protocol filter
 	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint)) AND
 	-- filter out hosts we don't have a balance with
-	EXISTS (SELECT 1 FROM service_accounts WHERE balance > 0 AND host_id = hosts.id AND account_id = $5)
+	EXISTS (SELECT 1 FROM account_hosts WHERE funded = TRUE AND host_id = hosts.id AND account_id = $5)
 LIMIT $1 OFFSET $2;`, limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol), accountID)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts: %w", err)

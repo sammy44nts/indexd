@@ -88,4 +88,9 @@ var migrations = []func(context.Context, *txn, *zap.Logger) error{
 		_, err := tx.Exec(ctx, `CREATE INDEX hosts_country_code_idx ON hosts(country_code);`)
 		return err
 	},
+	// adds the "funded" column to account_hosts
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		_, err := tx.Exec(ctx, `ALTER TABLE account_hosts ADD COLUMN funded BOOLEAN NOT NULL DEFAULT FALSE;`)
+		return err
+	},
 }

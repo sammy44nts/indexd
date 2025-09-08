@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -567,7 +568,7 @@ func TestUsableHosts(t *testing.T) {
 	}
 
 	pk := types.GeneratePrivateKey().PublicKey()
-	if err := db.AddServiceAccount(context.Background(), pk, accounts.AccountMeta{}); err != nil {
+	if err := db.AddAccount(context.Background(), pk, accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -598,9 +599,6 @@ func TestUsableHosts(t *testing.T) {
 		}, true, time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.UpdateServiceAccountBalance(context.Background(), hk, proto4.Account(pk), types.Siacoins(100)); err != nil {
-			t.Fatal(err)
-		}
 
 		// handle blocked
 		if blocked {
@@ -614,6 +612,22 @@ func TestUsableHosts(t *testing.T) {
 		if contract {
 			db.addTestContract(t, hk)
 		}
+
+		if usable {
+			ha := accounts.HostAccount{
+				AccountKey:             proto.Account(pk),
+				HostKey:                hk,
+				ConsecutiveFailedFunds: 0,
+				Funded:                 true,
+			}
+			if err := db.UpdateHostAccounts(context.Background(), []accounts.HostAccount{ha}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.UpdateHostAccounts(context.Background(), []accounts.HostAccount{ha}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		return hk
 	}
 
@@ -667,7 +681,7 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 2 {
 		t.Fatal("unexpected", len(hosts))
-	} else if hosts[0].PublicKey != uh2 || hosts[1].PublicKey != uh1 {
+	} else if hosts[0].PublicKey != uh1 || hosts[1].PublicKey != uh2 {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
 	} else if hosts[0].Addresses == nil || hosts[1].Addresses == nil {
 		t.Fatal("expected hosts to have addresses")
