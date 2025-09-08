@@ -170,3 +170,58 @@ func TestObjects(t *testing.T) {
 		t.Fatalf("expected ErrObjectNotFound, got %v", err)
 	}
 }
+
+// TestListObjectsRegression is a small regression tests that asserts proper
+// handling of cursor.key which was not casted as a sqlHash256 at one point.
+func TestListObjectsRegression(t *testing.T) {
+	store := initPostgres(t, zap.NewNop())
+
+	// create account
+	acc := proto4.Account{1}
+	err := store.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// pin slab for both accounts
+	slab := slabs.SlabPinParams{MinShards: 1}
+	_, err = store.PinSlab(context.Background(), acc, time.Time{}, slab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slabID, err := slab.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add multiple objects
+	for i := 3; i >= 1; i-- {
+		if err := store.SaveObject(context.Background(), acc, objects.Object{
+			Key: types.Hash256{byte(i)},
+			Slabs: []objects.SlabSlice{
+				{
+					SlabID: slabID,
+					Offset: 0,
+					Length: 12,
+				},
+			},
+			Meta: []byte("meta"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := time.Now().Round(time.Second)
+	_, err = store.pool.Exec(context.Background(), "UPDATE objects SET updated_at = $1", ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	objs, err := store.ListObjects(context.Background(), acc, objects.Cursor{After: ts}, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(objs) != 3 {
+		t.Fatal("expected 3 objects, got", len(objs))
+	} else if objs[0].Key != (types.Hash256{1}) || objs[1].Key != (types.Hash256{2}) || objs[2].Key != (types.Hash256{3}) {
+		t.Fatal("objects not in expected order")
+	}
+}
