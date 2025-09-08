@@ -168,6 +168,12 @@ func (c *Client) SlabIDs(ctx context.Context, opts ...api.URLQueryParameterOptio
 	return
 }
 
+// GetObject retrieves the object with the given key for the given account.
+func (c *Client) GetObject(ctx context.Context, key types.Hash256) (resp objects.Object, err error) {
+	err = c.signedRequestJSON(ctx, http.MethodGet, fmt.Sprintf("/objects/%s", key), nil, &resp)
+	return
+}
+
 // ListObjects lists objects for the given account that were updated after the
 // the given 'after' time.
 func (c *Client) ListObjects(ctx context.Context, cursor objects.Cursor, limit int) (resp []objects.Object, err error) {

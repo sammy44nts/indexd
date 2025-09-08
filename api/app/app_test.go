@@ -365,8 +365,20 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatalf("expected 0 objects, got %d", len(objs))
 	}
 
+	obj, err = client.GetObject(context.Background(), obj1.Key)
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(obj, objs[0]) {
+		t.Fatal("objects not equal")
+	}
+
 	if err := client.DeleteObject(context.Background(), obj1.Key); err != nil {
 		t.Fatal(err)
+	}
+
+	_, err = client.GetObject(context.Background(), obj1.Key)
+	if err == nil || !strings.Contains(err.Error(), objects.ErrObjectNotFound.Error()) {
+		t.Fatal("expected object to be not found, got", err)
 	}
 
 	objs, err = client.ListObjects(context.Background(), objects.Cursor{}, 100)

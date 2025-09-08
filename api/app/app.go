@@ -34,6 +34,7 @@ type (
 
 	// Store defines the store interface for the application API.
 	Store interface {
+		GetObject(ctx context.Context, account proto.Account, key types.Hash256) (objects.Object, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
 		SaveObject(ctx context.Context, account proto.Account, obj objects.Object) error
 		ListObjects(ctx context.Context, account proto.Account, cursor objects.Cursor, limit int) (objs []objects.Object, _ error)
@@ -170,6 +171,24 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 	jc.Encode(hosts)
+}
+
+func (a *app) handleGETObject(jc jape.Context, pk types.PublicKey) {
+	var key types.Hash256
+	if jc.DecodeParam("key", &key) != nil {
+		return
+	}
+
+	obj, err := a.store.GetObject(jc.Request.Context(), proto.Account(pk), key)
+	if errors.Is(err, objects.ErrObjectNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if err != nil {
+		jc.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	jc.Encode(obj)
 }
 
 func (a *app) handleGETObjects(jc jape.Context, pk types.PublicKey) {
@@ -571,6 +590,7 @@ func NewAPI(advertiseURL string, store Store, am Accounts, contracts Contracts, 
 		"GET /hosts": wrapCORS(wrapSignedAuth(a.handleGETHosts)),
 
 		"GET /objects":         wrapCORS(wrapSignedAuth(a.handleGETObjects)),
+		"GET /objects/:key":    wrapCORS(wrapSignedAuth(a.handleGETObject)),
 		"POST /objects":        wrapCORS(wrapSignedAuth(a.handlePOSTObjects)),
 		"DELETE /objects/:key": wrapCORS(wrapSignedAuth(a.handleDELETEObjects)),
 

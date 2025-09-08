@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -146,5 +147,26 @@ func TestObjects(t *testing.T) {
 		t.Fatal(err)
 	} else if len(objs) != 0 {
 		t.Fatalf("expected 0 objects, got %d", len(objs))
+	}
+
+	// assert we can fetch a single object
+	obj, err = store.GetObject(context.Background(), acc2, obj2.Key)
+	if err != nil {
+		t.Fatal(err)
+	} else if obj.CreatedAt.IsZero() || obj.UpdatedAt.IsZero() {
+		t.Fatalf("expected non-zero timestamps, got %v and %v", obj.CreatedAt, obj.UpdatedAt)
+	}
+	assertObj(obj2, obj)
+
+	// assert account is taken into consideration when fetching an object
+	_, err = store.GetObject(context.Background(), acc1, obj2.Key)
+	if !errors.Is(err, objects.ErrObjectNotFound) {
+		t.Fatalf("expected ErrObjectNotFound, got %v", err)
+	}
+
+	// assert fetching a non-existent object returns the correct error
+	_, err = store.GetObject(context.Background(), acc2, frand.Entropy256())
+	if !errors.Is(err, objects.ErrObjectNotFound) {
+		t.Fatalf("expected ErrObjectNotFound, got %v", err)
 	}
 }

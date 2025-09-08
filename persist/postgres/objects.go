@@ -13,6 +13,47 @@ import (
 	"go.sia.tech/indexd/objects"
 )
 
+// GetObject retrieves the object with the given key for the given account.
+func (s *Store) GetObject(ctx context.Context, account proto.Account, key types.Hash256) (obj objects.Object, _ error) {
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		accountID, err := accountID(ctx, tx, account)
+		if err != nil {
+			return err
+		}
+
+		var objID int64
+		err = tx.QueryRow(ctx, `SELECT id, object_key, meta, created_at, updated_at FROM objects WHERE account_id = $1 AND object_key = $2
+		`, accountID, sqlHash256(key)).Scan(&objID, (*sqlHash256)(&obj.Key), &obj.Meta, &obj.CreatedAt, &obj.UpdatedAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return objects.ErrObjectNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to query object: %w", err)
+		}
+
+		rows, err := tx.Query(ctx, `
+			SELECT slab_digest, slab_offset, slab_length
+			FROM object_slabs
+			WHERE object_id = $1
+			ORDER BY slab_index ASC
+		`, objID)
+		if err != nil {
+			return fmt.Errorf("failed to query slabs: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var slab objects.SlabSlice
+			err := rows.Scan((*sqlHash256)(&slab.SlabID), &slab.Offset, &slab.Length)
+			if err != nil {
+				return fmt.Errorf("failed to scan slab: %w", err)
+			}
+			obj.Slabs = append(obj.Slabs, slab)
+		}
+		return rows.Err()
+	})
+	return obj, err
+}
+
 // ListObjects lists objects for the given account that were updated after the
 // the given 'after' time.
 func (s *Store) ListObjects(ctx context.Context, account proto.Account, cursor objects.Cursor, limit int) (objs []objects.Object, _ error) {
