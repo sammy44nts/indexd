@@ -88,4 +88,40 @@ var migrations = []func(context.Context, *txn, *zap.Logger) error{
 		_, err := tx.Exec(ctx, `CREATE INDEX hosts_country_code_idx ON hosts(country_code);`)
 		return err
 	},
+	// add objects persistence
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		_, err := tx.Exec(ctx, `
+CREATE TABLE objects (
+    id BIGSERIAL PRIMARY KEY,
+    object_key BYTEA NOT NULL CHECK(LENGTH(object_key) = 32), -- user provided, object identifier
+    account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns object
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by update time
+    meta BYTEA -- user provided, encrypted metadata
+);
+
+-- object_key is unique per account
+CREATE UNIQUE INDEX objects_account_id_object_key_idx ON objects(account_id, object_key);
+
+-- fast sorting by update time and key
+CREATE INDEX objects_updated_at_object_key_idx ON objects(updated_at ASC, object_key ASC);
+
+CREATE TABLE object_slabs (
+    object_id BIGINT REFERENCES objects(id) ON DELETE CASCADE,
+    slab_digest BYTEA REFERENCES slabs(digest) ON DELETE CASCADE,
+    slab_index INTEGER NOT NULL, -- index within corresponding slab to retrieve slabs in right order
+    slab_offset INTEGER NOT NULL, -- offset within slab
+    slab_length INTEGER NOT NULL, -- length of object data within slab
+    PRIMARY KEY (object_id, slab_digest, slab_index)
+);
+
+-- foreign key constraint indices
+-- CREATE INDEX object_slabs_object_id_idx ON object_slabs(object_id); -- covered by object_slabs_object_id_slab_index_idx
+CREATE INDEX object_slabs_slab_digest_idx ON object_slabs(slab_digest);
+
+-- speed up sorting by slab_index
+CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, slab_index ASC);
+		`)
+		return err
+	},
 }

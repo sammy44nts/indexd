@@ -257,6 +257,37 @@ CREATE INDEX slabs_pinned_at_idx ON slabs(pinned_at ASC);
 -- speeds up lookup of unhealthy slabs
 CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(last_repair_attempt ASC);
 
+CREATE TABLE objects (
+    id BIGSERIAL PRIMARY KEY,
+    object_key BYTEA NOT NULL CHECK(LENGTH(object_key) = 32), -- user provided, object identifier
+    account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns object
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by update time
+    meta BYTEA -- user provided, encrypted metadata
+);
+
+-- object_key is unique per account
+CREATE UNIQUE INDEX objects_account_id_object_key_idx ON objects(account_id, object_key);
+
+-- fast sorting by update time and key
+CREATE INDEX objects_updated_at_object_key_idx ON objects(updated_at ASC, object_key ASC);
+
+CREATE TABLE object_slabs (
+    object_id BIGINT REFERENCES objects(id) ON DELETE CASCADE,
+    slab_digest BYTEA REFERENCES slabs(digest) ON DELETE CASCADE,
+    slab_index INTEGER NOT NULL, -- index within corresponding slab to retrieve slabs in right order
+    slab_offset INTEGER NOT NULL, -- offset within slab
+    slab_length INTEGER NOT NULL, -- length of object data within slab
+    PRIMARY KEY (object_id, slab_digest, slab_index)
+);
+
+-- foreign key constraint indices
+-- CREATE INDEX object_slabs_object_id_idx ON object_slabs(object_id); -- covered by object_slabs_object_id_slab_index_idx
+CREATE INDEX object_slabs_slab_digest_idx ON object_slabs(slab_digest);
+
+-- speed up sorting by slab_index
+CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, slab_index ASC);
+
 CREATE TABLE account_slabs (
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns slab
     slab_id BIGSERIAL REFERENCES slabs(id) NOT NULL,
