@@ -182,6 +182,31 @@ components:
             - quic
           description: The protocol used by the host
 
+    Object:
+      type: object
+      properties:
+        key:
+          allOf:
+            - $ref: "#/components/schemas/Hash256"
+            - description: The object's key
+        slabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlabSlice"
+          description: The list of slabs that make up the object
+        meta:
+          type: string
+          format: byte
+          description: Optional metadata stored on the object
+        createdAt:
+          type: string
+          format: date-time
+          description: The time the object was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: The time the object was last updated
+
     PublicKey:
       type: string
       pattern: "^ed25519:[0-9a-fA-F]{64}$"
@@ -204,6 +229,20 @@ components:
       format: byte
       pattern: "[0-9a-fA-F]{64}"
       description: A ed25519 signature
+
+    SlabSlice:
+      type: object
+      properties:
+        slabID:
+          $ref: "#/components/schemas/SlabID"
+        offset:
+          type: integer
+          format: uint32
+          description: The offset within the slab where the slice starts
+        length:
+          type: integer
+          format: uint32
+          description: The length of the slice
 
     TransactionID:
       allOf:
