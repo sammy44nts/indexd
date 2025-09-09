@@ -2049,6 +2049,16 @@ func BenchmarkUsableHosts(b *testing.B) {
 			}
 		}
 
+		var netAddrs []chain.NetAddress
+		for _, protocol := range []chain.Protocol{quic.Protocol, siamux.Protocol} {
+			netAddrs = append(netAddrs, chain.NetAddress{Protocol: protocol, Address: "[::]:4848"})
+		}
+		if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+			return tx.AddHostAnnouncement(hk, chain.V2HostAnnouncement(netAddrs), time.Now())
+		}); err != nil {
+			b.Fatal(err)
+		}
+
 		// 10% of hosts are usable
 		// For host to be usable needs to be have funded account
 		// Funded set to true in DB if ConsecutiveFailedFunds is 0
@@ -2071,6 +2081,7 @@ func BenchmarkUsableHosts(b *testing.B) {
 		if err := store.UpdateHostAccounts(context.Background(), []accounts.HostAccount{ha}); err != nil {
 			b.Fatal(err)
 		}
+		store.addTestContract(b, hk)
 	}
 
 	for b.Loop() {
