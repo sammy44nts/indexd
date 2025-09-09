@@ -1102,6 +1102,18 @@ func TestUnhealthySlabs(t *testing.T) {
 	resetLastRepairAttempt(oneHourAgo)
 	assertUnhealthySlabs(0, 10, now)
 
+	// recalculate sectors_stats
+	_, err = store.pool.Exec(context.Background(), `
+		UPDATE sectors_stats
+		SET num_pinned_sectors = (
+			SELECT COUNT(id)
+			FROM sectors
+			WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NOT NULL
+		)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// prune expired contract
 	err = store.PruneContractSectorsMap(context.Background(), 0)
 	if err != nil {
@@ -1508,6 +1520,82 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 				b.StartTimer()
 			}
 		})
+	}
+}
+
+// BenchmarkUpdatePinnedSectors benchmarks UpdatePinnedSectors.
+func BenchmarkUpdatePinnedSectors(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+
+	// create account, host and contract
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
+		b.Fatal("failed to add account:", err)
+	}
+	hk := store.addTestHost(b)
+	store.addTestContract(b, hk)
+
+	// prepare base db
+	const (
+		dbBaseSize = 1 << 40 // 1TiB of sectors
+		nSectors   = dbBaseSize / proto.SectorSize
+	)
+
+	// insert sectors in batches
+	for remainingSectors := nSectors; remainingSectors > 0; {
+		batchSize := min(remainingSectors, 10000)
+		remainingSectors -= batchSize
+		var roots []types.Hash256
+		var sectors []slabs.SectorPinParams
+		for range batchSize {
+			roots = append(roots, frand.Entropy256())
+			sectors = append(sectors, slabs.SectorPinParams{
+				Root:    roots[len(roots)-1],
+				HostKey: hk,
+			})
+		}
+		_, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+			MinShards:     1,
+			EncryptionKey: frand.Entropy256(),
+			Sectors:       sectors,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		err = store.PinSectors(context.Background(), types.FileContractID(hk), roots)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// define a helper to unpin a random amount of sectors
+	unpinSectors := func() int64 {
+		b.Helper()
+		res, err := store.pool.Exec(context.Background(), `
+			WITH to_delete AS (
+				SELECT id
+				FROM sectors
+				WHERE contract_sectors_map_id IS NOT NULL
+				LIMIT $1
+			)
+			UPDATE sectors s
+			SET contract_sectors_map_id = NULL
+			FROM to_delete
+			WHERE s.id = to_delete.id`, frand.Uint64n(10))
+		if err != nil {
+			b.Fatal(err)
+		}
+		return res.RowsAffected()
+	}
+
+	for b.Loop() {
+		b.StopTimer()
+		unpinned := unpinSectors()
+		b.StartTimer()
+
+		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error { return store.incrementPinnedSectors(ctx, tx, -unpinned) }); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -2196,6 +2284,18 @@ func BenchmarkMarkSectorsLost(b *testing.B) {
 			SET contract_sectors_map_id = 1, host_id = 1
 			WHERE contract_sectors_map_id IS NULL AND host_id IS NULL
 		`)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		// recalculate sectors_stats
+		_, err = store.pool.Exec(context.Background(), `
+		UPDATE sectors_stats
+		SET num_pinned_sectors = (
+			SELECT COUNT(id)
+			FROM sectors
+			WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NOT NULL
+		)`)
 		if err != nil {
 			b.Fatal(err)
 		}
