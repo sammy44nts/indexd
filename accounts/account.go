@@ -79,7 +79,6 @@ type (
 		AccountKey             proto.Account
 		HostKey                types.PublicKey
 		ConsecutiveFailedFunds int
-		Funded                 bool
 		NextFund               time.Time
 	}
 )

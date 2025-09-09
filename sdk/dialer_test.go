@@ -16,7 +16,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-func fundAccounts(t *testing.T, cluster *testutils.Cluster, a1 types.PrivateKey, n int) {
+func fundAccounts(t *testing.T, cluster *testutils.Cluster, pk types.PrivateKey, n int) {
 	indexer := cluster.Indexer
 
 	// assert hosts are registered
@@ -27,12 +27,18 @@ func fundAccounts(t *testing.T, cluster *testutils.Cluster, a1 types.PrivateKey,
 		t.Fatalf("expected %d hosts, got %d", n, len(hosts))
 	}
 
-	// now that the account exists, we can fund the hosts
-	var hks []types.PublicKey
+	var has []accounts.HostAccount
 	for _, host := range hosts {
-		hks = append(hks, host.PublicKey)
+		has = append(has, accounts.HostAccount{
+			AccountKey:             proto.Account(pk),
+			HostKey:                host.PublicKey,
+			ConsecutiveFailedFunds: 0,
+		})
 	}
-	cluster.FundHostAccounts(t.Context(), t, a1.PublicKey(), hks...)
+
+	if err := indexer.Store().UpdateHostAccounts(context.Background(), has); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(2 * time.Second)
 }
 

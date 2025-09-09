@@ -198,32 +198,30 @@ func (s *Store) UpdateHostAccounts(ctx context.Context, accounts []accounts.Host
 		vals := make([]string, 0, len(accounts))
 		args := make([]any, 0, len(accounts)*5)
 		for i, account := range accounts {
-			ii := i * 5
-			vals = append(vals, fmt.Sprintf(`($%d::bytea, $%d::bytea, $%d::int, $%d::bool, $%d::timestamptz)`, ii+1, ii+2, ii+3, ii+4, ii+5))
+			ii := i * 4
+			vals = append(vals, fmt.Sprintf(`($%d::bytea, $%d::bytea, $%d::int, $%d::timestamptz)`, ii+1, ii+2, ii+3, ii+4))
 			args = append(args,
 				sqlPublicKey(account.AccountKey),
 				sqlPublicKey(account.HostKey),
 				account.ConsecutiveFailedFunds,
-				account.Funded,
 				account.NextFund,
 			)
 		}
 
 		query := fmt.Sprintf(`
-INSERT INTO account_hosts (account_id, host_id, consecutive_failed_funds, funded, next_fund)
+INSERT INTO account_hosts (account_id, host_id, consecutive_failed_funds, next_fund)
 SELECT
 	a.id AS account_id,
 	h.id AS host_id,
 	vals.consecutive_failed_funds,
-	vals.funded,
 	vals.next_fund
-FROM (VALUES %s) AS vals(account_pubkey, host_pubkey, consecutive_failed_funds, funded, next_fund)
+FROM (VALUES %s) AS vals(account_pubkey, host_pubkey, consecutive_failed_funds, next_fund)
 INNER JOIN accounts a ON a.public_key = vals.account_pubkey
 INNER JOIN hosts h ON h.public_key = vals.host_pubkey
 ON CONFLICT (account_id, host_id)
 DO UPDATE SET
 	consecutive_failed_funds = EXCLUDED.consecutive_failed_funds,
-	funded = EXCLUDED.funded,
+	funded = (EXCLUDED.consecutive_failed_funds = 0),
 	next_fund = EXCLUDED.next_fund;`, strings.Join(vals, ", "))
 		_, err := tx.Exec(ctx, query, args...)
 		return err
@@ -333,7 +331,7 @@ func existingHostAccountsForFunding(ctx context.Context, tx *txn, hk types.Publi
 	accs := make([]accounts.HostAccount, 0, limit)
 
 	rows, err := tx.Query(ctx, `
-SELECT public_key, consecutive_failed_funds, funded, next_fund
+SELECT public_key, consecutive_failed_funds, next_fund
 FROM account_hosts ha
 INNER JOIN accounts a ON a.id = ha.account_id
 WHERE ha.host_id = $1 AND ha.next_fund <= NOW()
@@ -346,7 +344,7 @@ LIMIT $2`, hostID, limit)
 
 	for rows.Next() {
 		acc := accounts.HostAccount{HostKey: hk}
-		if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey), &acc.ConsecutiveFailedFunds, &acc.Funded, &acc.NextFund); err != nil {
+		if err := rows.Scan((*sqlPublicKey)(&acc.AccountKey), &acc.ConsecutiveFailedFunds, &acc.NextFund); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		accs = append(accs, acc)

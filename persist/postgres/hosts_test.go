@@ -11,7 +11,6 @@ import (
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
-	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
@@ -129,7 +128,7 @@ func TestHost(t *testing.T) {
 	r1 := types.Hash256{1}
 	if err := db.AddAccount(context.Background(), hk, accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
-	} else if _, err := db.PinSlab(context.Background(), proto4.Account(hk), time.Now(), slabs.SlabPinParams{
+	} else if _, err := db.PinSlab(context.Background(), proto.Account(hk), time.Now(), slabs.SlabPinParams{
 		EncryptionKey: [32]byte{},
 		MinShards:     1,
 		Sectors:       []slabs.SectorPinParams{{Root: r1, HostKey: hk}},
@@ -223,16 +222,16 @@ func TestHostChecks(t *testing.T) {
 	}
 
 	// update host with settings that fail all checks
-	err := db.UpdateHost(context.Background(), hk, testNetworks, proto4.HostSettings{
+	err := db.UpdateHost(context.Background(), hk, testNetworks, proto.HostSettings{
 		Release:             "test",
-		ProtocolVersion:     proto4.ProtocolVersion{0, 0, 0},
+		ProtocolVersion:     proto.ProtocolVersion{0, 0, 0},
 		AcceptingContracts:  false,
 		WalletAddress:       types.StandardAddress(hk),
 		MaxCollateral:       oneH.Mul64(oneTB).Mul64(settingPeriod).Sub(oneH),
 		MaxContractDuration: settingPeriod - 1,
 		RemainingStorage:    frand.Uint64n(1e3),
 		TotalStorage:        frand.Uint64n(1e3) + 1e3,
-		Prices: proto4.HostPrices{
+		Prices: proto.HostPrices{
 			ContractPrice:   oneSC.Add(oneH),
 			StoragePrice:    settingMaxStoragePrice.Add(oneH),
 			IngressPrice:    settingMaxIngressPrice.Add(oneH),
@@ -248,7 +247,7 @@ func TestHostChecks(t *testing.T) {
 	}
 
 	// fail scan to ensure we fail on uptime
-	err = db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, geoip.Location{}, false, time.Now())
+	err = db.UpdateHost(context.Background(), hk, nil, proto.HostSettings{}, geoip.Location{}, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +394,7 @@ func TestHosts(t *testing.T) {
 
 	// make sure all settings have the same validity to simplify the assertions
 	validUntil := time.Now().Round(time.Microsecond).Add(24 * time.Hour)
-	newSettings := func(hk types.PublicKey) proto4.HostSettings {
+	newSettings := func(hk types.PublicKey) proto.HostSettings {
 		settings := newTestHostSettings(hk)
 		settings.Prices.ValidUntil = validUntil
 		return settings
@@ -618,7 +617,6 @@ func TestUsableHosts(t *testing.T) {
 				AccountKey:             proto.Account(pk),
 				HostKey:                hk,
 				ConsecutiveFailedFunds: 0,
-				Funded:                 true,
 			}
 			if err := db.UpdateHostAccounts(context.Background(), []accounts.HostAccount{ha}); err != nil {
 				t.Fatal(err)
@@ -734,7 +732,7 @@ func TestHostsForScanning(t *testing.T) {
 
 	// simulate scanning h1 successfully
 	nextScan := time.Now().Round(time.Microsecond).Add(time.Minute)
-	err = db.UpdateHost(context.Background(), hk1, testNetworks, proto4.HostSettings{}, geoip.Location{}, true, nextScan)
+	err = db.UpdateHost(context.Background(), hk1, testNetworks, proto.HostSettings{}, geoip.Location{}, true, nextScan)
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -750,7 +748,7 @@ func TestHostsForScanning(t *testing.T) {
 	}
 
 	// simulate scanning h2 successfully
-	err = db.UpdateHost(context.Background(), hk2, testNetworks, proto4.HostSettings{}, geoip.Location{}, true, nextScan)
+	err = db.UpdateHost(context.Background(), hk2, testNetworks, proto.HostSettings{}, geoip.Location{}, true, nextScan)
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -770,7 +768,7 @@ func TestHostsWithLostSectors(t *testing.T) {
 	db := initPostgres(t, log.Named("postgres"))
 
 	// add account
-	account := proto4.Account{1}
+	account := proto.Account{1}
 	if err := db.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
@@ -861,7 +859,7 @@ func TestHostsWithUnpinnableSectors(t *testing.T) {
 	db := initPostgres(t, log.Named("postgres"))
 
 	// add account
-	account := proto4.Account{1}
+	account := proto.Account{1}
 	if err := db.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		t.Fatal("failed to add account:", err)
 	}
@@ -943,7 +941,7 @@ func TestHostsRecentUptime(t *testing.T) {
 		} else {
 			for range n {
 				_, err1 := db.pool.Exec(context.Background(), `UPDATE hosts SET last_successful_scan = '0001-01-01 00:00:00+00'::timestamptz, last_failed_scan = NOW() - INTERVAL '24 hours'`)
-				if err := errors.Join(err1, db.UpdateHost(context.Background(), hk, testNetworks, proto4.HostSettings{}, geoip.Location{}, false, time.Time{})); err != nil {
+				if err := errors.Join(err1, db.UpdateHost(context.Background(), hk, testNetworks, proto.HostSettings{}, geoip.Location{}, false, time.Time{})); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -1047,7 +1045,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// simulate failed scan for h1
-	err = db.UpdateHost(context.Background(), h1, nil, proto4.HostSettings{}, geoip.Location{}, false, time.Now())
+	err = db.UpdateHost(context.Background(), h1, nil, proto.HostSettings{}, geoip.Location{}, false, time.Now())
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -1063,7 +1061,7 @@ func TestPruneHosts(t *testing.T) {
 	}
 
 	// simulate failed scan for h2
-	err = db.UpdateHost(context.Background(), h2, nil, proto4.HostSettings{}, geoip.Location{}, false, time.Now())
+	err = db.UpdateHost(context.Background(), h2, nil, proto.HostSettings{}, geoip.Location{}, false, time.Now())
 	if err != nil {
 		t.Fatal("unexpected", err)
 	}
@@ -1080,10 +1078,10 @@ func TestPruneHosts(t *testing.T) {
 	h1 = db.addTestHost(t)
 	h2 = db.addTestHost(t)
 	err = errors.Join(
-		db.UpdateHost(context.Background(), h1, testNetworks, proto4.HostSettings{}, geoip.Location{}, true, time.Now()),
-		db.UpdateHost(context.Background(), h1, testNetworks, proto4.HostSettings{}, geoip.Location{}, false, time.Now()),
-		db.UpdateHost(context.Background(), h2, testNetworks, proto4.HostSettings{}, geoip.Location{}, true, time.Now()),
-		db.UpdateHost(context.Background(), h2, testNetworks, proto4.HostSettings{}, geoip.Location{}, false, time.Now()),
+		db.UpdateHost(context.Background(), h1, testNetworks, proto.HostSettings{}, geoip.Location{}, true, time.Now()),
+		db.UpdateHost(context.Background(), h1, testNetworks, proto.HostSettings{}, geoip.Location{}, false, time.Now()),
+		db.UpdateHost(context.Background(), h2, testNetworks, proto.HostSettings{}, geoip.Location{}, true, time.Now()),
+		db.UpdateHost(context.Background(), h2, testNetworks, proto.HostSettings{}, geoip.Location{}, false, time.Now()),
 	)
 	if err != nil {
 		t.Fatal("unexpected", err)
@@ -1131,7 +1129,7 @@ func TestUpdateHost(t *testing.T) {
 
 	// assert [hosts.ErrNotFound] is returned
 	hk := types.GeneratePrivateKey().PublicKey()
-	err := db.UpdateHost(context.Background(), hk, nil, proto4.HostSettings{}, geoip.Location{}, false, time.Now())
+	err := db.UpdateHost(context.Background(), hk, nil, proto.HostSettings{}, geoip.Location{}, false, time.Now())
 	if !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatal("expected [hosts.ErrNotFound], got", err)
 	}
@@ -1146,8 +1144,8 @@ func TestUpdateHost(t *testing.T) {
 		t.Fatal(err)
 	} else if h, err := db.Host(context.Background(), hk); err != nil {
 		t.Fatal(err)
-	} else if h.Settings != (proto4.HostSettings{}) {
-		t.Fatal("expected no settings", h.Settings, proto4.HostSettings{})
+	} else if h.Settings != (proto.HostSettings{}) {
+		t.Fatal("expected no settings", h.Settings, proto.HostSettings{})
 	} else if !h.LastSuccessfulScan.IsZero() {
 		t.Fatal("expected no last successful scan")
 	} else if h.LastFailedScan.IsZero() {
@@ -1325,8 +1323,8 @@ func BenchmarkHosts(b *testing.B) {
 
 	b.Run("UpdateHost", func(b *testing.B) {
 		ts := time.Now()
-		hs := proto4.HostSettings{
-			ProtocolVersion:     proto4.ProtocolVersion{1, 2, 3},
+		hs := proto.HostSettings{
+			ProtocolVersion:     proto.ProtocolVersion{1, 2, 3},
 			Release:             b.Name(),
 			WalletAddress:       types.Address{1},
 			AcceptingContracts:  true,
@@ -1334,7 +1332,7 @@ func BenchmarkHosts(b *testing.B) {
 			MaxContractDuration: frand.Uint64n(1e6),
 			RemainingStorage:    frand.Uint64n(1e6),
 			TotalStorage:        frand.Uint64n(1e6),
-			Prices: proto4.HostPrices{
+			Prices: proto.HostPrices{
 				ContractPrice:   types.NewCurrency64(frand.Uint64n(1e6)),
 				Collateral:      types.NewCurrency64(frand.Uint64n(1e6)),
 				StoragePrice:    types.NewCurrency64(frand.Uint64n(1e6)),
@@ -1359,17 +1357,17 @@ func BenchmarkHosts(b *testing.B) {
 	})
 }
 
-func newTestHostSettings(pk types.PublicKey) proto4.HostSettings {
-	return proto4.HostSettings{
+func newTestHostSettings(pk types.PublicKey) proto.HostSettings {
+	return proto.HostSettings{
 		Release:             "test",
 		ProtocolVersion:     rhp.ProtocolVersion400,
 		AcceptingContracts:  true,
 		WalletAddress:       types.StandardAddress(pk),
 		MaxCollateral:       types.Siacoins(10000),
 		MaxContractDuration: 1000,
-		RemainingStorage:    100 * proto4.SectorSize,
-		TotalStorage:        100 * proto4.SectorSize,
-		Prices: proto4.HostPrices{
+		RemainingStorage:    100 * proto.SectorSize,
+		TotalStorage:        100 * proto.SectorSize,
+		Prices: proto.HostPrices{
 			ContractPrice: types.Siacoins(1).Div64(5), // 0.2 SC
 			StoragePrice:  types.NewCurrency64(100),   // 100 H / byte / block
 			IngressPrice:  types.NewCurrency64(100),   // 100 H / byte
@@ -1392,7 +1390,7 @@ func TestHostsForPinning(t *testing.T) {
 	hk2 := db.addTestHost(t)
 
 	// add account
-	acc := proto4.Account{1}
+	acc := proto.Account{1}
 	if err := db.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
@@ -1475,7 +1473,7 @@ func TestHostsForPruning(t *testing.T) {
 	hk2 := db.addTestHost(t)
 
 	// add account
-	acc := proto4.Account{1}
+	acc := proto.Account{1}
 	if err := db.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
@@ -1533,7 +1531,7 @@ func BenchmarkHostsForPruning(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 
 	// add account
-	account := proto4.Account{1}
+	account := proto.Account{1}
 	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
@@ -1618,7 +1616,7 @@ func TestHostsForIntegrityChecks(t *testing.T) {
 	hk2 := db.addTestHost(t)
 
 	// add account
-	acc := proto4.Account{1}
+	acc := proto.Account{1}
 	if err := db.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
@@ -1716,7 +1714,7 @@ func BenchmarkHostsForPinning(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 
 	// add account
-	account := proto4.Account{1}
+	account := proto.Account{1}
 	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
 	}
@@ -1727,7 +1725,7 @@ func BenchmarkHostsForPinning(b *testing.B) {
 		nHosts            = 1000
 		nContractsPerHost = 100
 		nBlocklistHosts   = 1000
-		nSectorsPerHost   = dbBaseSize / proto4.SectorSize / nHosts
+		nSectorsPerHost   = dbBaseSize / proto.SectorSize / nHosts
 	)
 
 	// prepare database
@@ -1824,7 +1822,7 @@ func BenchmarkHostsForPinning(b *testing.B) {
 // BenchmarkHostsForIntegrityCheck benchmarks HostsForIntegrityCheck.
 func BenchmarkHostsForIntegrityCheck(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
-	account := proto4.Account{1}
+	account := proto.Account{1}
 
 	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
@@ -1833,7 +1831,7 @@ func BenchmarkHostsForIntegrityCheck(b *testing.B) {
 	const (
 		nHosts          = 10000
 		dbBaseSize      = 1 << 40 // 1TiB of sectors
-		nSectorsPerHost = dbBaseSize / proto4.SectorSize / nHosts
+		nSectorsPerHost = dbBaseSize / proto.SectorSize / nHosts
 	)
 
 	// add hosts
@@ -1887,7 +1885,7 @@ func BenchmarkHostsForIntegrityCheck(b *testing.B) {
 // BenchmarkHostsWithLostSectors benchmarks HostsWithLostSectors.
 func BenchmarkHostsWithLostSectors(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
-	account := proto4.Account{1}
+	account := proto.Account{1}
 
 	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
@@ -1896,7 +1894,7 @@ func BenchmarkHostsWithLostSectors(b *testing.B) {
 	const (
 		nHosts          = 10000
 		dbBaseSize      = 1 << 40 // 1TiB of sectors
-		nSectorsPerHost = dbBaseSize / proto4.SectorSize / nHosts
+		nSectorsPerHost = dbBaseSize / proto.SectorSize / nHosts
 	)
 
 	// add hosts
@@ -1943,7 +1941,7 @@ func BenchmarkHostsWithLostSectors(b *testing.B) {
 
 func BenchmarkHostsWithUnpinnableSectors(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
-	account := proto4.Account{1}
+	account := proto.Account{1}
 
 	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
 		b.Fatal("failed to add account:", err)
@@ -1952,7 +1950,7 @@ func BenchmarkHostsWithUnpinnableSectors(b *testing.B) {
 	const (
 		nHosts          = 1000
 		dbBaseSize      = 1 << 40 // 1TiB of sectors
-		nSectorsPerHost = dbBaseSize / proto4.SectorSize / nHosts
+		nSectorsPerHost = dbBaseSize / proto.SectorSize / nHosts
 	)
 
 	// add hosts
