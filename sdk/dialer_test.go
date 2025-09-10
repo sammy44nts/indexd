@@ -172,7 +172,7 @@ func TestHostDialerHosts(t *testing.T) {
 	if len(hks) != 3 {
 		t.Fatalf("expected 3 hosts, got %d", len(hks))
 	} else if hks[0] != hk {
-		t.Fatal("active host should be first:", err)
+		t.Fatal("active host should be first")
 	}
 
 	dialer.Close()
