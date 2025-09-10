@@ -278,6 +278,76 @@ components:
           type: string
           description: The operating system of the build
 
+    SyncerAddress:
+      type: string
+      description: The address of the syncer
+      example: "118.92.232.145:9981"
+
+    Explorer:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether we use the explorer to get exchange rates or not.
+        url:
+          type: string
+          format: uri
+          description: The base URL of the explorer API
+
+    Severity:
+        type: string
+        enum: [info, warning, error, critical]
+
+    Alert:
+      type: object
+      properties:
+        id:
+          allOf:
+            - $ref: "#/components/schemas/Hash256"
+            - description: The unique identifier for the alert.
+        severity:
+          allOf:
+            - $ref: "#/components/schemas/Severity"
+            - description: The severity of the alert.
+        message:
+          type: string
+          description: Human-readable message describing the alert.
+        data:
+          type: object
+          description: Map of arbitrary data that can be used to provide additional context to the alert
+        timestamp:
+          type: string
+          format: date-time
+          description: Time the alert was generated.
+
+    Account:
+      type: object
+      properties:
+        publicKey:
+          allOf:
+            - $ref: "#/components/schemas/PublicKey"
+            - description: Public key of the account
+        serviceAccount:
+          type: boolean
+          description: Whether it is a service account or not.
+        maxPinnedData:
+          type: number
+          description: Maximum amount of pinned data in bytes.
+        pinnedData:
+          type: number
+          description: Current amount of pinned data in bytes.
+        description:
+          type: string
+          description: Description of the app
+        logoURL:
+          type: string
+          format: uri
+          description: The URL to the logo of the app
+        serviceURL:
+          type: string
+          format: uri
+          description: The homepage of the app
+
     Contract:
       type: object
       properties:
@@ -291,8 +361,8 @@ components:
             - description: The public key of the host.
         formation:
           type: string
-          description: The time when the contract was formed.
           format: date-time
+          description: The time when the contract was formed.
         renewedFrom:
           allOf:
             - $ref: "#/components/schemas/FileContractID"
@@ -366,8 +436,9 @@ components:
           enum:
             - pending
             - active
-            - complete
-            - failed
+            - resolved
+            - expired
+            - rejected
         spending:
           allOf:
             - $ref: "#/components/schemas/ContractSpending"
@@ -622,3 +693,70 @@ components:
         approved:
           type: boolean
           description: The status of an application connection request.
+
+    SectorStatsResponse:
+      type: object
+      properties:
+        numSlabs:
+          type: integer
+          format: int64
+          description: Number of slabs currently pinned by this instance
+
+    ConnectKey:
+      type: object
+      properties:
+        key:
+          type: string
+          description: App key/ID
+        description:
+          type: string
+          description: App description
+        totalUses:
+          type: integer
+          description: Total number of times this key has been used
+        remainingUses:
+          type: integer
+          description: Remaining number of times this key can be used
+        dateCreated:
+          type: string
+          format: date-time
+          description: Date this key was created
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Last time this key was updated
+        maxPinnedData:
+          type: integer
+          format: int64
+          description: Maximum number of bytes that may be pinned at once with this key
+
+    UpdateAppConnectKey:
+      type: object
+      properties:
+        key:
+          type: string
+          description: App key/ID
+        description:
+          type: string
+          description: App description
+        maxPinnedData:
+          type: integer
+          format: int64
+          description: Maximum number of bytes that may be pinned at once with this key
+        remainingUses:
+          type: integer
+          description: Remaining number of times this key can be used
+
+    AddConnectKeyRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          description: App description
+        maxPinnedData:
+          type: integer
+          format: int64
+          description: Maximum number of bytes that may be pinned at once with this key
+        remainingUses:
+          type: integer
+          description: Remaining number of times this key can be used
