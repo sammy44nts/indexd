@@ -476,14 +476,6 @@ func uploadShard(ctx context.Context, sector *[proto4.SectorSize]byte, hostKey t
 	return uploaded, nil
 }
 
-// shuffle shuffles the elements of a slice in place and returns it.
-func shuffle[T any, S ~[]T](s S) S {
-	frand.Shuffle(len(s), func(i, j int) {
-		s[i], s[j] = s[j], s[i]
-	})
-	return s
-}
-
 // readAtMost reads from the reader until the buffer is filled,
 // no data is read, an error is returned, or EOF is reached.
 //
