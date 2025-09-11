@@ -651,4 +651,11 @@ func TestSharedObjects(t *testing.T) {
 		t.Log("got:     ", string(buf2))
 		t.Fatal("shared object does not match expected")
 	}
+
+	time.Sleep(time.Second * 2)
+	// try to retrieve the object again, should be expired
+	_, err = client1.CreateSharedObjectURL(ctx, obj.Key, [32]byte{}, time.Now().Add(time.Second))
+	if err == nil {
+		t.Fatal("expected error when creating shared URL with past expiry")
+	}
 }
