@@ -475,3 +475,125 @@ func TestAppConnect(t *testing.T) {
 		t.Fatal("expected 0 pinned data, got", account.PinnedData)
 	}
 }
+
+/*
+func TestSharedObjects(t *testing.T) {
+	ctx := t.Context()
+	// create cluster with three hosts
+	logger := testutils.NewLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
+	indexer := cluster.Indexer
+	adminClient := indexer.Admin
+	time.Sleep(time.Second)
+
+	// assert hosts are registered
+	hosts, err := adminClient.Hosts(ctx)
+	if err != nil {
+		t.Fatal("failed to get hosts:", err)
+	} else if len(hosts) != 3 {
+		t.Fatal("expected 3 hosts, got", len(hosts))
+	}
+
+	// prepare accounts
+	prepareAcccount := func(t *testing.T) *app.Client {
+		sk := types.GeneratePrivateKey()
+		client := indexer.App(sk)
+
+		key, err := adminClient.AddAppConnectKey(ctx, admin.AddConnectKeyRequest{
+			RemainingUses: 1,
+		})
+		if err != nil {
+			t.Fatal("failed to add app connect key:", err)
+		}
+
+		connectResp, err := client.RequestAppConnection(ctx, app.RegisterAppRequest{
+			Name:        "Test App",
+			Description: "A test application",
+			LogoURL:     "foo",
+			ServiceURL:  "bar",
+		})
+		if err != nil {
+			t.Fatal("failed to request app connection:", err)
+		}
+
+		respondToAppConnection(t, connectResp.ResponseURL, key.Key, true)
+		return client
+	}
+
+	client1 := prepareAcccount(t)
+	client2 := prepareAcccount(t)
+
+	h1 := hosts[0]
+	h2 := hosts[1]
+	h3 := hosts[2]
+
+	// helper to generate slab pin parameters
+	randomSlab := func() slabs.SlabPinParams {
+		return slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors: []slabs.SectorPinParams{
+				{
+					Root:    frand.Entropy256(),
+					HostKey: h1.PublicKey,
+				},
+				{
+					Root:    frand.Entropy256(),
+					HostKey: h2.PublicKey,
+				},
+				{
+					Root:    frand.Entropy256(),
+					HostKey: h3.PublicKey,
+				},
+			},
+		}
+	}
+	// generate and pin a slab
+	slab1Params := randomSlab()
+	slabID, err := client1.PinSlab(ctx, slab1Params)
+	if err != nil {
+		t.Fatal("failed to pin slab:", err)
+	}
+
+	// add the object to the db
+	obj := objects.Object{
+		Key: types.Hash256(frand.Entropy256()),
+		Slabs: []objects.SlabSlice{
+			{
+				SlabID: slabID,
+				Offset: 0,
+				Length: 256,
+			},
+		},
+	}
+	if err := client1.SaveObject(ctx, obj); err != nil {
+		t.Fatal(err)
+	}
+
+	// populate the object's created and updated fields
+	obj, err = client1.Object(ctx, obj.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// create a shared URL for the object
+	shareURL, err := client1.CreateSharedObjectURL(ctx, obj.Key, [32]byte{}, time.Now().Add(time.Second))
+	if err != nil {
+		t.Fatal("failed to create shared object URL:", err)
+	}
+
+	// try to retrieve the object with client2
+	sharedObj, err := client2.RetrieveSharedObject(ctx, shareURL)
+	if err != nil {
+		t.Fatal("failed to retrieve shared object:", err)
+	} else if !reflect.DeepEqual(obj, sharedObj) {
+		t.Fatal("retrieved object does not match original")
+	}
+
+	// pin the shared object with client2
+	for _, slab := range sharedObj.Slabs {
+		client2.Sl
+	}
+
+	client2.PinSlab(ctx, sharedObj.Slabs[0])
+}*/

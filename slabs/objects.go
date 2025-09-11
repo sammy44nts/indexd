@@ -11,6 +11,25 @@ import (
 )
 
 type (
+	// A SharedObjectSlab represents a slab of a shared object.
+	// It contains all the metadata needed to retrieve a slab.
+	SharedObjectSlab struct {
+		ID            SlabID         `json:"id"`
+		EncryptionKey [32]byte       `json:"encryptionKey"`
+		MinShards     uint           `json:"minShards"`
+		Sectors       []PinnedSector `json:"sectors"`
+		Offset        uint32         `json:"offset"`
+		Length        uint32         `json:"length"`
+	}
+
+	// SharedObject provides all the metadata necessary to retrieve
+	// and decrypt an object.
+	SharedObject struct {
+		Key   types.Hash256      `json:"key"`
+		Slabs []SharedObjectSlab `json:"slabs"`
+		Meta  []byte             `json:"meta,omitempty"`
+	}
+
 	// Object represents a collection of slabs that form an uploaded object.
 	Object struct {
 		Key       types.Hash256 `json:"key"`
