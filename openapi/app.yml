@@ -17,7 +17,7 @@ tags:
   - name: slabs
     description: List, pin, unpin and retrieve pinned slab details
   - name: accounts
-    description: Retrieve current accout
+    description: Retrieve current account
 
 paths:
   /accounts:
