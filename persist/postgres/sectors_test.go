@@ -1342,32 +1342,52 @@ func TestPinnedSectorsStatistics(t *testing.T) {
 	}
 	assertPinnedSectors(0)
 
-	// add contract and pin two sectors
+	// add contract and pin all sectors
 	fcid := store.addTestContract(t, hk)
-	if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2}); err != nil {
+	if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
 		t.Fatal(err)
 	}
-	assertPinnedSectors(2)
+	assertPinnedSectors(4)
 
-	// mark third sector as lost - shouldn't change the number of pinned sectors
+	// create another host and migrate the fourth sector
+	other := store.addTestHost(t)
+	if _, err := store.MigrateSector(t.Context(), r4, other); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// migrate it again and assert pinned sectors doesn't change
+	other = store.addTestHost(t)
+	if _, err := store.MigrateSector(t.Context(), r4, other); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// mark fourth sector as lost - shouldn't change the number of pinned sectors
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// mark third sector as lost
 	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r3}); err != nil {
 		t.Fatal(err)
 	}
 	assertPinnedSectors(2)
 
-	// manually manipulate the first and fourth sector to have consecutive_failed_checks exceeding the threshold
-	if _, err := store.pool.Exec(t.Context(), "UPDATE sectors SET consecutive_failed_checks = 10 WHERE sector_root IN ($1, $2)", sqlHash256(r1), sqlHash256(r4)); err != nil {
+	// manually manipulate the second and third sector to have consecutive_failed_checks exceeding the threshold
+	if _, err := store.pool.Exec(t.Context(), "UPDATE sectors SET consecutive_failed_checks = 10 WHERE sector_root IN ($1, $2)", sqlHash256(r2), sqlHash256(r3)); err != nil {
 		t.Fatal(err)
 	}
 
 	// mark failing sectors as lost - should update the number of pinned sectors
-	if err := store.MarkFailingSectorsLost(t.Context(), hk, 3); err != nil {
+	if err := store.MarkFailingSectorsLost(t.Context(), hk, 10); err != nil {
 		t.Fatal(err)
 	}
-	assertPinnedSectors(1) // only r2 should remain
+	assertPinnedSectors(1)
 
-	// mark second sector as lost - should update the number of pinned sectors
-	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r2}); err != nil {
+	// mark first sector as lost - should update the number of pinned sectors
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r1}); err != nil {
 		t.Fatal(err)
 	}
 	assertPinnedSectors(0)
@@ -1377,6 +1397,14 @@ func TestPinnedSectorsStatistics(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPinnedSectors(0)
+
+	// assert pinning them twice doesn't double the count
+	if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	} else if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(4)
 }
 
 // BenchmarkSlabs benchmarks Slabs and PinSlabs in various batch sizes. The
@@ -1612,7 +1640,7 @@ func BenchmarkUpdatePinnedSectors(b *testing.B) {
 		b.Fatal("failed to add account:", err)
 	}
 	hk := store.addTestHost(b)
-	store.addTestContract(b, hk)
+	fcid := store.addTestContract(b, hk)
 
 	// prepare base db
 	const (
@@ -1641,7 +1669,7 @@ func BenchmarkUpdatePinnedSectors(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		err = store.PinSectors(context.Background(), types.FileContractID(hk), roots)
+		err = store.PinSectors(context.Background(), fcid, roots)
 		if err != nil {
 			b.Fatal(err)
 		}
