@@ -132,7 +132,7 @@ func TestApplicationAPI(t *testing.T) {
 		return slabs.SlabPinParams{
 			EncryptionKey: frand.Entropy256(),
 			MinShards:     1,
-			Sectors: []slabs.SectorPinParams{
+			Sectors: []slabs.PinnedSector{
 				{
 					Root:    frand.Entropy256(),
 					HostKey: h1.PublicKey,
@@ -543,7 +543,7 @@ func TestSharedObjects(t *testing.T) {
 		return slabs.SlabPinParams{
 			EncryptionKey: frand.Entropy256(),
 			MinShards:     1,
-			Sectors: []slabs.SectorPinParams{
+			Sectors: []slabs.PinnedSector{
 				{
 					Root:    frand.Entropy256(),
 					HostKey: h1.PublicKey,
