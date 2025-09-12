@@ -306,7 +306,10 @@ CREATE TABLE sectors (
 
     -- data integrity
     next_integrity_check TIMESTAMP WITH TIME ZONE NOT NULL,
-    consecutive_failed_checks SMALLINT NOT NULL DEFAULT 0
+    consecutive_failed_checks SMALLINT NOT NULL DEFAULT 0,
+
+    -- statistics
+    num_migrated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE sectors_stats (

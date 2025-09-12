@@ -86,19 +86,19 @@ func TestMigrateSector(t *testing.T) {
 	}
 
 	// helper to assert sector state
-	assertSector := func(root types.Hash256, expectedHostKey types.PublicKey, expectedContractID types.FileContractID, expectedFailures int) {
+	assertSector := func(root types.Hash256, expectedHostKey types.PublicKey, expectedContractID types.FileContractID, expectedFailures, expectedMigrated int) {
 		t.Helper()
 
 		var hostKey types.PublicKey
 		var contractID types.FileContractID
-		var failures int
+		var migrated, failures int
 		err := store.pool.QueryRow(context.Background(), `
-			SELECT hosts.public_key, contract_sectors_map.contract_id, consecutive_failed_checks
+			SELECT hosts.public_key, contract_sectors_map.contract_id, consecutive_failed_checks, num_migrated
 			FROM sectors
 			INNER JOIN hosts ON sectors.host_id = hosts.id
 			LEFT JOIN contract_sectors_map ON sectors.contract_sectors_map_id = contract_sectors_map.id
 			WHERE sector_root = $1
-		`, sqlHash256(root)).Scan(asNullable((*sqlPublicKey)(&hostKey)), asNullable((*sqlHash256)(&contractID)), &failures)
+		`, sqlHash256(root)).Scan(asNullable((*sqlPublicKey)(&hostKey)), asNullable((*sqlHash256)(&contractID)), &failures, &migrated)
 		if err != nil {
 			t.Fatal(err)
 		} else if hostKey != expectedHostKey {
@@ -107,6 +107,8 @@ func TestMigrateSector(t *testing.T) {
 			t.Fatalf("expected contract ID %v, got %v", expectedContractID, contractID)
 		} else if failures != expectedFailures {
 			t.Fatalf("expected %d consecutive failures, got %d", expectedFailures, failures)
+		} else if migrated != expectedMigrated {
+			t.Fatalf("expected %d migrations, got %d", expectedMigrated, migrated)
 		}
 	}
 
@@ -129,23 +131,23 @@ func TestMigrateSector(t *testing.T) {
 	}
 
 	// assert initial state
-	assertSector(root1, hk1, fcid1, 1)
-	assertSector(root2, hk1, fcid1, 1)
+	assertSector(root1, hk1, fcid1, 1, 0)
+	assertSector(root2, hk1, fcid1, 1, 0)
 
 	// migrate sector 1 to host 2
 	migrate(root1, hk2, true)
-	assertSector(root1, hk2, types.FileContractID{}, 0)
-	assertSector(root2, hk1, fcid1, 1)
+	assertSector(root1, hk2, types.FileContractID{}, 0, 1)
+	assertSector(root2, hk1, fcid1, 1, 0)
 
 	// migrate sector 2 to unknown host, this should be a no-op
 	migrate(root2, types.PublicKey{10}, false)
-	assertSector(root1, hk2, types.FileContractID{}, 0)
-	assertSector(root2, hk1, fcid1, 1)
+	assertSector(root1, hk2, types.FileContractID{}, 0, 1)
+	assertSector(root2, hk1, fcid1, 1, 0)
 
 	// migrate sector 2 to host 2
 	migrate(root2, hk2, true)
-	assertSector(root1, hk2, types.FileContractID{}, 0)
-	assertSector(root2, hk2, types.FileContractID{}, 0)
+	assertSector(root1, hk2, types.FileContractID{}, 0, 1)
+	assertSector(root2, hk2, types.FileContractID{}, 0, 1)
 }
 
 func TestRecordIntegrityCheck(t *testing.T) {

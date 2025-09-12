@@ -591,7 +591,7 @@ func (s *Store) MigrateSector(ctx context.Context, root types.Hash256, hostKey t
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		resp, err := tx.Exec(ctx, `
 			UPDATE sectors
-			SET host_id = hosts.id, contract_sectors_map_id = NULL, consecutive_failed_checks = 0, uploaded_at=NOW()
+			SET host_id = hosts.id, contract_sectors_map_id = NULL, consecutive_failed_checks = 0, num_migrated = num_migrated + 1, uploaded_at=NOW()
 			FROM hosts
 			WHERE sector_root = $1 AND hosts.public_key = $2
 		`, sqlHash256(root), sqlPublicKey(hostKey))
