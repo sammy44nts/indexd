@@ -773,10 +773,16 @@ func TestWalletAPI(t *testing.T) {
 }
 
 func TestSectorStatsAPI(t *testing.T) {
-	// create indexer
-	c := testutils.NewConsensusNode(t, zap.NewNop())
-	indexer := testutils.NewIndexer(t, c, zap.NewNop())
+	// create cluster with three hosts
+	logger := newTestLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
+	indexer := cluster.Indexer
 	adminClient := indexer.Admin
+
+	// convenience variables
+	h1 := cluster.Hosts[0]
+	h2 := cluster.Hosts[1]
+	h3 := cluster.Hosts[2]
 
 	// assert 0 slabs
 	stats, err := adminClient.StatsSectors(context.Background())
@@ -794,9 +800,10 @@ func TestSectorStatsAPI(t *testing.T) {
 		EncryptionKey: [32]byte{1},
 		MinShards:     1,
 		Sectors: []slabs.SectorPinParams{
-			{Root: frand.Entropy256(), HostKey: types.PublicKey{1}},
-			{Root: frand.Entropy256(), HostKey: types.PublicKey{2}},
-			{Root: frand.Entropy256(), HostKey: types.PublicKey{3}}},
+			{Root: frand.Entropy256(), HostKey: h1.PublicKey()},
+			{Root: frand.Entropy256(), HostKey: h2.PublicKey()},
+			{Root: frand.Entropy256(), HostKey: h3.PublicKey()},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
