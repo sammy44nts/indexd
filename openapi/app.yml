@@ -67,7 +67,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/core/types"
             )
 
@@ -247,7 +247,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/core/types"
             )
 
@@ -312,7 +312,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/indexd/slabs"
               "go.sia.tech/core/types"
             )
@@ -380,7 +380,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/indexd/slabs"
               "go.sia.tech/core/types"
             )
@@ -415,7 +415,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/indexd/slabs"
               "go.sia.tech/core/types"
             )
@@ -483,7 +483,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/core/types"
             )
 
@@ -521,7 +521,7 @@ paths:
 
             import (
               "context"
-              app "go.sia.tech/indexd/app"
+              "go.sia.tech/indexd/app"
               "go.sia.tech/core/types"
             )
 

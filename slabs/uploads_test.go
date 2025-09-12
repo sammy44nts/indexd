@@ -3,7 +3,7 @@ package slabs
 import (
 	"context"
 	"errors"
-	"net"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -145,7 +145,7 @@ func TestUploadShards(t *testing.T) {
 
 func newTestHost(hk types.PublicKey) hosts.Host {
 	return hosts.Host{
-		Networks:  []net.IPNet{{IP: net.IP{127, 0, 0, hk[0]}, Mask: net.CIDRMask(24, 32)}},
+		Networks:  []string{fmt.Sprintf("127.0.0.%d/24", hk[0])},
 		PublicKey: hk,
 		Settings:  goodSettings,
 		Usability: hosts.GoodUsability,

@@ -398,7 +398,7 @@ func (s *Store) PruneHosts(ctx context.Context, minLastSuccessfulScan time.Time,
 }
 
 // UpdateHost updates a host in the database, the given parameters are the result of scanning the host.
-func (s *Store) UpdateHost(ctx context.Context, hk types.PublicKey, networks []net.IPNet, hs proto4.HostSettings, loc geoip.Location, scanSucceeded bool, nextScan time.Time) error {
+func (s *Store) UpdateHost(ctx context.Context, hk types.PublicKey, networks []string, hs proto4.HostSettings, loc geoip.Location, scanSucceeded bool, nextScan time.Time) error {
 	if len(networks) == 0 && scanSucceeded {
 		return hosts.ErrNoNetworks
 	}
@@ -527,7 +527,12 @@ WHERE hosts.id = computed.id RETURNING hosts.id`,
 			}
 
 			for _, cidr := range networks {
-				_, err = tx.Exec(ctx, `INSERT INTO host_resolved_cidrs (host_id, cidr) VALUES ($1, $2)`, hostID, cidr.String())
+				_, ipnet, err := net.ParseCIDR(cidr)
+				if err != nil {
+					return fmt.Errorf("failed to parse CIDR: %w", err)
+				}
+
+				_, err = tx.Exec(ctx, `INSERT INTO host_resolved_cidrs (host_id, cidr) VALUES ($1, $2)`, hostID, ipnet)
 				if err != nil {
 					return fmt.Errorf("failed to insert host resolved CIDR: %w", err)
 				}
@@ -717,7 +722,7 @@ func decorateHostNetworks(ctx context.Context, tx *txn, hosts ...*dbHost) error 
 		if err := rows.Scan(&hostID, &cidr); err != nil {
 			return fmt.Errorf("failed to scan host network: %w", err)
 		}
-		hosts[idToIdx[hostID]].Networks = append(hosts[idToIdx[hostID]].Networks, cidr)
+		hosts[idToIdx[hostID]].Networks = append(hosts[idToIdx[hostID]].Networks, cidr.String())
 	}
 
 	return rows.Err()

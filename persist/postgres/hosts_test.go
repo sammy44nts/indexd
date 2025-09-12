@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -27,7 +26,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-var testNetworks = []net.IPNet{{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)}}
+var testNetworks = []string{"1.2.3.4/32"}
 
 func TestAddHostAnnouncement(t *testing.T) {
 	// create database
@@ -105,7 +104,7 @@ func TestHost(t *testing.T) {
 	db.addTestHost(t, hk)
 
 	// update the host
-	networks := []net.IPNet{{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)}}
+	networks := []string{"1.2.3.4/32"}
 	err = db.UpdateHost(context.Background(), hk, networks, hs, geoip.Location{}, true, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -370,12 +369,6 @@ func TestHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// ip mask for testing
-	_, network, err := net.ParseCIDR("127.0.0.1/24")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	goodUsability := hosts.Usability{
 		Uptime:              true,
 		MaxContractDuration: true,
@@ -411,11 +404,11 @@ func TestHosts(t *testing.T) {
 		if !usable {
 			settings.AcceptingContracts = false
 		}
-		err = db.UpdateHost(context.Background(), hk, []net.IPNet{*network}, settings, geoip.Location{}, false, time.Now().Add(time.Hour))
+		err := db.UpdateHost(context.Background(), hk, []string{"127.0.0.1/24"}, settings, geoip.Location{}, false, time.Now().Add(time.Hour))
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = db.UpdateHost(context.Background(), hk, []net.IPNet{*network}, settings, geoip.Location{}, true, time.Now().Add(time.Hour))
+		err = db.UpdateHost(context.Background(), hk, []string{"127.0.0.1/24"}, settings, geoip.Location{}, true, time.Now().Add(time.Hour))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -560,12 +553,6 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// ip mask for testing
-	_, network, err := net.ParseCIDR("127.0.0.1/24")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// helper to add hosts
 	addHost := func(i byte, loc geoip.Location, protocols []chain.Protocol, usable, blocked bool, contract bool) types.PublicKey {
 		t.Helper()
@@ -588,7 +575,7 @@ func TestUsableHosts(t *testing.T) {
 		if !usable {
 			settings.AcceptingContracts = false
 		}
-		if err := db.UpdateHost(context.Background(), hk, []net.IPNet{*network}, settings, loc, true, time.Now().Add(time.Hour)); err != nil {
+		if err := db.UpdateHost(context.Background(), hk, []string{"127.0.0.1/24"}, settings, loc, true, time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1164,7 +1151,7 @@ func TestUpdateHost(t *testing.T) {
 
 	now := time.Now().Round(time.Minute)
 	nextScan := now.Add(time.Hour)
-	networks := []net.IPNet{{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)}}
+	networks := []string{"1.2.3.4/32"}
 
 	location := geoip.Location{
 		CountryCode: "US",
@@ -1189,7 +1176,7 @@ func TestUpdateHost(t *testing.T) {
 		t.Fatal("expected recent uptime to be updated")
 	} else if len(h.Networks) != 1 {
 		t.Fatal("unexpected networks", h.Networks)
-	} else if h.Networks[0].String() != networks[0].String() {
+	} else if h.Networks[0] != networks[0] {
 		t.Fatal("unexpected network", h.Networks)
 	} else if h.CountryCode != location.CountryCode {
 		t.Fatal("unexpected country code", h.CountryCode)
@@ -1200,7 +1187,7 @@ func TestUpdateHost(t *testing.T) {
 	}
 
 	// assert networks are overwritten
-	networks = []net.IPNet{{IP: net.IPv4(4, 3, 2, 1), Mask: net.CIDRMask(32, 32)}}
+	networks = []string{"4.3.2.1/32"}
 	err = db.UpdateHost(context.Background(), hk, networks, hs, location, true, nextScan)
 	if err != nil {
 		t.Fatal(err)
@@ -1208,7 +1195,7 @@ func TestUpdateHost(t *testing.T) {
 		t.Fatal(err)
 	} else if len(h.Networks) != 1 {
 		t.Fatal("unexpected networks", h.Networks)
-	} else if h.Networks[0].String() != networks[0].String() {
+	} else if h.Networks[0] != networks[0] {
 		t.Fatal("unexpected network", h.Networks)
 	}
 
@@ -1220,14 +1207,14 @@ func TestUpdateHost(t *testing.T) {
 
 	// assert updating with a failed scan doesn't affect the host's networks
 	// or geolocation
-	err = db.UpdateHost(context.Background(), hk, []net.IPNet{{IP: net.IPv4(9, 9, 9, 9)}}, hs, geoip.Location{}, false, nextScan)
+	err = db.UpdateHost(context.Background(), hk, []string{"9.9.9.9"}, hs, geoip.Location{}, false, nextScan)
 	if err != nil {
 		t.Fatal(err)
 	} else if h, err := db.Host(context.Background(), hk); err != nil {
 		t.Fatal(err)
 	} else if len(h.Networks) != 1 {
 		t.Fatal("unexpected networks", h.Networks)
-	} else if h.Networks[0].String() != networks[0].String() {
+	} else if h.Networks[0] != networks[0] {
 		t.Fatal("unexpected network", h.Networks)
 	} else if h.CountryCode != location.CountryCode {
 		t.Fatal("unexpected country code", h.CountryCode)
@@ -1254,9 +1241,9 @@ func BenchmarkHosts(b *testing.B) {
 	)
 
 	// prepare test variables
-	networks := []net.IPNet{
-		{IP: net.IPv4(1, 2, 3, 4), Mask: net.CIDRMask(32, 32)},
-		{IP: net.IPv4(2, 3, 4, 5), Mask: net.CIDRMask(32, 32)},
+	networks := []string{
+		"1.2.3.4/32",
+		"2.3.4.5/32",
 	}
 
 	// prepare database
@@ -1278,7 +1265,7 @@ func BenchmarkHosts(b *testing.B) {
 				return fmt.Errorf("failed to insert host address: %w", err)
 			}
 
-			_, err = tx.Exec(ctx, `INSERT INTO host_resolved_cidrs (host_id, cidr) VALUES ($1, $2), ($1, $3)`, hostID, networks[0].String(), networks[1].String())
+			_, err = tx.Exec(ctx, `INSERT INTO host_resolved_cidrs (host_id, cidr) VALUES ($1, $2), ($1, $3)`, hostID, networks[0], networks[1])
 			if err != nil {
 				return err
 			}
