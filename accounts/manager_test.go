@@ -371,7 +371,7 @@ func TestAccountManager(t *testing.T) {
 	s.resetNextFund()
 
 	// add another 1000 accounts
-	for range 1000 {
+	for range clampAccounts {
 		pk := types.GeneratePrivateKey().PublicKey()
 		s.accounts[pk] = Account{
 			AccountKey:     proto.Account(pk),
