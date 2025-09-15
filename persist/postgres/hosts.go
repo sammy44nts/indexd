@@ -557,9 +557,22 @@ func (s *Store) UsableHosts(ctx context.Context, offset, limit int, opts ...host
 		opt(&queryOpts)
 	}
 
+	var p *pgtype.Point
+	if queryOpts.SortOptions != nil {
+		if queryOpts.SortOptions.SortBy != "proximity" {
+			return nil, fmt.Errorf("unsupported sort by option: %q", queryOpts.SortOptions.SortBy)
+		} else if queryOpts.SortOptions.SortDir != "asc" {
+			return nil, fmt.Errorf("unsupported sort dir option: %q", queryOpts.SortOptions.SortDir)
+		} else if _, ok := queryOpts.SortOptions.SortCtx.(*pgtype.Point); !ok {
+			return nil, fmt.Errorf("unsupported sort ctx option type: %T", queryOpts.SortOptions.SortCtx)
+		} else {
+			p = queryOpts.SortOptions.SortCtx.(*pgtype.Point)
+		}
+	}
+
 	var usable []hosts.HostInfo
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		rows, err := tx.Query(ctx, `
+		baseQuery := `
 WITH globals AS (
     SELECT
 		contracts_period,
@@ -610,6 +623,8 @@ SELECT
 FROM hosts
 CROSS JOIN globals
 WHERE
+	-- valid location
+	location <> point(0.0, 0.0) AND
 	-- usable
 	recent_uptime >= 0.9 AND
 	settings_max_contract_duration >= globals.contracts_period AND
@@ -629,8 +644,17 @@ WHERE
 	-- active contracts
 	EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state <= 1) AND
 	-- protocol filter
-	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint))
-LIMIT $1 OFFSET $2;`, limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol))
+	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint))`
+		args := []any{limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol)}
+
+		if queryOpts.SortOptions != nil {
+			baseQuery += `ORDER BY location <-> point($5, $6) `
+			args = append(args, p.P.X, p.P.Y)
+		}
+
+		baseQuery += `LIMIT $1 OFFSET $2;`
+
+		rows, err := tx.Query(ctx, baseQuery, args...)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts: %w", err)
 		}

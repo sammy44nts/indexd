@@ -60,6 +60,9 @@ CREATE INDEX hosts_lost_sectors_idx ON hosts(lost_sectors);
 -- speed up querying by country
 CREATE INDEX hosts_country_code_idx ON hosts(country_code);
 
+-- speed up ordering by proximity to a location
+CREATE INDEX hosts_location_spgist_idx ON hosts USING SPGIST (location);
+
 CREATE TABLE account_hosts (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,

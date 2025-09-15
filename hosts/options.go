@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/indexd/api"
 	"go.uber.org/zap"
 )
 
@@ -49,10 +50,20 @@ type (
 	// UsableHostsQueryOpts holds optional parameters for querying usable
 	// hosts.
 	UsableHostsQueryOpts struct {
-		Protocol    *chain.Protocol
 		CountryCode *string
+		Protocol    *chain.Protocol
+		SortOptions *api.SortOptions
 	}
 )
+
+// WithCountry causes UsableHosts to only return hosts located in the given
+// country.
+func WithCountry(countryCode string) UsableHostQueryOpt {
+	return func(opts *UsableHostsQueryOpts) {
+		countryCode = strings.ToUpper(countryCode)
+		opts.CountryCode = &countryCode
+	}
+}
 
 // WithProtocol causes UsableHosts to only return hosts with the given protocol.
 func WithProtocol(protocol chain.Protocol) UsableHostQueryOpt {
@@ -61,11 +72,9 @@ func WithProtocol(protocol chain.Protocol) UsableHostQueryOpt {
 	}
 }
 
-// WithCountry causes UsableHosts to only return hosts located in the given
-// country.
-func WithCountry(countryCode string) UsableHostQueryOpt {
+// WithSortOptions sets the sort options for UsableHosts.
+func WithSortOptions(sortOptions api.SortOptions) UsableHostQueryOpt {
 	return func(opts *UsableHostsQueryOpts) {
-		countryCode = strings.ToUpper(countryCode)
-		opts.CountryCode = &countryCode
+		opts.SortOptions = &sortOptions
 	}
 }

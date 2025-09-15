@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/jape"
 )
@@ -23,9 +24,28 @@ var (
 	ErrInvalidLimit = fmt.Errorf("limit must between 1 and %d", maxLimit)
 )
 
+type (
+	// SortOptions configures sorting of query results.
+	SortOptions struct {
+		SortBy  string
+		SortDir string
+		SortCtx any
+	}
+)
+
 // URLQueryParameterOption is an option to configure the query string
 // parameters.
 type URLQueryParameterOption func(url.Values)
+
+// SortByProximity decorates the query to sort by proximity to the given
+// location.
+func SortByProximity(location *pgtype.Point) URLQueryParameterOption {
+	return func(q url.Values) {
+		q.Set("sortby", "proximity")
+		q.Set("sortdir", "asc")
+		q.Set("sortctx", fmt.Sprintf("(%f,%f)", location.P.X, location.P.Y))
+	}
+}
 
 // WithOffset sets the 'offset' parameter.
 func WithOffset(offset int) URLQueryParameterOption {
@@ -84,4 +104,46 @@ func ParseOffsetLimit(jc jape.Context) (offset int, limit int, ok bool) {
 	}
 
 	return offset, limit, true
+}
+
+// ParseSortOptions parses the 'sortby', 'sortdir', and 'sortctx' query parameters
+// from the request context. It returns the SortOptions, and a boolean indicating
+// whether the parsing was successful. If the parameters are not present or
+// invalid, it returns false and writes an appropriate error to the response body.
+func ParseSortOptions(jc jape.Context) (opts SortOptions, ok bool) {
+	if jc.DecodeForm("sortby", &opts.SortBy) != nil {
+		return SortOptions{}, false
+	} else if opts.SortBy == "" {
+		return SortOptions{}, true
+	} else if opts.SortBy != "proximity" {
+		jc.Error(fmt.Errorf("invalid sort by %q, must be one of [proximity]", opts.SortBy), http.StatusBadRequest)
+		return SortOptions{}, false
+	}
+
+	if jc.DecodeForm("sortdir", &opts.SortDir) != nil {
+		return SortOptions{}, false
+	} else if opts.SortDir != "" && opts.SortDir != "asc" && opts.SortDir != "desc" {
+		jc.Error(fmt.Errorf("invalid sort direction %q, must be one of [asc desc]", opts.SortDir), http.StatusBadRequest)
+		return SortOptions{}, false
+	}
+
+	var sortCtx string
+	if jc.DecodeForm("sortctx", &sortCtx) != nil {
+		return SortOptions{}, false
+	} else if opts.SortBy == "proximity" {
+		var lat, lng float64
+		if _, err := fmt.Sscanf(sortCtx, "(%f,%f)", &lat, &lng); err != nil {
+			jc.Error(fmt.Errorf("invalid sort context %q for proximity sorting, must be of the form (lat,lng)", sortCtx), http.StatusBadRequest)
+			return SortOptions{}, false
+		}
+		opts.SortCtx = &pgtype.Point{
+			P: pgtype.Vec2{
+				X: lat,
+				Y: lng,
+			},
+			Valid: true,
+		}
+	}
+
+	return opts, true
 }

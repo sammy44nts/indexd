@@ -151,12 +151,17 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
-	var p string
-	if err := jc.DecodeForm("protocol", &p); err != nil {
+	sortOptions, ok := api.ParseSortOptions(jc)
+	if !ok {
+		return
+	}
+
+	var protocol string
+	if err := jc.DecodeForm("protocol", &protocol); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
-	} else if p != "" && p != string(siamux.Protocol) && p != string(quic.Protocol) {
-		jc.Error(fmt.Errorf("invalid protocol %s", p), http.StatusBadRequest)
+	} else if protocol != "" && protocol != string(siamux.Protocol) && protocol != string(quic.Protocol) {
+		jc.Error(fmt.Errorf("invalid protocol %q", protocol), http.StatusBadRequest)
 	}
 
 	var countryCode string
@@ -166,11 +171,14 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 	}
 
 	var opts []hosts.UsableHostQueryOpt
-	if p != "" {
-		opts = append(opts, hosts.WithProtocol(chain.Protocol(p)))
+	if protocol != "" {
+		opts = append(opts, hosts.WithProtocol(chain.Protocol(protocol)))
 	}
 	if countryCode != "" {
 		opts = append(opts, hosts.WithCountry(countryCode))
+	}
+	if sortOptions.SortBy != "" {
+		opts = append(opts, hosts.WithSortOptions(sortOptions))
 	}
 
 	hosts, err := a.store.UsableHosts(jc.Request.Context(), offset, limit, opts...)

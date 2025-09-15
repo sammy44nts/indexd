@@ -124,4 +124,9 @@ CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, sl
 		`)
 		return err
 	},
+	// adds the index on the "location" column in hosts
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		_, err := tx.Exec(ctx, `CREATE INDEX hosts_location_spgist_idx ON hosts USING SPGIST (location);`)
+		return err
+	},
 }
