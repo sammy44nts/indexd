@@ -521,10 +521,9 @@ func (s *Store) PinSectors(ctx context.Context, contractID types.FileContractID,
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var hostID, contractMapID int64
 		err := tx.QueryRow(ctx, `
-			SELECT hosts.id, csm.id
+			SELECT c.host_id, csm.id
 			FROM contract_sectors_map csm
-			INNER JOIN contracts ON contracts.contract_id = csm.contract_id
-			INNER JOIN hosts ON contracts.host_id = hosts.id
+			INNER JOIN contracts c ON c.contract_id = csm.contract_id
 			WHERE csm.contract_id = $1
 		`, sqlHash256(contractID)).Scan(&hostID, &contractMapID)
 		if errors.Is(err, sql.ErrNoRows) {
