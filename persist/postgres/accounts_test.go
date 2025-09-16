@@ -787,3 +787,30 @@ func BenchmarkServiceAccounts(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkActiveAccounts benchmarks the ActiveAccounts function on the store.
+func BenchmarkActiveAccounts(b *testing.B) {
+	// define parameters
+	const (
+		numAccounts = 100000
+	)
+
+	// prepare database
+	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
+
+	batch := &pgx.Batch{}
+	for range numAccounts {
+		lastUsed := time.Now().Add(-24 * 7 * time.Hour * time.Duration(frand.Intn(30)))
+		batch.Queue(`INSERT INTO accounts (public_key, last_used, max_pinned_data) VALUES ($1, $2, 1000000);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()), lastUsed)
+	}
+	if err := store.pool.SendBatch(b.Context(), batch).Close(); err != nil {
+		b.Fatal(err)
+	}
+
+	threshold := time.Now().Add(-24 * 7 * time.Hour)
+	for b.Loop() {
+		if _, err := store.ActiveAccounts(b.Context(), threshold); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
