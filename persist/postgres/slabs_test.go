@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	proto "go.sia.tech/core/rhp/v4"
-	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/slabs"
@@ -192,8 +191,8 @@ func TestSlabPruning(t *testing.T) {
 	store := initPostgres(t, zap.NewNop())
 
 	// create 2 accounts
-	acc1, acc2 := proto4.Account{1}, proto4.Account{2}
-	for _, acc := range []proto4.Account{acc1, acc2} {
+	acc1, acc2 := proto.Account{1}, proto.Account{2}
+	for _, acc := range []proto.Account{acc1, acc2} {
 		if err := store.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{}); err != nil {
 			t.Fatal(err)
 		}
@@ -201,7 +200,7 @@ func TestSlabPruning(t *testing.T) {
 
 	// pin slab for both accounts
 	slab1 := slabs.SlabPinParams{MinShards: 1}
-	for _, acc := range []proto4.Account{acc1, acc2} {
+	for _, acc := range []proto.Account{acc1, acc2} {
 		if _, err := store.PinSlab(context.Background(), acc, time.Time{}, slab1); err != nil {
 			t.Fatal(err)
 		}
@@ -232,7 +231,7 @@ func TestSlabPruning(t *testing.T) {
 		},
 		Meta: []byte("hello world"),
 	}
-	for _, acc := range []proto4.Account{acc1, acc2} {
+	for _, acc := range []proto.Account{acc1, acc2} {
 		if err := store.SaveObject(context.Background(), acc, obj1); err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +261,7 @@ func TestSlabPruning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertSlabs := func(acc proto4.Account, expected ...slabs.SlabID) {
+	assertSlabs := func(acc proto.Account, expected ...slabs.SlabID) {
 		t.Helper()
 
 		got, err := store.SlabIDs(context.Background(), acc, 0, math.MaxInt64)
