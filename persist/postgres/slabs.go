@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/slabs"
 )
@@ -97,4 +98,52 @@ ORDER BY ss.slab_index ASC`, dbID)
 		return rows.Err()
 	})
 	return
+}
+
+// PruneSlabs prunes all pinned slabs of a user not currently connected to an
+// object.
+func (s *Store) PruneSlabs(ctx context.Context, account proto.Account) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		id, err := accountID(ctx, tx, account)
+		if err != nil {
+			return fmt.Errorf("failed to get account ID: %w", err)
+		}
+
+		rows, err := tx.Query(ctx, `SELECT s.digest
+FROM slabs s
+JOIN account_slabs a ON s.id = a.slab_id
+WHERE a.account_id = $1
+	AND NOT EXISTS (
+		SELECT 1
+		FROM objects o
+		JOIN object_slabs os ON o.id = os.object_id
+		WHERE o.account_id = a.account_id
+		AND os.slab_digest = s.digest
+	);
+`, id)
+		if err != nil {
+			return fmt.Errorf("failed to get unused slabs: %w", err)
+		}
+		defer rows.Close()
+
+		var slabIDs []slabs.SlabID
+		for rows.Next() {
+			var slabID slabs.SlabID
+			if err := rows.Scan((*sqlHash256)(&slabID)); err != nil {
+				return fmt.Errorf("failed to scan slab ID: %w", err)
+			}
+			slabIDs = append(slabIDs, slabID)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to get slab IDs: %w", err)
+		}
+
+		for _, slabID := range slabIDs {
+			if err := s.unpinSlab(ctx, tx, id, slabID); err != nil {
+				return fmt.Errorf("failed to unpin slab: %w", err)
+			}
+		}
+
+		return nil
+	})
 }

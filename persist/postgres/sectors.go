@@ -250,28 +250,23 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	})
 }
 
-// UnpinSlab removes the association between the account and the given slab. If
-// this slab was only referenced by the given account, it will also be deleted.
-// The sectors are potentially orphaned and will be removed by a background
-// process.
-func (s *Store) UnpinSlab(ctx context.Context, accountID proto.Account, slabID slabs.SlabID) error {
-	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		// delete the association between the account and the slab
-		var sID int64
-		err := tx.QueryRow(ctx, `
+func (s *Store) unpinSlab(ctx context.Context, tx *txn, accountID int64, slabID slabs.SlabID) error {
+	// delete the association between the account and the slab
+	var sID int64
+	err := tx.QueryRow(ctx, `
 			DELETE FROM account_slabs
 			WHERE
-				account_id = (SELECT id FROM accounts WHERE public_key = $1) AND
+				account_id = $1 AND
 				slab_id = (SELECT id FROM slabs WHERE digest = $2)
-			RETURNING slab_id`, sqlPublicKey(accountID), sqlHash256(slabID)).Scan(&sID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return slabs.ErrSlabNotFound
-		} else if err != nil {
-			return fmt.Errorf("failed to unpin slab: %w", err)
-		}
+			RETURNING slab_id`, accountID, sqlHash256(slabID)).Scan(&sID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return slabs.ErrSlabNotFound
+	} else if err != nil {
+		return fmt.Errorf("failed to unpin slab: %w", err)
+	}
 
-		// update the account's pinned data
-		_, err = tx.Exec(ctx, `
+	// update the account's pinned data
+	_, err = tx.Exec(ctx, `
 			UPDATE accounts
 			SET pinned_data = pinned_data - (
 				SELECT COUNT(*) * $1
@@ -279,24 +274,24 @@ func (s *Store) UnpinSlab(ctx context.Context, accountID proto.Account, slabID s
 				INNER JOIN slab_sectors ON slabs.id = slab_sectors.slab_id
 				WHERE slabs.id = $2
 			)
-			WHERE public_key = $3
-		`, proto.SectorSize, sID, sqlPublicKey(accountID))
-		if err != nil {
-			return fmt.Errorf("failed to update account's pinned data: %w", err)
-		}
+			WHERE id = $3
+		`, proto.SectorSize, sID, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to update account's pinned data: %w", err)
+	}
 
-		// return early if the slab is pinned by another account
-		var pinned bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM account_slabs WHERE slab_id = $1)`, sID).Scan(&pinned)
-		if err != nil {
-			return fmt.Errorf("failed to check if slab was pinned: %w", err)
-		} else if pinned {
-			return nil
-		}
+	// return early if the slab is pinned by another account
+	var pinned bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM account_slabs WHERE slab_id = $1)`, sID).Scan(&pinned)
+	if err != nil {
+		return fmt.Errorf("failed to check if slab was pinned: %w", err)
+	} else if pinned {
+		return nil
+	}
 
-		// prune the slab and its sectors
-		batch := &pgx.Batch{}
-		batch.Queue(`
+	// prune the slab and its sectors
+	batch := &pgx.Batch{}
+	batch.Queue(`
 			WITH candidate_sectors AS (
 				SELECT ss.sector_id
 				FROM slab_sectors ss
@@ -307,17 +302,30 @@ func (s *Store) UnpinSlab(ctx context.Context, accountID proto.Account, slabID s
 				)
 			)
 			DELETE FROM sectors WHERE id IN (SELECT sector_id FROM candidate_sectors);`, sID)
-		batch.Queue(`DELETE FROM slabs WHERE id = $1`, sID)
-		if err := tx.Tx.SendBatch(ctx, batch).Close(); err != nil {
-			return fmt.Errorf("failed to prune slab: %w", err)
-		}
+	batch.Queue(`DELETE FROM slabs WHERE id = $1`, sID)
+	if err := tx.Tx.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("failed to prune slab: %w", err)
+	}
 
-		// update slab stats
-		if err := s.incrementNumSlabs(ctx, tx, -1); err != nil {
-			return fmt.Errorf("failed to decrement number of slabs: %w", err)
-		}
+	// update slab stats
+	if err := s.incrementNumSlabs(ctx, tx, -1); err != nil {
+		return fmt.Errorf("failed to decrement number of slabs: %w", err)
+	}
 
-		return nil
+	return nil
+}
+
+// UnpinSlab removes the association between the account and the given slab. If
+// this slab was only referenced by the given account, it will also be deleted.
+// The sectors are potentially orphaned and will be removed by a background
+// process.
+func (s *Store) UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error {
+	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		id, err := accountID(ctx, tx, account)
+		if err != nil {
+			return fmt.Errorf("failed to get account ID: %w", err)
+		}
+		return s.unpinSlab(ctx, tx, id, slabID)
 	})
 }
 

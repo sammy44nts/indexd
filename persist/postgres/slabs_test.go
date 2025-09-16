@@ -8,9 +8,11 @@ import (
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/slabs"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -181,5 +183,87 @@ func TestPinnedSlab(t *testing.T) {
 	_, err = store.PinnedSlab(context.Background(), slabID)
 	if !errors.Is(err, slabs.ErrUnrecoverable) {
 		t.Fatalf("expected ErrUnrecoverable, got %v", err)
+	}
+}
+
+func TestSlabPruning(t *testing.T) {
+	store := initPostgres(t, zap.NewNop())
+
+	// create 2 accounts
+	acc1, acc2 := proto4.Account{1}, proto4.Account{2}
+	for _, acc := range []proto4.Account{acc1, acc2} {
+		err := store.AddAccount(context.Background(), types.PublicKey(acc), accounts.AccountMeta{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// pin slab for both accounts
+	slab := slabs.SlabPinParams{MinShards: 1}
+	for _, acc := range []proto4.Account{acc1, acc2} {
+		_, err := store.PinSlab(context.Background(), acc, time.Time{}, slab)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// add objects for both accounts
+	objKey := frand.Entropy256()
+	slabID, _ := slab.Digest()
+	obj := slabs.Object{
+		Key: objKey,
+		Slabs: []slabs.SlabSlice{
+			{
+				SlabID: slabID,
+				Offset: 10,
+				Length: 100,
+			},
+			{
+				SlabID: slabID,
+				Offset: 110,
+				Length: 200,
+			},
+		},
+		Meta: []byte("hello world"),
+	}
+	for _, acc := range []proto4.Account{acc1, acc2} {
+		err := store.SaveObject(context.Background(), acc, obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertObjects := func(acc proto4.Account, n int) []slabs.Object {
+		t.Helper()
+		objects, err := store.ListObjects(context.Background(), acc, slabs.Cursor{}, 10)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(objects) != n {
+			t.Fatalf("expected %d objects, got %d", n, len(objects))
+		}
+		return objects
+	}
+	assertObj := func(obj, other slabs.Object) {
+		t.Helper()
+		if other.CreatedAt.IsZero() || other.UpdatedAt.IsZero() {
+			t.Fatalf("expected non-zero timestamps, got %v and %v", other.CreatedAt, other.UpdatedAt)
+		}
+		other.CreatedAt = time.Time{}
+		other.UpdatedAt = time.Time{}
+		if !reflect.DeepEqual(obj, other) {
+			t.Fatalf("objects not equal: expected %+v, got %+v", obj, other)
+		}
+	}
+
+	// 1 object should exist for both accounts
+	objs := assertObjects(acc1, 1)
+	assertObj(obj, objs[0])
+
+	objs = assertObjects(acc2, 1)
+	assertObj(obj, objs[0])
+
+	// delete object for acc1
+	if err := store.DeleteObject(context.Background(), acc1, objKey); err != nil {
+		t.Fatal(err)
 	}
 }
