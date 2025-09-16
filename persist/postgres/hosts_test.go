@@ -769,14 +769,6 @@ func TestUsableHosts(t *testing.T) {
 		Latitude:    0,
 		Longitude:   0,
 	}, siamuxProtocol, true, false, true)
-
-	// assert it's filtered out
-	// if hosts, err := db.UsableHosts(context.Background(), 0, 10); err != nil {
-	// 	t.Fatal("unexpected", err)
-	// } else if len(hosts) != 3 {
-	// 	t.Fatal("unexpected", len(hosts))
-	// }
-	// TODO: do we want to filter out hosts with default (0,0) location? annoying for testing
 }
 
 func TestHostsForScanning(t *testing.T) {

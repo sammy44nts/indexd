@@ -642,14 +642,13 @@ WHERE
 	-- active contracts
 	EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state <= 1) AND
 	-- protocol filter
-	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint))`
+	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint)) `
 		args := []any{limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol)}
 
 		if queryOpts.SortOptions != nil {
 			baseQuery += `ORDER BY location <-> point($5, $6) `
 			args = append(args, p.P.X, p.P.Y)
 		}
-
 		baseQuery += `LIMIT $1 OFFSET $2;`
 
 		rows, err := tx.Query(ctx, baseQuery, args...)
