@@ -51,32 +51,15 @@ func respondToAppConnection(t *testing.T, responseURL string, connectKey string,
 	}
 }
 
-func TestApplicationAPI(t *testing.T) {
+func newAccount(t *testing.T, cluster *testutils.Cluster) (types.PrivateKey, accounts.ConnectKey) {
+	t.Helper()
 	ctx := t.Context()
-	// create cluster with three hosts
-	logger := testutils.NewLogger(false)
-	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
 	indexer := cluster.Indexer
-	adminClient := indexer.Admin
-	time.Sleep(time.Second)
 
-	// assert hosts are registered
-	hosts, err := adminClient.Hosts(ctx)
-	if err != nil {
-		t.Fatal("failed to get hosts:", err)
-	} else if len(hosts) != 3 {
-		t.Fatal("expected 3 hosts, got", len(hosts))
-	}
-
-	h1 := hosts[0]
-	h2 := hosts[1]
-	h3 := hosts[2]
-
-	// prepare account
 	sk := types.GeneratePrivateKey()
 	client := indexer.App(sk)
 
-	key, err := adminClient.AddAppConnectKey(ctx, accounts.AddConnectKeyRequest{
+	key, err := indexer.Admin.AddAppConnectKey(ctx, accounts.AddConnectKeyRequest{
 		RemainingUses: 1,
 	})
 	if err != nil {
@@ -109,6 +92,34 @@ func TestApplicationAPI(t *testing.T) {
 	} else if !ok {
 		t.Fatal("expected app to be authenticated")
 	}
+
+	return sk, key
+}
+
+func TestApplicationAPI(t *testing.T) {
+	ctx := t.Context()
+	// create cluster with three hosts
+	logger := testutils.NewLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
+	indexer := cluster.Indexer
+	adminClient := indexer.Admin
+	time.Sleep(time.Second)
+
+	// assert hosts are registered
+	hosts, err := adminClient.Hosts(ctx)
+	if err != nil {
+		t.Fatal("failed to get hosts:", err)
+	} else if len(hosts) != 3 {
+		t.Fatal("expected 3 hosts, got", len(hosts))
+	}
+
+	h1 := hosts[0]
+	h2 := hosts[1]
+	h3 := hosts[2]
+
+	// prepare account
+	sk, key := newAccount(t, cluster)
+	client := indexer.App(sk)
 
 	// check that the key has been used
 	keys, err := adminClient.AppConnectKeys(ctx, 0, 1)
@@ -392,7 +403,7 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatal("expected object to be not found, got", err)
 	}
 
-	if err := client.DeleteObject(context.Background(), obj1.Key); err != nil && err.Error() != slabs.ErrObjectNotFound.Error() {
+	if err := client.DeleteObject(context.Background(), obj1.Key); err == nil || err.Error() != slabs.ErrObjectNotFound.Error() {
 		t.Fatalf("expected %v, got %v", slabs.ErrObjectNotFound, err)
 	}
 
@@ -401,6 +412,29 @@ func TestApplicationAPI(t *testing.T) {
 		t.Fatal(err)
 	} else if len(objs) != 0 {
 		t.Fatalf("expected 0 objects, got %d", len(objs))
+	}
+
+	// We are not allowed to create objects using slabs that we have not pinned
+	// ourselves.
+	// Pin a slab on a second account
+	sk2, _ := newAccount(t, cluster)
+	client2 := indexer.App(sk2)
+
+	slabID, err = client2.PinSlab(context.Background(), params())
+	if err != nil {
+		t.Fatal("failed to pin slab:", err)
+	}
+	// Try to save an object referencing that slab on first account
+	badObj := slabs.Object{
+		Key: types.Hash256(frand.Entropy256()),
+		Slabs: []slabs.SlabSlice{{
+			SlabID: slabID,
+			Offset: 0,
+			Length: 256,
+		}},
+	}
+	if err := client.SaveObject(context.Background(), badObj); err == nil || err.Error() != slabs.ErrObjectUnpinnedSlab.Error() {
+		t.Fatalf("expected %v, got %v", slabs.ErrObjectUnpinnedSlab, err)
 	}
 }
 
@@ -485,6 +519,13 @@ func TestAppConnect(t *testing.T) {
 		t.Fatal("service url mismatch", account.ServiceURL)
 	} else if account.PinnedData != 0 {
 		t.Fatal("expected 0 pinned data, got", account.PinnedData)
+	}
+
+	appAccount, err := appClient.Account(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(account, appAccount) {
+		t.Fatalf("account mismatch: expected %+v, got %+v", account, appAccount)
 	}
 }
 
