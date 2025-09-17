@@ -17,7 +17,6 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/geoip"
 	"go.sia.tech/indexd/hosts"
@@ -718,16 +717,12 @@ func TestUsableHosts(t *testing.T) {
 	}, siamuxProtocol, true, false, true)
 
 	// assert sorting by distance works
-	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.WithSortOptions(api.SortOptions{
-		SortBy:  "distance",
-		SortDir: "asc",
-		SortCtx: &pgtype.Point{
-			P: pgtype.Vec2{
-				X: 50.8503, // Latitude of Brussels
-				Y: 4.3517,  // Longitude of Brussels
-			},
-			Valid: true,
+	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.SortByDistance(&pgtype.Point{
+		P: pgtype.Vec2{
+			X: 50.8503, // Latitude of Brussels
+			Y: 4.3517,  // Longitude of Brussels
 		},
+		Valid: true,
 	})); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 3 {
@@ -741,16 +736,12 @@ func TestUsableHosts(t *testing.T) {
 	}
 
 	// now try fetching it from Portugal
-	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.WithSortOptions(api.SortOptions{
-		SortBy:  "distance",
-		SortDir: "asc",
-		SortCtx: &pgtype.Point{
-			P: pgtype.Vec2{
-				X: 38.7223, // Lisbon
-				Y: -9.1393, // Lisbon
-			},
-			Valid: true,
+	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.SortByDistance(&pgtype.Point{
+		P: pgtype.Vec2{
+			X: 38.7223, // Lisbon
+			Y: -9.1393, // Lisbon
 		},
+		Valid: true,
 	})); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 3 {
@@ -1628,11 +1619,7 @@ func BenchmarkUsableHosts(b *testing.B) {
 		b.Run("UsableHosts_WithProximity_"+test.name, func(b *testing.B) {
 			for b.Loop() {
 				point := randomLocation()
-				hosts, err := store.UsableHosts(context.Background(), 0, test.limit, hosts.WithSortOptions(api.SortOptions{
-					SortBy:  "distance",
-					SortDir: "asc",
-					SortCtx: &point,
-				}))
+				hosts, err := store.UsableHosts(context.Background(), 0, test.limit, hosts.SortByDistance(&point))
 				if err != nil {
 					b.Fatal(err)
 				} else if len(hosts) != test.limit {

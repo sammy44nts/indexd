@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -151,11 +152,6 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
-	sortOptions, ok := api.ParseSortOptions(jc)
-	if !ok {
-		return
-	}
-
 	var protocol string
 	if err := jc.DecodeForm("protocol", &protocol); err != nil {
 		jc.Error(err, http.StatusBadRequest)
@@ -170,6 +166,26 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
+	var location *pgtype.Point
+	var locationStr string
+	if err := jc.DecodeForm("location", &locationStr); err != nil {
+		jc.Error(err, http.StatusBadRequest)
+		return
+	} else if locationStr != "" {
+		var lat, lng float64
+		if _, err := fmt.Sscanf(locationStr, "(%f,%f)", &lat, &lng); err != nil {
+			jc.Error(fmt.Errorf("invalid location %q, must be of the form (lat,lng)", locationStr), http.StatusBadRequest)
+			return
+		}
+		location = &pgtype.Point{
+			P: pgtype.Vec2{
+				X: lat,
+				Y: lng,
+			},
+			Valid: true,
+		}
+	}
+
 	var opts []hosts.UsableHostQueryOpt
 	if protocol != "" {
 		opts = append(opts, hosts.WithProtocol(chain.Protocol(protocol)))
@@ -177,8 +193,8 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 	if countryCode != "" {
 		opts = append(opts, hosts.WithCountry(countryCode))
 	}
-	if sortOptions.SortBy != "" {
-		opts = append(opts, hosts.WithSortOptions(sortOptions))
+	if location != nil {
+		opts = append(opts, hosts.SortByDistance(location))
 	}
 
 	hosts, err := a.store.UsableHosts(jc.Request.Context(), offset, limit, opts...)

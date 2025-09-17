@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/indexd/api"
 	"go.uber.org/zap"
 )
 
@@ -52,7 +52,9 @@ type (
 	UsableHostsQueryOpts struct {
 		CountryCode *string
 		Protocol    *chain.Protocol
-		SortOptions *api.SortOptions
+
+		// sorting
+		Location *pgtype.Point
 	}
 )
 
@@ -72,9 +74,10 @@ func WithProtocol(protocol chain.Protocol) UsableHostQueryOpt {
 	}
 }
 
-// WithSortOptions sets the sort options for UsableHosts.
-func WithSortOptions(sortOptions api.SortOptions) UsableHostQueryOpt {
+// SortByDistance causes UsableHosts to sort the results by distance to the
+// given location (latitude, longitude).
+func SortByDistance(location *pgtype.Point) UsableHostQueryOpt {
 	return func(opts *UsableHostsQueryOpts) {
-		opts.SortOptions = &sortOptions
+		opts.Location = location
 	}
 }

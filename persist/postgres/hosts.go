@@ -557,19 +557,6 @@ func (s *Store) UsableHosts(ctx context.Context, offset, limit int, opts ...host
 		opt(&queryOpts)
 	}
 
-	var p *pgtype.Point
-	if queryOpts.SortOptions != nil {
-		if queryOpts.SortOptions.SortBy != "distance" {
-			return nil, fmt.Errorf("unsupported sort by option: %q", queryOpts.SortOptions.SortBy)
-		} else if queryOpts.SortOptions.SortDir != "asc" {
-			return nil, fmt.Errorf("unsupported sort dir option: %q", queryOpts.SortOptions.SortDir)
-		} else if _, ok := queryOpts.SortOptions.SortCtx.(*pgtype.Point); !ok {
-			return nil, fmt.Errorf("unsupported sort ctx option type: %T", queryOpts.SortOptions.SortCtx)
-		} else {
-			p = queryOpts.SortOptions.SortCtx.(*pgtype.Point)
-		}
-	}
-
 	var usable []hosts.HostInfo
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		baseQuery := `
@@ -645,9 +632,9 @@ WHERE
 	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint)) `
 		args := []any{limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol)}
 
-		if queryOpts.SortOptions != nil {
+		if queryOpts.Location != nil {
 			baseQuery += `ORDER BY location <-> point($5, $6) `
-			args = append(args, p.P.X, p.P.Y)
+			args = append(args, queryOpts.Location.P.X, queryOpts.Location.P.Y)
 		}
 		baseQuery += `LIMIT $1 OFFSET $2;`
 
