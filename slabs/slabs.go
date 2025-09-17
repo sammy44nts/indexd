@@ -156,21 +156,21 @@ func (m *SlabManager) PinSlab(ctx context.Context, account proto.Account, nextIn
 // this slab was only referenced by the given account, it will also be deleted.
 // The sectors are potentially orphaned and will be removed by a background
 // process.
-func (m *SlabManager) UnpinSlab(ctx context.Context, accountID proto.Account, slabID SlabID) error {
-	if err := m.store.UpdateLastUsed(ctx, accountID); err != nil {
+func (m *SlabManager) UnpinSlab(ctx context.Context, account proto.Account, slabID SlabID) error {
+	if err := m.store.UpdateLastUsed(ctx, account); err != nil {
 		return fmt.Errorf("failed to update account last used time: %w", err)
 	}
-	return m.store.UnpinSlab(ctx, accountID, slabID)
+	return m.store.UnpinSlab(ctx, account, slabID)
 }
 
 // Slabs returns the slabs with the given IDs from the database.
-func (m *SlabManager) Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error) {
-	return m.store.Slabs(ctx, accountID, slabIDs)
+func (m *SlabManager) Slabs(ctx context.Context, account proto.Account, slabIDs []SlabID) ([]Slab, error) {
+	return m.store.Slabs(ctx, account, slabIDs)
 }
 
 // PinnedSlab retrieves a pinned slab from the database by its ID.
-func (m *SlabManager) PinnedSlab(ctx context.Context, accountID proto.Account, slabID SlabID) (PinnedSlab, error) {
-	if err := m.store.UpdateLastUsed(ctx, accountID); err != nil {
+func (m *SlabManager) PinnedSlab(ctx context.Context, account proto.Account, slabID SlabID) (PinnedSlab, error) {
+	if err := m.store.UpdateLastUsed(ctx, account); err != nil {
 		return PinnedSlab{}, fmt.Errorf("failed to update account last used time: %w", err)
 	}
 	return m.store.PinnedSlab(ctx, slabID)
@@ -179,6 +179,6 @@ func (m *SlabManager) PinnedSlab(ctx context.Context, accountID proto.Account, s
 // SlabIDs returns the IDs of slabs associated with the given account. The IDs
 // are returned in descending order of the `pinned_at` timestamp, which is the
 // time when the slab was pinned to the indexer.
-func (m *SlabManager) SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]SlabID, error) {
-	return m.store.SlabIDs(ctx, accountID, offset, limit)
+func (m *SlabManager) SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]SlabID, error) {
+	return m.store.SlabIDs(ctx, account, offset, limit)
 }

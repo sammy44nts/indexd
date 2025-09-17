@@ -37,8 +37,8 @@ type (
 	Slabs interface {
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error)
 		PinnedSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) (slabs.PinnedSlab, error)
-		SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]slabs.SlabID, error)
-		UnpinSlab(ctx context.Context, accountID proto.Account, slabID slabs.SlabID) error
+		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error)
+		UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error
 
 		Object(ctx context.Context, account proto.Account, key types.Hash256) (slabs.Object, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error

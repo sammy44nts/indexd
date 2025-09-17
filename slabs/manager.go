@@ -100,8 +100,8 @@ type (
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		PinnedSlab(ctx context.Context, slabID SlabID) (PinnedSlab, error)
 		Slab(ctx context.Context, slabID SlabID) (Slab, error)
-		Slabs(ctx context.Context, accountID proto.Account, slabIDs []SlabID) ([]Slab, error)
-		SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]SlabID, error)
+		Slabs(ctx context.Context, account proto.Account, slabIDs []SlabID) ([]Slab, error)
+		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]SlabID, error)
 		UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) ([]SlabID, error)
 		UpdateLastUsed(ctx context.Context, account proto.Account) error
 
