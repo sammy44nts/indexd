@@ -1102,6 +1102,18 @@ func TestUnhealthySlabs(t *testing.T) {
 	resetLastRepairAttempt(oneHourAgo)
 	assertUnhealthySlabs(0, 10, now)
 
+	// recalculate sectors_stats
+	_, err = store.pool.Exec(context.Background(), `
+		UPDATE sectors_stats
+		SET num_pinned_sectors = (
+			SELECT COUNT(id)
+			FROM sectors
+			WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NOT NULL
+		)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// prune expired contract
 	err = store.PruneContractSectorsMap(context.Background(), 0)
 	if err != nil {
@@ -1286,6 +1298,113 @@ func TestUnpinnedSectors(t *testing.T) {
 	} else if unpinned[0] != (types.Hash256{4}) {
 		t.Fatalf("expected root %v, got %v", types.Hash256{4}, unpinned[0])
 	}
+}
+
+func TestPinnedSectorsStatistics(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	assertPinnedSectors := func(expected int64) {
+		t.Helper()
+
+		got, err := store.SectorStats(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		} else if got.NumPinnedSectors != expected {
+			t.Fatalf("expected %d pinned sectors, got %d", expected, got.NumPinnedSectors)
+		}
+	}
+
+	// create host with account
+	account := proto.Account{1}
+	if err := store.AddAccount(context.Background(), types.PublicKey(account), accounts.AccountMeta{}); err != nil {
+		t.Fatal("failed to add account:", err)
+	}
+	hk := store.addTestHost(t)
+
+	r1 := types.Hash256{1}
+	r2 := types.Hash256{2}
+	r3 := types.Hash256{3}
+	r4 := types.Hash256{4}
+
+	// create 4 sectors
+	_, err := store.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     10,
+		Sectors: []slabs.SectorPinParams{
+			{HostKey: hk, Root: r1},
+			{HostKey: hk, Root: r2},
+			{HostKey: hk, Root: r3},
+			{HostKey: hk, Root: r4},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(0)
+
+	// add contract and pin all sectors
+	fcid := store.addTestContract(t, hk)
+	if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(4)
+
+	// create another host and migrate the fourth sector
+	other := store.addTestHost(t)
+	if _, err := store.MigrateSector(t.Context(), r4, other); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// migrate it again and assert pinned sectors doesn't change
+	other = store.addTestHost(t)
+	if _, err := store.MigrateSector(t.Context(), r4, other); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// mark fourth sector as lost - shouldn't change the number of pinned sectors
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(3)
+
+	// mark third sector as lost
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r3}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(2)
+
+	// manually manipulate the second and third sector to have consecutive_failed_checks exceeding the threshold
+	if _, err := store.pool.Exec(t.Context(), "UPDATE sectors SET consecutive_failed_checks = 10 WHERE sector_root IN ($1, $2)", sqlHash256(r2), sqlHash256(r3)); err != nil {
+		t.Fatal(err)
+	}
+
+	// mark failing sectors as lost - should update the number of pinned sectors
+	if err := store.MarkFailingSectorsLost(t.Context(), hk, 10); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(1)
+
+	// mark first sector as lost - should update the number of pinned sectors
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r1}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(0)
+
+	// assert marking all of them lost doesn't go negative
+	if err := store.MarkSectorsLost(t.Context(), hk, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(0)
+
+	// assert pinning them twice doesn't double the count
+	if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	} else if err := store.PinSectors(t.Context(), fcid, []types.Hash256{r1, r2, r3, r4}); err != nil {
+		t.Fatal(err)
+	}
+	assertPinnedSectors(4)
 }
 
 // BenchmarkSlabs benchmarks Slabs and PinSlabs in various batch sizes. The
@@ -2194,6 +2313,18 @@ func BenchmarkMarkSectorsLost(b *testing.B) {
 			SET contract_sectors_map_id = 1, host_id = 1
 			WHERE contract_sectors_map_id IS NULL AND host_id IS NULL
 		`)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		// recalculate sectors_stats
+		_, err = store.pool.Exec(context.Background(), `
+		UPDATE sectors_stats
+		SET num_pinned_sectors = (
+			SELECT COUNT(id)
+			FROM sectors
+			WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NOT NULL
+		)`)
 		if err != nil {
 			b.Fatal(err)
 		}
