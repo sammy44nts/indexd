@@ -158,8 +158,8 @@ func TestPerformIntegrityChecksForHostExpiredPrices(t *testing.T) {
 	sm.performIntegrityChecksForHost(context.Background(), host.PublicKey, zap.NewNop())
 
 	// no checks should have failed
-	if len(store.failedChecks) != 0 {
-		t.Fatal("expected 0 failed checks, got", len(store.failedChecks))
+	if store.failedChecks[host.PublicKey][r1] != 0 || store.failedChecks[host.PublicKey][r2] != 0 {
+		t.Fatal("expected 0 failed checks")
 	}
 }
 
