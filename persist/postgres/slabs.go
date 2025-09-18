@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -138,11 +140,11 @@ WHERE a.account_id = $1
 			return fmt.Errorf("failed to get slab IDs: %w", err)
 		}
 
-		for _, slabID := range slabIDs {
-			if err := s.unpinSlab(ctx, tx, id, slabID); err != nil {
-				return fmt.Errorf("failed to unpin slab: %w", err)
-			}
+		t := time.Now()
+		if err := s.unpinSlabs(ctx, tx, id, slabIDs); err != nil {
+			return fmt.Errorf("failed to unpin slab: %w", err)
 		}
+		log.Println(time.Now().Sub(t))
 
 		return nil
 	})

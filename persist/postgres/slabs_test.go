@@ -324,7 +324,7 @@ func BenchmarkPruneSlabs(b *testing.B) {
 		accs = append(accs, proto.Account(pk))
 
 		batch.Queue(`INSERT INTO accounts(public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(pk))
-		for range numObjectsPerAccount {
+		for j := range numObjectsPerAccount {
 			accountID := i + 1
 
 			var encryptionKey [32]byte
@@ -337,7 +337,7 @@ func BenchmarkPruneSlabs(b *testing.B) {
 			batch.Queue(`INSERT INTO slabs(digest, encryption_key, min_shards) VALUES ($1, $2, 1);`, slabDigest, sqlHash256(encryptionKey))
 			batch.Queue(`INSERT INTO account_slabs(account_id, slab_id) VALUES ($1, $2)`, accountID, slabID)
 
-			if i%2 == 0 {
+			if j%2 == 0 {
 				objectID++
 				batch.Queue(`INSERT INTO objects(object_key, account_id) VALUES ($1, $2)`, objectKey, accountID)
 				batch.Queue(`INSERT INTO object_slabs(object_id, slab_digest, slab_index, slab_offset, slab_length) VALUES ($1, $2, 0, 0, 0)`, objectID, slabDigest)

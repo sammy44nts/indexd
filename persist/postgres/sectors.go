@@ -299,19 +299,37 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	})
 }
 
-func (s *Store) unpinSlab(ctx context.Context, tx *txn, accountID int64, slabID slabs.SlabID) error {
+func (s *Store) unpinSlabs(ctx context.Context, tx *txn, accountID int64, slabIDs []slabs.SlabID) error {
+	var args []sqlHash256
+	for _, slabID := range slabIDs {
+		args = append(args, sqlHash256(slabID))
+	}
+
 	// delete the association between the account and the slab
-	var sID int64
-	err := tx.QueryRow(ctx, `
-			DELETE FROM account_slabs
-			WHERE
-				account_id = $1 AND
-				slab_id = (SELECT id FROM slabs WHERE digest = $2)
-			RETURNING slab_id`, accountID, sqlHash256(slabID)).Scan(&sID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return slabs.ErrSlabNotFound
-	} else if err != nil {
+	rows, err := tx.Query(ctx, `DELETE FROM account_slabs
+WHERE
+	account_id = $1 AND
+	slab_id = ANY(SELECT id FROM slabs WHERE digest = ANY($2))
+RETURNING slab_id`, accountID, args)
+	if err != nil {
 		return fmt.Errorf("failed to unpin slab: %w", err)
+	}
+	defer rows.Close()
+
+	var sIDs []int64
+	for rows.Next() {
+		var sID int64
+		if err := rows.Scan(&sID); err != nil {
+			return fmt.Errorf("failed to scan slab ID: %w", err)
+		}
+
+		sIDs = append(sIDs, sID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to get slab IDs: %w", err)
+	}
+	if len(sIDs) == 0 {
+		return slabs.ErrSlabNotFound
 	}
 
 	// update the account's pinned data
@@ -321,43 +339,64 @@ func (s *Store) unpinSlab(ctx context.Context, tx *txn, accountID int64, slabID 
 				SELECT COUNT(*) * $1
 				FROM slabs
 				INNER JOIN slab_sectors ON slabs.id = slab_sectors.slab_id
-				WHERE slabs.id = $2
+				WHERE slabs.id = ANY($2)
 			)
 			WHERE id = $3
-		`, proto.SectorSize, sID, accountID)
+		`, proto.SectorSize, sIDs, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to update account's pinned data: %w", err)
 	}
 
-	// return early if the slab is pinned by another account
-	var pinned bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM account_slabs WHERE slab_id = $1)`, sID).Scan(&pinned)
+	// ignore the slabs that are pinned by another account
+	rows, err = tx.Query(ctx, `SELECT slab_id FROM account_slabs WHERE slab_id = ANY($1)`, sIDs)
 	if err != nil {
 		return fmt.Errorf("failed to check if slab was pinned: %w", err)
-	} else if pinned {
-		return nil
+	}
+	defer rows.Close()
+
+	seen := make(map[int64]struct{})
+	for rows.Next() {
+		var sID int64
+		if err := rows.Scan(&sID); err != nil {
+			return fmt.Errorf("failed to check pinned slab: %w", err)
+		}
+		seen[sID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to get pinned slabs: %w", err)
+	}
+
+	// get all of the slabs that are not pinned by another account
+	var notPinned []int64
+	for _, sID := range sIDs {
+		if _, ok := seen[sID]; ok {
+			continue
+		}
+		notPinned = append(notPinned, sID)
 	}
 
 	// prune the slab and its sectors
 	batch := &pgx.Batch{}
-	batch.Queue(`
-			WITH candidate_sectors AS (
-				SELECT ss.sector_id
-				FROM slab_sectors ss
-				WHERE ss.slab_id = $1 AND NOT EXISTS (
-					SELECT 1
-					FROM slab_sectors ss2
-					WHERE ss2.sector_id = ss.sector_id AND ss2.slab_id <> $1
+	for _, sID := range notPinned {
+		batch.Queue(`
+				WITH candidate_sectors AS (
+					SELECT ss.sector_id
+					FROM slab_sectors ss
+					WHERE ss.slab_id = $1 AND NOT EXISTS (
+						SELECT 1
+						FROM slab_sectors ss2
+						WHERE ss2.sector_id = ss.sector_id AND ss2.slab_id <> $1
+					)
 				)
-			)
-			DELETE FROM sectors WHERE id IN (SELECT sector_id FROM candidate_sectors);`, sID)
-	batch.Queue(`DELETE FROM slabs WHERE id = $1`, sID)
+				DELETE FROM sectors WHERE id IN (SELECT sector_id FROM candidate_sectors);`, sID)
+		batch.Queue(`DELETE FROM slabs WHERE id = $1`, sID)
+	}
 	if err := tx.Tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("failed to prune slab: %w", err)
 	}
 
 	// update slab stats
-	if err := s.incrementNumSlabs(ctx, tx, -1); err != nil {
+	if err := s.incrementNumSlabs(ctx, tx, -int64(len(notPinned))); err != nil {
 		return fmt.Errorf("failed to decrement number of slabs: %w", err)
 	}
 
@@ -374,7 +413,7 @@ func (s *Store) UnpinSlab(ctx context.Context, account proto.Account, slabID sla
 		if err != nil {
 			return fmt.Errorf("failed to get account ID: %w", err)
 		}
-		return s.unpinSlab(ctx, tx, id, slabID)
+		return s.unpinSlabs(ctx, tx, id, []slabs.SlabID{slabID})
 	})
 }
 
