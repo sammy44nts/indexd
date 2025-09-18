@@ -53,7 +53,7 @@ type (
 		Protocol    *chain.Protocol
 
 		// sorting
-		Location [2]float64
+		Location *[2]float64
 	}
 )
 
@@ -77,6 +77,6 @@ func WithProtocol(protocol chain.Protocol) UsableHostQueryOpt {
 // given location (latitude, longitude).
 func SortByDistance(lat, lng float64) UsableHostQueryOpt {
 	return func(opts *UsableHostsQueryOpts) {
-		opts.Location = [2]float64{lat, lng}
+		opts.Location = &[2]float64{lat, lng}
 	}
 }
