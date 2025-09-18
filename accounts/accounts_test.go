@@ -48,7 +48,7 @@ func TestAccountFunding(t *testing.T) {
 	hp := hosts[0].Settings.Prices
 	hc := indexer.HostClient(t, hk)
 	token := proto.NewAccountToken(a1, hk)
-	target := types.Siacoins(1).Div64(10).Mul64(activeAccounts)
+	target := types.Siacoins(1).Mul64(activeAccounts)
 
 	// assert we have one active contract
 	time.Sleep(time.Second)
