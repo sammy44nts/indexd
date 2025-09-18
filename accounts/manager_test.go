@@ -386,13 +386,8 @@ func TestAccountManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activeAccounts, err := s.ActiveAccounts(context.Background(), time.Now().Add(-24*7*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// assert batches were applied correctly
-	target := defaultFundTarget.Mul64(activeAccounts)
+	target := defaultFundTarget
 	if len(f.calls) != 2 {
 		t.Fatal("expected two calls to fund accounts")
 	} else if len(f.calls[0].accounts) != accountFundBatch {

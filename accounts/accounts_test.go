@@ -28,11 +28,6 @@ func TestAccountFunding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activeAccounts, err := indexer.Store().ActiveAccounts(t.Context(), time.Now().Add(-24*7*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// assert we have one usable host
 	time.Sleep(time.Second)
 	hosts, err := indexer.Hosts().Hosts(context.Background(), 0, 10, hosts.WithUsable(true))
@@ -48,7 +43,7 @@ func TestAccountFunding(t *testing.T) {
 	hp := hosts[0].Settings.Prices
 	hc := indexer.HostClient(t, hk)
 	token := proto.NewAccountToken(a1, hk)
-	target := types.Siacoins(1).Mul64(activeAccounts)
+	target := types.Siacoins(1)
 
 	// assert we have one active contract
 	time.Sleep(time.Second)

@@ -46,7 +46,6 @@ type (
 		AppConnectKey(ctx context.Context, key string) (ConnectKey, error)
 		AppConnectKeys(ctx context.Context, offset, limit int) ([]ConnectKey, error)
 
-		ActiveAccounts(ctx context.Context, threshold time.Time) (uint64, error)
 		Account(context.Context, types.PublicKey) (Account, error)
 		AddAccount(context.Context, types.PublicKey, AccountMeta, ...AddAccountOption) error
 		Accounts(ctx context.Context, offset, limit int, opts ...QueryAccountsOpt) ([]Account, error)
@@ -101,15 +100,6 @@ func (m *AccountManager) FundAccounts(ctx context.Context, host hosts.Host, cont
 		return nil
 	}
 
-	// target m.fundTarget, per account, per host
-	count, err := m.store.ActiveAccounts(ctx, time.Now().Add(-7*24*time.Hour))
-	if err != nil {
-		return fmt.Errorf("failed to get number of active accounts: %w", err)
-	} else if count == 0 {
-		count = 1
-	}
-	fundTarget := m.fundTarget.Mul64(count)
-
 	// if we want to force a refill on all accounts, we need to manually set the
 	// next fund time, we do this to avoid having to fetch (and update) all
 	// accounts at once
@@ -132,7 +122,7 @@ func (m *AccountManager) FundAccounts(ctx context.Context, host hosts.Host, cont
 		}
 
 		// fund accounts
-		funded, drained, err := m.funder.FundAccounts(ctx, host, contractIDs, accounts, fundTarget, log)
+		funded, drained, err := m.funder.FundAccounts(ctx, host, contractIDs, accounts, m.fundTarget, log)
 		if err != nil {
 			return fmt.Errorf("failed to fund accounts: %w", err)
 		}
