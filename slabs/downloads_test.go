@@ -173,7 +173,11 @@ func TestDownloadShards(t *testing.T) {
 		sectors, err := sm.downloadShards(context.Background(), slab, allHosts, zap.NewNop())
 		if err != nil {
 			t.Fatal(err)
-		} else if !reflect.DeepEqual(sectors, [][]byte{sector1[:], nil, sector3[:]}) {
+		}
+		for i := range sectors {
+			encryptSlabShard(encryptionKey, i, sectors[i])
+		}
+		if !reflect.DeepEqual(sectors, [][]byte{sector1[:], nil, sector3[:]}) {
 			t.Fatal("downloaded sectors do not match expected sectors")
 		}
 	})
@@ -186,7 +190,11 @@ func TestDownloadShards(t *testing.T) {
 		sectors, err := sm.downloadShards(context.Background(), slab, allHosts, zap.NewNop())
 		if err != nil {
 			t.Fatal(err)
-		} else if !reflect.DeepEqual(sectors, [][]byte{sector1[:], sector2[:], nil}) {
+		}
+		for i := range sectors {
+			encryptSlabShard(encryptionKey, i, sectors[i])
+		}
+		if !reflect.DeepEqual(sectors, [][]byte{sector1[:], sector2[:], nil}) {
 			t.Fatal("downloaded sectors do not match expected sectors")
 		}
 	})
@@ -197,7 +205,11 @@ func TestDownloadShards(t *testing.T) {
 		sectors, err := sm.downloadShards(context.Background(), slab, allHosts, zap.NewNop())
 		if err != nil {
 			t.Fatal(err)
-		} else if !reflect.DeepEqual(sectors, [][]byte{nil, sector2[:], sector3[:]}) {
+		}
+		for i := range sectors {
+			encryptSlabShard(encryptionKey, i, sectors[i])
+		}
+		if !reflect.DeepEqual(sectors, [][]byte{nil, sector2[:], sector3[:]}) {
 			t.Fatal("downloaded sectors do not match expected sectors")
 		} else if sectors := store.lostSectors[hk1]; len(sectors) != 1 {
 			t.Fatalf("expected 1 lost sector for host %v, got %d", hk1, len(store.lostSectors[hk1]))

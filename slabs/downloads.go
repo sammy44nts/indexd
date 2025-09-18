@@ -24,12 +24,10 @@ type downloadCandidates struct {
 	indices map[types.PublicKey]int
 }
 
-func encryptSlabShard(encryptionKey [32]byte, sectorIdx int, shard []byte) []byte {
+func encryptSlabShard(encryptionKey [32]byte, sectorIdx int, shard []byte) {
 	nonce := [24]byte{0: byte(sectorIdx)}
 	cipher, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce[:])
-	encrypted := make([]byte, len(shard))
-	cipher.XORKeyStream(encrypted, shard)
-	return encrypted
+	cipher.XORKeyStream(shard, shard)
 }
 
 func newDownloadCandidates(allHosts []hosts.Host, slab Slab) downloadCandidates {
