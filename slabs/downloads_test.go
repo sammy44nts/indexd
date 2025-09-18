@@ -90,13 +90,18 @@ func TestDownloadShards(t *testing.T) {
 		hk3: host3,
 	}
 
+	encryptionKey := frand.Entropy256()
 	var sector1, sector2, sector3 [proto.SectorSize]byte
 	frand.Read(sector1[:])
+	encryptSlabShard(encryptionKey, 0, sector1[:])
 	frand.Read(sector2[:])
+	encryptSlabShard(encryptionKey, 1, sector2[:])
 	frand.Read(sector3[:])
+	encryptSlabShard(encryptionKey, 2, sector3[:])
 
 	slab := Slab{
-		MinShards: 2,
+		EncryptionKey: encryptionKey,
+		MinShards:     2,
 		Sectors: []Sector{
 			{Root: proto.SectorRoot(&sector1), ContractID: nil, HostKey: &hk1},
 			{Root: proto.SectorRoot(&sector2), ContractID: nil, HostKey: &hk2},

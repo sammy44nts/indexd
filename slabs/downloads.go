@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/chacha20"
 )
 
 var errNotEnoughShards = errors.New("not enough shards")
@@ -21,6 +22,14 @@ var errNotEnoughShards = errors.New("not enough shards")
 type downloadCandidates struct {
 	hosts   []hosts.Host
 	indices map[types.PublicKey]int
+}
+
+func encryptSlabShard(encryptionKey [32]byte, sectorIdx int, shard []byte) []byte {
+	nonce := [24]byte{0: byte(sectorIdx)}
+	cipher, _ := chacha20.NewUnauthenticatedCipher(encryptionKey[:], nonce[:])
+	encrypted := make([]byte, len(shard))
+	cipher.XORKeyStream(encrypted, shard)
+	return encrypted
 }
 
 func newDownloadCandidates(allHosts []hosts.Host, slab Slab) downloadCandidates {
@@ -115,7 +124,7 @@ outer:
 			}()
 
 			var usage proto.Usage
-			usage, shards[sectorIdx], err = m.downloadShard(ctx, host, slab.Sectors[sectorIdx])
+			usage, shards[sectorIdx], err = m.downloadShard(ctx, host, slab.EncryptionKey, sectorIdx, slab.Sectors[sectorIdx])
 			if isErrLostSector(err) {
 				m.markSectorLost(ctx, host, slab.Sectors[sectorIdx].Root, logger)
 				return
@@ -142,7 +151,7 @@ outer:
 	return shards, nil
 }
 
-func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, sector Sector) (proto.Usage, []byte, error) {
+func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, encryptionKey [32]byte, sectorIdx int, meta Sector) (proto.Usage, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
 
@@ -157,12 +166,14 @@ func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, sector Se
 	}
 
 	buf := new(bytes.Buffer)
-	result, err := client.ReadSector(ctx, settings.Prices, m.migrationToken(h), buf, sector.Root, 0, proto.SectorSize)
+	result, err := client.ReadSector(ctx, settings.Prices, m.migrationToken(h), buf, meta.Root, 0, proto.SectorSize)
 	if err != nil {
 		return proto.Usage{}, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
-
-	return result.Usage, buf.Bytes(), nil
+	sector := buf.Bytes()
+	// decrypt shard
+	encryptSlabShard(encryptionKey, sectorIdx, sector)
+	return result.Usage, sector, nil
 }
 
 func (m *SlabManager) markSectorLost(ctx context.Context, host hosts.Host, root types.Hash256, log *zap.Logger) {

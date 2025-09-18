@@ -109,7 +109,10 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts [
 	for i, missing := range required {
 		if !missing {
 			shards[i] = nil // nil shards that are not missing
+			continue
 		}
+		// encrypt in place before upload
+		encryptSlabShard(slab.EncryptionKey, i, shards[i])
 	}
 
 	// upload the missing shards

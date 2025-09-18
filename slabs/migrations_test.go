@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -32,6 +33,7 @@ var goodSettings = proto.HostSettings{
 }
 
 func TestMigrateSlab(t *testing.T) {
+	log := zaptest.NewLogger(t)
 	// prepare dependencies
 	db := newMockStore()
 	am := newMockAccountManager(db)
@@ -72,25 +74,28 @@ func TestMigrateSlab(t *testing.T) {
 	db.contracts[h4.PublicKey] = c4
 
 	// prepare shards
-	shards, roots := newTestShards(t, 2, 2)
-	r1 := roots[0]
-	r2 := roots[1]
-	r3 := roots[2]
-	r4 := roots[3]
+	shards := newTestShards(t, 2, 2)
+	roots := make([]types.Hash256, len(shards))
+	// slab shards are encrypted before upload
+	encryptionKey := frand.Entropy256()
+	for i := range shards {
+		encryptSlabShard(encryptionKey, i, shards[i])
+		roots[i] = proto.SectorRoot((*[proto.SectorSize]byte)(shards[i]))
+	}
 
-	dialer.clients[h1.PublicKey].sectors[r1] = ([proto.SectorSize]byte)(shards[0])
-	dialer.clients[h2.PublicKey].sectors[r2] = ([proto.SectorSize]byte)(shards[1])
-	dialer.clients[h3.PublicKey].sectors[r3] = ([proto.SectorSize]byte)(shards[2])
+	dialer.clients[h1.PublicKey].sectors[roots[0]] = ([proto.SectorSize]byte)(shards[0])
+	dialer.clients[h2.PublicKey].sectors[roots[1]] = ([proto.SectorSize]byte)(shards[1])
+	dialer.clients[h3.PublicKey].sectors[roots[2]] = ([proto.SectorSize]byte)(shards[2])
 
 	// pin a slab
 	slabID, err := db.PinSlab(context.Background(), proto.Account(a1), time.Time{}, SlabPinParams{
-		EncryptionKey: [32]byte{},
+		EncryptionKey: encryptionKey,
 		MinShards:     2,
 		Sectors: []PinnedSector{
-			{Root: r1, HostKey: h1.PublicKey},
-			{Root: r2, HostKey: h2.PublicKey}, // migrate
-			{Root: r3, HostKey: h3.PublicKey},
-			{Root: r4, HostKey: types.PublicKey{}}, // lost
+			{Root: roots[0], HostKey: h1.PublicKey},
+			{Root: roots[1], HostKey: h2.PublicKey}, // migrate
+			{Root: roots[2], HostKey: h3.PublicKey},
+			{Root: roots[3], HostKey: types.PublicKey{}}, // lost
 		},
 	})
 	if err != nil {
@@ -101,7 +106,7 @@ func TestMigrateSlab(t *testing.T) {
 	msk := types.GeneratePrivateKey()
 	ssk := types.GeneratePrivateKey()
 	alerter := alerts.NewManager()
-	mgr, err := newSlabManager(am, hm, db, dialer, alerter, msk, ssk)
+	mgr, err := newSlabManager(am, hm, db, dialer, alerter, msk, ssk, WithLogger(log.Named("slabs")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +122,7 @@ func TestMigrateSlab(t *testing.T) {
 	}
 
 	// migrate the slab
-	err = mgr.migrateSlabs(context.Background(), unhealthSlabIDs, zap.NewNop())
+	err = mgr.migrateSlabs(context.Background(), unhealthSlabIDs, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +130,7 @@ func TestMigrateSlab(t *testing.T) {
 	// assert we migrated r2 to h4
 	if len(db.migratedSectors[h4.PublicKey]) != 1 {
 		t.Fatal("expected 1 migrated sector for host", len(db.migratedSectors[h4.PublicKey]))
-	} else if _, ok := db.migratedSectors[h4.PublicKey][r2]; !ok {
+	} else if _, ok := db.migratedSectors[h4.PublicKey][roots[1]]; !ok {
 		t.Fatal("expected migrated sector r2 for host h4")
 	}
 
@@ -165,7 +170,7 @@ func TestMigrateSlab(t *testing.T) {
 	// assert we migrated r4 to h5
 	if len(db.migratedSectors[h5.PublicKey]) != 1 {
 		t.Fatal("expected 1 migrated sector for host", len(db.migratedSectors[h5.PublicKey]))
-	} else if _, ok := db.migratedSectors[h5.PublicKey][r4]; !ok {
+	} else if _, ok := db.migratedSectors[h5.PublicKey][roots[3]]; !ok {
 		t.Fatal("expected migrated sector r4 for host h5")
 	}
 
@@ -329,7 +334,7 @@ func newTestContract(hk types.PublicKey) contracts.Contract {
 	}
 }
 
-func newTestShards(t *testing.T, dataShards, parityShards int) ([][]byte, []types.Hash256) {
+func newTestShards(t *testing.T, dataShards, parityShards int) [][]byte {
 	enc, err := reedsolomon.New(dataShards, parityShards)
 	if err != nil {
 		t.Fatal(err)
@@ -338,23 +343,16 @@ func newTestShards(t *testing.T, dataShards, parityShards int) ([][]byte, []type
 	shards := make([][]byte, dataShards+parityShards)
 	for i := range shards {
 		shards[i] = make([]byte, proto.SectorSize)
+		if i < dataShards {
+			frand.Read(shards[i])
+		}
 	}
 
-	buf := make([]byte, proto.SectorSize*dataShards)
-	frand.Read(buf)
-
-	stripedSplit(buf, shards[:dataShards])
 	err = enc.Encode(shards)
 	if err != nil {
 		t.Fatalf("failed to encode shards: %v", err)
 	}
-
-	var roots []types.Hash256
-	for _, shard := range shards {
-		roots = append(roots, proto.SectorRoot((*[proto.SectorSize]byte)(shard)))
-	}
-
-	return shards, roots
+	return shards
 }
 
 func stripedSplit(data []byte, dataShards [][]byte) {
