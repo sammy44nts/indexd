@@ -45,8 +45,9 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 				SUM(capacity),  -- total capacity
 				SUM(size)      -- total size
 			FROM contracts
+			CROSS JOIN globals
 			WHERE
-				expiration_height > (SELECT scanned_height FROM globals)
+				expiration_height > globals.scanned_height
 		`).Scan(&numContracts, &numGood, &totalCapacity, &totalSize)
 		if err != nil {
 			return err
@@ -59,9 +60,10 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 			)
 			SELECT COUNT(*)
 			FROM contracts
+			CROSS JOIN globals
 			WHERE
-				expiration_height > (SELECT scanned_height FROM globals) AND
-				(SELECT scanned_height FROM globals) + (SELECT contracts_renew_window FROM globals) >= expiration_height
+				expiration_height > globals.scanned_height AND
+				globals.scanned_height + globals.contracts_renew_window >= expiration_height
 		`).Scan(&numRenewing)
 		if err != nil {
 			return err
