@@ -777,6 +777,10 @@ components:
           type: integer
           format: int64
           description: Number of sectors currently pinned to a contract by this instance
+        numUnpinnedSectors:
+          type: integer
+          format: int64
+          description: Number of sectors currently not pinned to any contract by this instance
 
     ConnectKey:
       type: object

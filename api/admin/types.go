@@ -33,6 +33,7 @@ type (
 		NumSlabs           int64 `json:"numSlabs"`
 		NumMigratedSectors int64 `json:"numMigratedSectors"`
 		NumPinnedSectors   int64 `json:"numPinnedSectors"`
+		NumUnpinnedSectors int64 `json:"numUnpinnedSectors"`
 	}
 
 	// State is the response body for the [GET] /state endpoint.
