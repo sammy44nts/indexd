@@ -311,9 +311,11 @@ func TestSlabPruning(t *testing.T) {
 
 func BenchmarkPruneSlabs(b *testing.B) {
 	const (
-		numAccounts          = 50_000
-		numObjectsPerAccount = 10
+		numAccounts       = 50_000
+		objectsPerAccount = 10
+		slabsPerObject    = 3
 	)
+
 	store := initPostgres(b, zap.NewNop())
 
 	batch := &pgx.Batch{}
@@ -324,7 +326,7 @@ func BenchmarkPruneSlabs(b *testing.B) {
 		accs = append(accs, proto.Account(pk))
 
 		batch.Queue(`INSERT INTO accounts(public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(pk))
-		for j := range numObjectsPerAccount {
+		for j := range objectsPerAccount {
 			accountID := i + 1
 
 			var encryptionKey [32]byte
@@ -335,7 +337,7 @@ func BenchmarkPruneSlabs(b *testing.B) {
 				objectID++
 				batch.Queue(`INSERT INTO objects(object_key, account_id) VALUES ($1, $2)`, objectKey, accountID)
 			}
-			for k := range 3 {
+			for k := range slabsPerObject {
 				slabID++
 				slabDigest := sqlHash256(frand.Entropy256())
 
@@ -353,6 +355,8 @@ func BenchmarkPruneSlabs(b *testing.B) {
 	}
 
 	for b.Loop() {
+		b.ReportMetric(float64(objectsPerAccount)*float64(slabsPerObject)/2.0, "slabs/op")
+
 		if err := store.PruneSlabs(b.Context(), accs[frand.Intn(len(accs))]); err != nil {
 			b.Fatal(err)
 		}
