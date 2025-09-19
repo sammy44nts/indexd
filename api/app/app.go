@@ -151,40 +151,36 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
+	var opts []hosts.UsableHostQueryOpt
+
 	var protocol string
 	if err := jc.DecodeForm("protocol", &protocol); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
 	} else if protocol != "" && protocol != string(siamux.Protocol) && protocol != string(quic.Protocol) {
 		jc.Error(fmt.Errorf("invalid protocol %q", protocol), http.StatusBadRequest)
+	} else if protocol != "" {
+		opts = append(opts, hosts.WithProtocol(chain.Protocol(protocol)))
 	}
 
 	var countryCode string
 	if err := jc.DecodeForm("country", &countryCode); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
+	} else if countryCode != "" {
+		opts = append(opts, hosts.WithCountry(countryCode))
 	}
 
 	var locationStr string
-	var lat, lng float64
 	if err := jc.DecodeForm("location", &locationStr); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
 	} else if locationStr != "" {
+		var lat, lng float64
 		if _, err := fmt.Sscanf(locationStr, "(%f,%f)", &lat, &lng); err != nil {
 			jc.Error(fmt.Errorf("invalid location %q, must be of the form (lat,lng)", locationStr), http.StatusBadRequest)
 			return
 		}
-	}
-
-	var opts []hosts.UsableHostQueryOpt
-	if protocol != "" {
-		opts = append(opts, hosts.WithProtocol(chain.Protocol(protocol)))
-	}
-	if countryCode != "" {
-		opts = append(opts, hosts.WithCountry(countryCode))
-	}
-	if locationStr != "" {
 		opts = append(opts, hosts.SortByDistance(lat, lng))
 	}
 
