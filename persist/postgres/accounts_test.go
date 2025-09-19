@@ -719,6 +719,36 @@ func TestServiceAccounts(t *testing.T) {
 	assertBalance(types.ZeroCurrency)
 }
 
+func TestActiveAccounts(t *testing.T) {
+	// prepare database
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	now := time.Now()
+	const day = 24 * 7 * time.Hour
+
+	durations := []time.Duration{day, 2 * day, 3 * day, 7 * day, 10 * day, 14 * day, 30 * day}
+	for _, duration := range durations {
+		lastUsed := now.Add(-duration)
+		if _, err := store.pool.Exec(t.Context(), `INSERT INTO accounts (public_key, last_used, max_pinned_data) VALUES ($1, $2, 1000000);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()), lastUsed); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertActive := func(n uint64, threshold time.Time) {
+		t.Helper()
+
+		if activeAccounts, err := store.ActiveAccounts(t.Context(), threshold); err != nil {
+			t.Fatal(err)
+		} else if activeAccounts != n {
+			t.Fatalf("expected %d active accounts, got %d", n, activeAccounts)
+		}
+	}
+
+	for i := range durations {
+		assertActive(uint64(i)+1, now.Add(-durations[i]))
+	}
+}
+
 // BenchmarkServiceAccounts benchmarks the service account related methods
 func BenchmarkServiceAccounts(b *testing.B) {
 	// define parameters
