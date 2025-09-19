@@ -105,7 +105,7 @@ func (s *Store) UpdateLastUsed(ctx context.Context, account proto.Account) error
 	})
 }
 
-// ActiveAccounts returns the number of accounts active since the threshold
+// ActiveAccounts returns the number of accounts that have been used since the threshold
 // time.
 func (s *Store) ActiveAccounts(ctx context.Context, threshold time.Time) (count uint64, err error) {
 	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
