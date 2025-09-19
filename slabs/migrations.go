@@ -95,9 +95,11 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts [
 	// decrypt the shards
 	nonce := make([]byte, 24)
 	for i := range shards {
-		nonce[0] = byte(i)
-		c, _ := chacha20.NewUnauthenticatedCipher(slab.EncryptionKey[:], nonce)
-		c.XORKeyStream(shards[i], shards[i])
+		if len(shards[i]) > 0 {
+			nonce[0] = byte(i)
+			c, _ := chacha20.NewUnauthenticatedCipher(slab.EncryptionKey[:], nonce)
+			c.XORKeyStream(shards[i], shards[i])
+		}
 	}
 
 	// indicate what shards are required
@@ -114,21 +116,19 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts [
 		return fmt.Errorf("failed to reconstruct shards for slab %s: %w", slab.ID, err)
 	}
 
-	// upload the missing shards
-	for i, missing := range required {
-		if !missing {
-			shards[i] = nil // nil shards that are not missing
+	// re-encrypt the shards that are required
+	for i, required := range required {
+		if !required {
+			shards[i] = nil
+			continue
 		}
-	}
 
-	// re-encrypt the shards
-	for i := range shards {
 		nonce[0] = byte(i)
 		c, _ := chacha20.NewUnauthenticatedCipher(slab.EncryptionKey[:], nonce)
 		c.XORKeyStream(shards[i], shards[i])
 	}
 
-	// upload the missing shards
+	// migrate the shards
 	migratedShards, err := m.uploadShards(ctx, slab, shards, uploadCandidates, logger)
 
 	// update the database with the new locations for the migrated shards
