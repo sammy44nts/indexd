@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
@@ -28,6 +29,55 @@ func (s *Store) ContractRevision(ctx context.Context, contractID types.FileContr
 		return rhp.ContractRevision{}, false, fmt.Errorf("failed to fetch contract revision: %w", err)
 	}
 	return rhp.ContractRevision{ID: contractID, Revision: types.V2FileContract(revision)}, renewed, nil
+}
+
+// ContractsStats returns statistics about the contracts in the database.
+func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsResponse, _ error) {
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		var numContracts, numGood, totalCapacity, totalSize uint64
+		err := tx.QueryRow(ctx, `
+			WITH globals AS (
+    			SELECT scanned_height FROM global_settings
+       		)
+			SELECT
+				COUNT(*),       -- all contracts
+				SUM(good::int), -- good contracts
+				SUM(capacity),  -- total capacity
+				SUM(size)      -- total size
+			FROM contracts
+			WHERE
+				expiration_height > (SELECT scanned_height FROM globals)
+		`).Scan(&numContracts, &numGood, &totalCapacity, &totalSize)
+		if err != nil {
+			return err
+		}
+
+		var numRenewing uint64
+		err = tx.QueryRow(ctx, `
+			WITH globals AS (
+				SELECT contracts_renew_window, scanned_height FROM global_settings
+			)
+			SELECT COUNT(*)
+			FROM contracts
+			WHERE
+				expiration_height > (SELECT scanned_height FROM globals) AND
+				(SELECT scanned_height FROM globals) + (SELECT contracts_renew_window FROM globals) >= expiration_height
+		`).Scan(&numRenewing)
+		if err != nil {
+			return err
+		}
+
+		resp = admin.ContractsStatsResponse{
+			Contracts:    numContracts,
+			BadContracts: numContracts - numGood,
+			Renewing:     numRenewing,
+
+			TotalCapacity: totalCapacity,
+			TotalSize:     totalSize,
+		}
+		return nil
+	})
+	return resp, err
 }
 
 // UpdateContractRevision updates the contract revision in the database.
