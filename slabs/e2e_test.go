@@ -186,4 +186,17 @@ func TestUpdateLastUsed(t *testing.T) {
 	} else if !account.LastUsed.After(now) {
 		t.Fatal("LastUsed time earlier than expected")
 	}
+	now = account.LastUsed
+
+	if err := app.UnpinSlab(context.Background(), slabID); err != nil {
+		t.Fatal(err)
+	}
+
+	// last used time should not have changed as a result of UnpinSlab
+	account, err = app.Account(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	} else if !account.LastUsed.Equal(now) {
+		t.Fatal("LastUsed time different than expected")
+	}
 }
