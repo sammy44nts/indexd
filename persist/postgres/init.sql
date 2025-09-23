@@ -232,7 +232,7 @@ CREATE INDEX contracts_capacity_size_contract_id_idx ON contracts (capacity DESC
 
 -- stats indices
 CREATE INDEX contracts_proof_height_idx ON contracts (proof_height);
-CREATE INDEX contracts_state_active_idx ON contracts(state) WHERE state <= 1;
+CREATE INDEX contracts_state_active_idx ON contracts(state) WHERE state = 0 OR state = 1;
 
 -- foreign key constraint index
 CREATE INDEX contracts_host_id_idx ON contracts(host_id);

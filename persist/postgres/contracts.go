@@ -49,7 +49,7 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 			CROSS JOIN globals
 			WHERE
 				proof_height > globals.scanned_height AND
-				(state <> $1 OR state <> $2)
+				(state = $1 OR state = $2)
 		`, contracts.ContractStatePending, contracts.ContractStateActive).
 			Scan(&numContracts, &numGood, &totalCapacity, &totalSize)
 		if err != nil {
@@ -66,7 +66,7 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 			CROSS JOIN globals
 			WHERE
 				proof_height > globals.scanned_height AND
-				(state <> $1 OR state <> $2) AND
+				(state = $1 OR state = $2) AND
 				globals.scanned_height + globals.contracts_renew_window >= proof_height
 		`, contracts.ContractStatePending, contracts.ContractStateActive).
 			Scan(&numRenewing)
