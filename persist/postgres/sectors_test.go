@@ -116,7 +116,7 @@ func TestMigrateSector(t *testing.T) {
 		t.Helper()
 
 		var got int64
-		err = store.pool.QueryRow(context.Background(), `SELECT num_migrated_sectors FROM sectors_stats`).Scan(&got)
+		err = store.pool.QueryRow(context.Background(), `SELECT num_migrated_sectors FROM stats`).Scan(&got)
 		if err != nil {
 			t.Fatal(err)
 		} else if got != expected {
@@ -528,7 +528,7 @@ func TestPinSlabs(t *testing.T) {
 	assertUnpinnedSectors := func(expected uint64) {
 		t.Helper()
 		var got uint64
-		err := store.pool.QueryRow(context.Background(), "SELECT num_unpinned_sectors FROM sectors_stats WHERE id = 0").Scan(&got)
+		err := store.pool.QueryRow(context.Background(), "SELECT num_unpinned_sectors FROM stats WHERE id = 0").Scan(&got)
 		if err != nil {
 			t.Fatal(err)
 		} else if got != expected {
@@ -1137,9 +1137,9 @@ func TestUnhealthySlabs(t *testing.T) {
 	resetLastRepairAttempt(oneHourAgo)
 	assertUnhealthySlabs(0, 10, now)
 
-	// recalculate sectors_stats
+	// recalculate sector stats
 	_, err = store.pool.Exec(context.Background(), `
-		UPDATE sectors_stats
+		UPDATE stats
 		SET num_pinned_sectors = (
 			SELECT COUNT(id)
 			FROM sectors
@@ -1179,7 +1179,7 @@ func TestPruneUnpinnableSectors(t *testing.T) {
 	assertUnpinnableSectors := func(expected uint64) {
 		t.Helper()
 		var got uint64
-		err := store.pool.QueryRow(context.Background(), "SELECT num_unpinnable_sectors FROM sectors_stats WHERE id = 0").Scan(&got)
+		err := store.pool.QueryRow(context.Background(), "SELECT num_unpinnable_sectors FROM stats WHERE id = 0").Scan(&got)
 		if err != nil {
 			t.Fatal(err)
 		} else if got != expected {
@@ -2372,9 +2372,9 @@ func BenchmarkMarkSectorsLost(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		// recalculate sectors_stats
+		// recalculate sector stats
 		_, err = store.pool.Exec(context.Background(), `
-		UPDATE sectors_stats
+		UPDATE stats
 		SET num_pinned_sectors = (
 			SELECT COUNT(id)
 			FROM sectors

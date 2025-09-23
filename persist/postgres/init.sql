@@ -323,13 +323,16 @@ CREATE TABLE sectors (
     num_migrated INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE sectors_stats (
+CREATE TABLE stats (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+    -- sector stats
     num_slabs BIGINT NOT NULL DEFAULT 0 CHECK (num_slabs >= 0), -- total number of slabs
     num_migrated_sectors BIGINT NOT NULL DEFAULT 0 CHECK (num_migrated_sectors >= 0), -- total number of migrated sectors
     num_pinned_sectors BIGINT NOT NULL DEFAULT 0 CHECK (num_pinned_sectors >= 0), -- total number of pinned sectors
     num_unpinnable_sectors BIGINT NOT NULL DEFAULT 0 CHECK (num_unpinnable_sectors >= 0), -- total number of unpinnable sectors
-    num_unpinned_sectors BIGINT NOT NULL DEFAULT 0 CHECK (num_unpinned_sectors >= 0) -- total number of unpinned sectors
+    num_unpinned_sectors BIGINT NOT NULL DEFAULT 0 CHECK (num_unpinned_sectors >= 0), -- total number of unpinned sectors
+    -- account stats
+    num_accounts_registered BIGINT NOT NULL DEFAULT 0 CHECK (num_accounts_registered >= 0) -- number of accounts currently registered
 );
 
 -- quick lookup of sectors that failed the integrity checks too many times

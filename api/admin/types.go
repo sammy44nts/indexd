@@ -37,6 +37,11 @@ type (
 		NumUnpinnedSectors   int64 `json:"numUnpinnedSectors"`
 	}
 
+	// AccountStatsResponse is the response body for the [GET] /stats/accounts.
+	AccountStatsResponse struct {
+		Registered int64 `json:"registered"`
+	}
+
 	// State is the response body for the [GET] /state endpoint.
 	State struct {
 		BuildState
