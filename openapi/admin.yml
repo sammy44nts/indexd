@@ -1213,6 +1213,20 @@ paths:
             })
             await admin.syncerConnect("118.92.232.145:9981")
 
+  /stats/accounts:
+    get:
+      tags:
+        - stats
+      summary: Get stats about accounts
+      operationId: getAccountsSectors
+      responses:
+        "200":
+          description: Stats about accounts on this instance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountStatsResponse"
+
   /stats/sectors:
     get:
       tags:

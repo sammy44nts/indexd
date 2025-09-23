@@ -766,6 +766,14 @@ components:
           type: boolean
           description: The status of an application connection request.
 
+    AccountStatsResponse:
+      type: object
+      properties:
+        registered:
+          type: integer
+          format: int64
+          description: Number of accounts currently registered on the indexer
+
     SectorStatsResponse:
       type: object
       properties:

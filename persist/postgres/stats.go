@@ -7,32 +7,32 @@ import (
 )
 
 func (s *Store) incrementNumSlabs(ctx context.Context, tx *txn, delta int64) error {
-	_, err := tx.Exec(ctx, "UPDATE sectors_stats SET num_slabs = num_slabs + $1", delta)
+	_, err := tx.Exec(ctx, "UPDATE stats SET num_slabs = num_slabs + $1", delta)
 	return err
 }
 
 func (s *Store) incrementNumMigratedSectors(ctx context.Context, tx *txn) error {
-	_, err := tx.Exec(ctx, `UPDATE sectors_stats SET num_migrated_sectors = num_migrated_sectors + 1`)
+	_, err := tx.Exec(ctx, `UPDATE stats SET num_migrated_sectors = num_migrated_sectors + 1`)
 	return err
 }
 
 func (s *Store) incrementNumPinnedSectors(ctx context.Context, tx *txn, delta int64) error {
-	_, err := tx.Exec(ctx, `UPDATE sectors_stats SET num_pinned_sectors = num_pinned_sectors + $1`, delta)
+	_, err := tx.Exec(ctx, `UPDATE stats SET num_pinned_sectors = num_pinned_sectors + $1`, delta)
 	return err
 }
 
 func (s *Store) incrementNumUnpinnableSlabs(ctx context.Context, tx *txn, incr uint64) error {
-	_, err := tx.Exec(ctx, "UPDATE sectors_stats SET num_unpinnable_sectors = num_unpinnable_sectors + $1", incr)
+	_, err := tx.Exec(ctx, "UPDATE stats SET num_unpinnable_sectors = num_unpinnable_sectors + $1", incr)
 	return err
 }
 
 func (s *Store) incrementUnpinnedSectors(ctx context.Context, tx *txn, delta int64) error {
-	_, err := tx.Exec(ctx, "UPDATE sectors_stats SET num_unpinned_sectors = num_unpinned_sectors + $1", delta)
+	_, err := tx.Exec(ctx, "UPDATE stats SET num_unpinned_sectors = num_unpinned_sectors + $1", delta)
 	return err
 }
 
-func (s *Store) initSectorStats(ctx context.Context, tx *txn) error {
-	_, err := tx.Exec(ctx, "INSERT INTO sectors_stats (id) VALUES (0) ON CONFLICT(id) DO NOTHING")
+func (s *Store) initStats(ctx context.Context, tx *txn) error {
+	_, err := tx.Exec(ctx, "INSERT INTO stats (id) VALUES (0) ON CONFLICT(id) DO NOTHING")
 	return err
 }
 
@@ -41,8 +41,22 @@ func (s *Store) initSectorStats(ctx context.Context, tx *txn) error {
 func (s *Store) SectorStats(ctx context.Context) (admin.SectorsStatsResponse, error) {
 	var stats admin.SectorsStatsResponse
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		row := tx.QueryRow(ctx, "SELECT num_slabs, num_migrated_sectors, num_pinned_sectors, num_unpinnable_sectors, num_unpinned_sectors FROM sectors_stats")
+		row := tx.QueryRow(ctx, "SELECT num_slabs, num_migrated_sectors, num_pinned_sectors, num_unpinnable_sectors, num_unpinned_sectors FROM stats")
 		return row.Scan(&stats.NumSlabs, &stats.NumMigratedSectors, &stats.NumPinnedSectors, &stats.NumUnpinnableSectors, &stats.NumUnpinnedSectors)
+	})
+	return stats, err
+}
+
+func (s *Store) incrementNumAccounts(ctx context.Context, tx *txn, delta int64) error {
+	_, err := tx.Exec(ctx, "UPDATE stats SET num_accounts_registered = num_accounts_registered + $1", delta)
+	return err
+}
+
+// AccountStats reports statistics about the accounts stored in the database.
+func (s *Store) AccountStats(ctx context.Context) (admin.AccountStatsResponse, error) {
+	var stats admin.AccountStatsResponse
+	err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		return tx.QueryRow(ctx, "SELECT num_accounts_registered FROM stats").Scan(&stats.Registered)
 	})
 	return stats, err
 }
