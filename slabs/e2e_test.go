@@ -177,9 +177,9 @@ func TestUpdateLastUsed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// last used time should be time of Slab (underlying endpoint PinnedSlab)
-	// invocation and thus should be after the timestamp from when PinSlab was
-	// invoked
+	// last used time should be time of Slab invocation (which causes the server
+	// to call PinnedSlab) and thus should be after the timestamp from when
+	// PinSlab was invoked
 	account, err = app.Account(context.Background())
 	if err != nil {
 		t.Fatal(err)

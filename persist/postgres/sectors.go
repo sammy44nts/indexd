@@ -193,7 +193,7 @@ func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.P
 }
 
 // PinSlab adds a slab to the database for pinning. The slab is associated with
-// the provided account.
+// the provided account.  The last used timestamp of the account is updated.
 func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error) {
 	digest, err := slab.Digest()
 	if err != nil {
@@ -202,7 +202,7 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	return digest, s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		var accountID int64
 		var pinnedData, maxPinnedData uint64
-		err = tx.QueryRow(ctx, "SELECT id, pinned_data, max_pinned_data FROM accounts WHERE public_key = $1", sqlPublicKey(account)).Scan(&accountID, &pinnedData, &maxPinnedData)
+		err = tx.QueryRow(ctx, "UPDATE accounts SET last_used = NOW() WHERE public_key = $1 RETURNING id, pinned_data, max_pinned_data", sqlPublicKey(account)).Scan(&accountID, &pinnedData, &maxPinnedData)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {

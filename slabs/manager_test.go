@@ -211,7 +211,7 @@ func (s *mockStore) UnpinSlab(ctx context.Context, account proto.Account, slabID
 	return nil
 }
 
-func (s *mockStore) PinnedSlab(ctx context.Context, slabID SlabID) (PinnedSlab, error) {
+func (s *mockStore) PinnedSlab(ctx context.Context, account *proto.Account, slabID SlabID) (PinnedSlab, error) {
 	return PinnedSlab{}, nil
 }
 

@@ -36,7 +36,7 @@ type (
 	// Slabs defines the slab interface for the application API.
 	Slabs interface {
 		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error)
-		PinnedSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) (slabs.PinnedSlab, error)
+		PinnedSlab(ctx context.Context, account *proto.Account, slabID slabs.SlabID) (slabs.PinnedSlab, error)
 		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error)
 		UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error
 
@@ -326,7 +326,8 @@ func (a *app) handleGETSlab(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	slab, err := a.slabs.PinnedSlab(jc.Request.Context(), proto.Account(pk), slabID)
+	acc := proto.Account(pk)
+	slab, err := a.slabs.PinnedSlab(jc.Request.Context(), &acc, slabID)
 	if errors.Is(err, slabs.ErrSlabNotFound) {
 		jc.Error(slabs.ErrSlabNotFound, http.StatusNotFound)
 		return

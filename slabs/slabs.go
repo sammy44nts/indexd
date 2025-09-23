@@ -145,9 +145,6 @@ func (s SlabPinParams) Validate() error {
 
 // PinSlab pins the given slab and associates it with the given account.
 func (m *SlabManager) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error) {
-	if err := m.store.UpdateLastUsed(ctx, account); err != nil {
-		return SlabID{}, fmt.Errorf("failed to update account last used time: %w", err)
-	}
 	return m.store.PinSlab(ctx, account, nextIntegrityCheck, slab)
 }
 
@@ -164,12 +161,10 @@ func (m *SlabManager) Slabs(ctx context.Context, account proto.Account, slabIDs 
 	return m.store.Slabs(ctx, account, slabIDs)
 }
 
-// PinnedSlab retrieves a pinned slab from the database by its ID.
-func (m *SlabManager) PinnedSlab(ctx context.Context, account proto.Account, slabID SlabID) (PinnedSlab, error) {
-	if err := m.store.UpdateLastUsed(ctx, account); err != nil {
-		return PinnedSlab{}, fmt.Errorf("failed to update account last used time: %w", err)
-	}
-	return m.store.PinnedSlab(ctx, slabID)
+// PinnedSlab retrieves a pinned slab from the database by its ID.  If account
+// is not nil, the last used field of that account will be updated.
+func (m *SlabManager) PinnedSlab(ctx context.Context, account *proto.Account, slabID SlabID) (PinnedSlab, error) {
+	return m.store.PinnedSlab(ctx, account, slabID)
 }
 
 // SlabIDs returns the IDs of slabs associated with the given account. The IDs
