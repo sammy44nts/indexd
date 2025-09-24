@@ -27,6 +27,7 @@ type Object struct {
 	updatedAt time.Time
 }
 
+// ID returns the object's ID, which is a hash of its slabs.
 func (o *Object) ID() types.Hash256 {
 	h := types.NewHasher()
 	for _, slab := range o.slabs {
@@ -154,6 +155,13 @@ func (s *SDK) ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) (
 	return objs, nil
 }
 
-func (s *SDK) ShareObject(ctx context.Context, obj Object, validUntil time.Time) (string, error) {
+// CreateSharedObjectURL creates a URL that can be used to share the object
+// until the given time. The URL contains the encryption key required to decrypt
+// the object's data and metadata.
+//
+// Sharing the URL allows anyone with the URL to read the object's data
+// and metadata. They will not be able to modify the object or access any other
+// objects in the account.
+func (s *SDK) CreateSharedObjectURL(ctx context.Context, obj Object, validUntil time.Time) (string, error) {
 	return s.client.CreateSharedObjectURL(ctx, obj.ID(), obj.masterKey, validUntil)
 }
