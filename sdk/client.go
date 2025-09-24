@@ -276,6 +276,7 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 	}()
 
 	// TODO: cleanup on failure
+top:
 	for i := 0; ; i++ {
 		select {
 		case <-ctx.Done():
@@ -285,8 +286,8 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 			shards := work.shards
 
 			if errors.Is(err, io.EOF) {
-				// no more slabs to upload, save the object, and return the pinned slabs
-				return obj, s.client.SaveObject(ctx, obj.Lock(s.appKey))
+				// all slabs complete
+				break top
 			} else if work.err != nil {
 				return Object{}, work.err
 			}
@@ -312,6 +313,9 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 			})
 		}
 	}
+	// pin the object
+	obj.id = objectID(obj.slabs)
+	return obj, s.client.SaveObject(ctx, obj.Lock(s.appKey))
 }
 
 // Download downloads object metadata

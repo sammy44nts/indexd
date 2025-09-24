@@ -20,6 +20,7 @@ import (
 //
 // It has no public fields to prevent accidental leakage of unencrypted data.
 type Object struct {
+	id        types.Hash256
 	masterKey []byte
 	slabs     []slabs.SlabSlice
 	metadata  json.RawMessage
@@ -27,13 +28,9 @@ type Object struct {
 	updatedAt time.Time
 }
 
-// ID returns the object's ID, which is a hash of its slabs.
+// ID returns the object's unique ID
 func (o *Object) ID() types.Hash256 {
-	h := types.NewHasher()
-	for _, slab := range o.slabs {
-		slab.EncodeTo(h.E)
-	}
-	return h.Sum()
+	return o.id
 }
 
 // CreatedAt returns the time the object was created.
@@ -56,7 +53,7 @@ func (o *Object) Lock(appKey types.PrivateKey) slabs.LockedObject {
 	nonce = frand.Bytes(metaCipher.NonceSize())
 	encryptedMeta := metaCipher.Seal(nonce, nonce, o.metadata, nil)
 	return slabs.LockedObject{
-		ID:                 o.ID(),
+		ID:                 o.id,
 		EncryptedMasterKey: encryptedMasterKey,
 		Slabs:              o.slabs,
 		EncryptedMetadata:  encryptedMeta,
@@ -78,55 +75,6 @@ func (o *Object) Metadata() json.RawMessage {
 // UpdateMetadata updates the object's metadata.
 func (o *Object) UpdateMetadata(meta json.RawMessage) {
 	o.metadata = slices.Clone(meta)
-}
-
-func masterKeyCipher(appKey types.PrivateKey) cipher.AEAD {
-	h := types.HashBytes(appKey[:])
-	cipher, _ := chacha20poly1305.NewX(h[:])
-	return cipher
-}
-
-func metadataCipher(masterKey []byte) cipher.AEAD {
-	h := types.HashBytes(append(masterKey, []byte("metadata")...))
-	cipher, _ := chacha20poly1305.NewX(h[:])
-	return cipher
-}
-
-func unlockEncryptedMetadata(masterKey []byte, encryptedMeta []byte) (json.RawMessage, error) {
-	if len(encryptedMeta) == 0 {
-		return nil, nil
-	}
-	metadataCipher := metadataCipher(masterKey)
-	if len(encryptedMeta) < metadataCipher.NonceSize() {
-		return nil, fmt.Errorf("encrypted metadata too short")
-	}
-	nonce := encryptedMeta[:metadataCipher.NonceSize()]
-	metadata, err := metadataCipher.Open(nil, nonce, encryptedMeta[metadataCipher.NonceSize():], nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unlock metadata: %w", err)
-	}
-	return metadata, nil
-}
-
-func newObjectFromLockedObject(lo slabs.LockedObject, appKey types.PrivateKey) (obj Object, err error) {
-	keyCipher := masterKeyCipher(appKey)
-	if len(lo.EncryptedMasterKey) < keyCipher.NonceSize() {
-		return Object{}, fmt.Errorf("encrypted master key too short")
-	}
-	nonce := lo.EncryptedMasterKey[:keyCipher.NonceSize()]
-	obj.masterKey, err = keyCipher.Open(nil, nonce, lo.EncryptedMasterKey[keyCipher.NonceSize():], nil)
-	if err != nil {
-		return Object{}, fmt.Errorf("failed to unlock master key: %w", err)
-	}
-	obj.metadata, err = unlockEncryptedMetadata(obj.masterKey, lo.EncryptedMetadata)
-	if err != nil {
-		return Object{}, fmt.Errorf("failed to unlock metadata: %w", err)
-	}
-	obj.slabs = slices.Clone(lo.Slabs)
-	if obj.ID() != lo.ID {
-		return Object{}, fmt.Errorf("object ID mismatch")
-	}
-	return obj, nil
 }
 
 // Object retrieves the object with the given key.
@@ -162,6 +110,71 @@ func (s *SDK) ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) (
 // Sharing the URL allows anyone with the URL to read the object's data
 // and metadata. They will not be able to modify the object or access any other
 // objects in the account.
-func (s *SDK) CreateSharedObjectURL(ctx context.Context, obj Object, validUntil time.Time) (string, error) {
-	return s.client.CreateSharedObjectURL(ctx, obj.ID(), obj.masterKey, validUntil)
+func (s *SDK) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, validUntil time.Time) (string, error) {
+	obj, err := s.Object(ctx, objectKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get object: %w", err)
+	}
+	return s.client.CreateSharedObjectURL(ctx, obj.id, obj.masterKey, validUntil)
+}
+
+// ID returns the object's ID, which is a hash of its slabs.
+func objectID(slabs []slabs.SlabSlice) types.Hash256 {
+	h := types.NewHasher()
+	for _, slab := range slabs {
+		slab.EncodeTo(h.E)
+	}
+	return h.Sum()
+}
+
+func masterKeyCipher(appKey types.PrivateKey) cipher.AEAD {
+	h := types.HashBytes(appKey[:])
+	cipher, _ := chacha20poly1305.NewX(h[:])
+	return cipher
+}
+
+func metadataCipher(masterKey []byte) cipher.AEAD {
+	h := types.HashBytes(append(masterKey, []byte("metadata")...))
+	cipher, _ := chacha20poly1305.NewX(h[:])
+	return cipher
+}
+
+func unlockEncryptedMetadata(masterKey []byte, encryptedMeta []byte) (json.RawMessage, error) {
+	if len(encryptedMeta) == 0 {
+		return nil, nil
+	}
+	metadataCipher := metadataCipher(masterKey)
+	if len(encryptedMeta) < metadataCipher.NonceSize() {
+		return nil, fmt.Errorf("encrypted metadata too short")
+	}
+	nonce := encryptedMeta[:metadataCipher.NonceSize()]
+	metadata, err := metadataCipher.Open(nil, nonce, encryptedMeta[metadataCipher.NonceSize():], nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unlock metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func newObjectFromLockedObject(lo slabs.LockedObject, appKey types.PrivateKey) (Object, error) {
+	obj := Object{
+		id:        lo.ID,
+		slabs:     slices.Clone(lo.Slabs),
+		createdAt: lo.CreatedAt,
+		updatedAt: lo.UpdatedAt,
+	}
+	keyCipher := masterKeyCipher(appKey)
+	if len(lo.EncryptedMasterKey) < keyCipher.NonceSize() {
+		return Object{}, fmt.Errorf("encrypted master key too short")
+	}
+	nonce := lo.EncryptedMasterKey[:keyCipher.NonceSize()]
+	var err error
+	obj.masterKey, err = keyCipher.Open(nil, nonce, lo.EncryptedMasterKey[keyCipher.NonceSize():], nil)
+	if err != nil {
+		return Object{}, fmt.Errorf("failed to unlock master key: %w", err)
+	}
+	obj.metadata, err = unlockEncryptedMetadata(obj.masterKey, lo.EncryptedMetadata)
+	if err != nil {
+		return Object{}, fmt.Errorf("failed to unlock metadata: %w", err)
+	}
+	return obj, nil
 }
