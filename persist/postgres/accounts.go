@@ -34,7 +34,7 @@ func (s *Store) Accounts(ctx context.Context, offset, limit int, opts ...account
 
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		rows, err := tx.Query(ctx, `
-			SELECT public_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url
+			SELECT public_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url, last_used
 			FROM accounts
 			WHERE ($1::boolean IS NULL OR service_account = $1::boolean)
 			LIMIT $2 OFFSET $3
@@ -64,7 +64,7 @@ func (s *Store) Account(ctx context.Context, ak types.PublicKey) (accounts.Accou
 	var account accounts.Account
 	account.AccountKey = proto.Account(ak) // no need to fetch key
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		account, err = scanAccount(tx.QueryRow(ctx, `SELECT public_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url FROM accounts WHERE public_key = $1`, sqlPublicKey(ak)))
+		account, err = scanAccount(tx.QueryRow(ctx, `SELECT public_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url, last_used FROM accounts WHERE public_key = $1`, sqlPublicKey(ak)))
 		return err
 	})
 	return account, err
@@ -73,7 +73,12 @@ func (s *Store) Account(ctx context.Context, ak types.PublicKey) (accounts.Accou
 // AddAccount adds a new account in the database with given account key.
 func (s *Store) AddAccount(ctx context.Context, ak types.PublicKey, meta accounts.AccountMeta, opts ...accounts.AddAccountOption) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		return addAccount(ctx, tx, ak, false, meta, opts...)
+		if err := addAccount(ctx, tx, ak, false, meta, opts...); err != nil {
+			return fmt.Errorf("failed to add account: %w", err)
+		} else if err := s.incrementNumAccounts(ctx, tx, 1); err != nil {
+			return fmt.Errorf("failed to increment registered accounts: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -97,6 +102,15 @@ func (s *Store) HasAccount(ctx context.Context, ak types.PublicKey) (bool, error
 	return exists, nil
 }
 
+// ActiveAccounts returns the number of accounts that have been used since the threshold
+// time.
+func (s *Store) ActiveAccounts(ctx context.Context, threshold time.Time) (count uint64, err error) {
+	err = s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		return tx.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE last_used >= $1;`, threshold).Scan(&count)
+	})
+	return
+}
+
 // DeleteAccount deletes the account in the database with given account key.
 func (s *Store) DeleteAccount(ctx context.Context, ak types.PublicKey) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
@@ -108,6 +122,8 @@ func (s *Store) DeleteAccount(ctx context.Context, ak types.PublicKey) error {
 			return fmt.Errorf("failed to delete account: %w", err)
 		} else if serviceAccount {
 			return accounts.ErrServiceAccount
+		} else if err := s.incrementNumAccounts(ctx, tx, -1); err != nil {
+			return fmt.Errorf("failed to decrement registered accounts: %w", err)
 		}
 		return nil
 	})
@@ -356,6 +372,6 @@ LIMIT $2`, hostID, limit)
 }
 
 func scanAccount(s scanner) (account accounts.Account, err error) {
-	err = s.Scan((*sqlPublicKey)(&account.AccountKey), &account.ServiceAccount, &account.MaxPinnedData, &account.PinnedData, &account.Description, &account.LogoURL, &account.ServiceURL)
+	err = s.Scan((*sqlPublicKey)(&account.AccountKey), &account.ServiceAccount, &account.MaxPinnedData, &account.PinnedData, &account.Description, &account.LogoURL, &account.ServiceURL, &account.LastUsed)
 	return
 }

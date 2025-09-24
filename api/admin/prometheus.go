@@ -7,6 +7,44 @@ import (
 )
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
+// account stats response.
+func (s AccountStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
+	return []prometheus.Metric{
+		{
+			Name:  "indexd_num_registered_accounts",
+			Value: float64(s.Registered),
+		},
+	}
+}
+
+// PrometheusMetric implements the prometheus.Marshaller interface for the
+// sector stats response.
+func (s ContractsStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
+	return []prometheus.Metric{
+		{
+			Name:  "indexd_contracts_total",
+			Value: float64(s.Contracts),
+		},
+		{
+			Name:  "indexd_contracts_bad",
+			Value: float64(s.BadContracts),
+		},
+		{
+			Name:  "indexd_contracts_renewing",
+			Value: float64(s.Renewing),
+		},
+		{
+			Name:  "indexd_contracts_total_capacity",
+			Value: float64(s.TotalCapacity),
+		},
+		{
+			Name:  "indexd_contracts_total_size",
+			Value: float64(s.TotalSize),
+		},
+	}
+}
+
+// PrometheusMetric implements the prometheus.Marshaller interface for the
 // sector stats response.
 func (s SectorsStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 	return []prometheus.Metric{

@@ -76,3 +76,34 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 		assertStats(int64(len(pinned)))
 	}
 }
+
+func TestAccountStatsRegistered(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	var accs []types.PublicKey
+	for i := range 5 {
+		if stats, err := store.AccountStats(t.Context()); err != nil {
+			t.Fatal(err)
+		} else if stats.Registered != int64(i) {
+			t.Fatalf("expected %d accounts, got %d", i, stats.Registered)
+		}
+
+		acc := types.GeneratePrivateKey().PublicKey()
+		if err := store.AddAccount(t.Context(), acc, accounts.AccountMeta{}); err != nil {
+			t.Fatal(err)
+		}
+		accs = append(accs, acc)
+	}
+
+	for i := range accs {
+		if err := store.DeleteAccount(t.Context(), accs[i]); err != nil {
+			t.Fatal(err)
+		}
+
+		if stats, err := store.AccountStats(t.Context()); err != nil {
+			t.Fatal(err)
+		} else if expected := int64(len(accs)) - int64(i) - 1; stats.Registered != expected {
+			t.Fatalf("expected %d accounts, got %d", expected, stats.Registered)
+		}
+	}
+}

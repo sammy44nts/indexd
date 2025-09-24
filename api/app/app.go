@@ -36,6 +36,9 @@ type (
 	// Slabs defines the slab interface for the application API.
 	Slabs interface {
 		PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin ...slabs.SlabPinParams) ([]slabs.SlabID, error)
+		PinnedSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) (slabs.PinnedSlab, error)
+		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error)
+		UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error
 
 		Object(ctx context.Context, account proto.Account, key types.Hash256) (slabs.Object, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
@@ -46,9 +49,6 @@ type (
 
 	// Store defines the store interface for the application API.
 	Store interface {
-		PinnedSlab(context.Context, slabs.SlabID) (slabs.PinnedSlab, error)
-		SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]slabs.SlabID, error)
-		UnpinSlab(context.Context, proto.Account, slabs.SlabID) error
 		UsableHosts(ctx context.Context, offset, limit int, opts ...hosts.UsableHostQueryOpt) ([]hosts.HostInfo, error)
 	}
 
@@ -152,26 +152,37 @@ func (a *app) handleGETHosts(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
-	var p string
-	if err := jc.DecodeForm("protocol", &p); err != nil {
+	var opts []hosts.UsableHostQueryOpt
+
+	var protocol string
+	if err := jc.DecodeForm("protocol", &protocol); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
-	} else if p != "" && p != string(siamux.Protocol) && p != string(quic.Protocol) {
-		jc.Error(fmt.Errorf("invalid protocol %s", p), http.StatusBadRequest)
+	} else if protocol != "" && protocol != string(siamux.Protocol) && protocol != string(quic.Protocol) {
+		jc.Error(fmt.Errorf("invalid protocol %q", protocol), http.StatusBadRequest)
+	} else if protocol != "" {
+		opts = append(opts, hosts.WithProtocol(chain.Protocol(protocol)))
 	}
 
 	var countryCode string
 	if err := jc.DecodeForm("country", &countryCode); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
+	} else if countryCode != "" {
+		opts = append(opts, hosts.WithCountry(countryCode))
 	}
 
-	var opts []hosts.UsableHostQueryOpt
-	if p != "" {
-		opts = append(opts, hosts.WithProtocol(chain.Protocol(p)))
-	}
-	if countryCode != "" {
-		opts = append(opts, hosts.WithCountry(countryCode))
+	var locationStr string
+	if err := jc.DecodeForm("location", &locationStr); err != nil {
+		jc.Error(err, http.StatusBadRequest)
+		return
+	} else if locationStr != "" {
+		var lat, lng float64
+		if _, err := fmt.Sscanf(locationStr, "(%f,%f)", &lat, &lng); err != nil {
+			jc.Error(fmt.Errorf("invalid location %q, must be of the form (lat,lng)", locationStr), http.StatusBadRequest)
+			return
+		}
+		opts = append(opts, hosts.SortByDistance(lat, lng))
 	}
 
 	hosts, err := a.store.UsableHosts(jc.Request.Context(), offset, limit, opts...)
@@ -370,7 +381,7 @@ func (a *app) handleGETSlab(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	slab, err := a.store.PinnedSlab(jc.Request.Context(), slabID)
+	slab, err := a.slabs.PinnedSlab(jc.Request.Context(), proto.Account(pk), slabID)
 	if errors.Is(err, slabs.ErrSlabNotFound) {
 		jc.Error(slabs.ErrSlabNotFound, http.StatusNotFound)
 		return
@@ -391,7 +402,7 @@ func (a *app) handleGETSlabs(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	slabIDs, err := a.store.SlabIDs(jc.Request.Context(), proto.Account(pk), offset, limit)
+	slabIDs, err := a.slabs.SlabIDs(jc.Request.Context(), proto.Account(pk), offset, limit)
 	if jc.Check("failed to fetch slab digests", err) != nil {
 		return
 	}
@@ -405,7 +416,7 @@ func (a *app) handleDELETESlab(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	err := a.store.UnpinSlab(jc.Request.Context(), proto.Account(pk), slabID)
+	err := a.slabs.UnpinSlab(jc.Request.Context(), proto.Account(pk), slabID)
 	if errors.Is(err, slabs.ErrSlabNotFound) {
 		jc.Error(fmt.Errorf("slab %s not found", slabID), http.StatusNotFound)
 		return

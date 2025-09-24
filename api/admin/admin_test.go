@@ -780,6 +780,26 @@ func TestWalletAPI(t *testing.T) {
 	}
 }
 
+func TestContractsStatsAPI(t *testing.T) {
+	// create cluster with three hosts
+	cluster := testutils.NewCluster(t, testutils.WithHosts(1))
+	indexer := cluster.Indexer
+	adminClient := indexer.Admin
+
+	var stats admin.ContractsStatsResponse
+	for range 5 {
+		time.Sleep(time.Second)
+
+		stats, err := adminClient.StatsContracts(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		} else if stats.Contracts != 0 {
+			return // done
+		}
+	}
+	t.Fatalf("expected some contracts, got %d", stats.Contracts)
+}
+
 func TestSectorStatsAPI(t *testing.T) {
 	// create cluster with three hosts
 	logger := newTestLogger(false)
@@ -835,6 +855,52 @@ func TestSectorStatsAPI(t *testing.T) {
 		t.Fatal(err)
 	} else if stats.NumSlabs != 0 {
 		t.Fatalf("expected no slabs, got %d", stats.NumSlabs)
+	}
+}
+
+func TestAccountStatsAPI(t *testing.T) {
+	// create cluster with three hosts
+	logger := newTestLogger(false)
+	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
+	indexer := cluster.Indexer
+	adminClient := indexer.Admin
+
+	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if stats.Registered != 0 {
+		t.Fatalf("expected 0 registered accounts, got %d", stats.Registered)
+	}
+
+	account1 := types.GeneratePrivateKey().PublicKey()
+	if err := indexer.Store().AddAccount(t.Context(), account1, accounts.AccountMeta{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if stats.Registered != 1 {
+		t.Fatalf("expected 1 registered accounts, got %d", stats.Registered)
+	}
+
+	account2 := types.GeneratePrivateKey().PublicKey()
+	if err := indexer.Store().AddAccount(t.Context(), account2, accounts.AccountMeta{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if stats.Registered != 2 {
+		t.Fatalf("expected 2 registered accounts, got %d", stats.Registered)
+	}
+
+	if err := indexer.Store().DeleteAccount(t.Context(), account1); err != nil {
+		t.Fatal(err)
+	}
+
+	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if stats.Registered != 1 {
+		t.Fatalf("expected 1 registered accounts, got %d", stats.Registered)
 	}
 }
 
