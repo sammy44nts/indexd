@@ -216,6 +216,27 @@ CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, sl
 		}
 		return nil
 	},
+	// add expiration_height index
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		_, err := tx.Exec(ctx, `
+				CREATE INDEX contracts_proof_height_idx ON contracts (proof_height);
+				CREATE INDEX contracts_state_active_idx ON contracts(state) WHERE state = 0 OR state = 1;
+			`)
+		if err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+		return nil
+	},
+	// adds the "last_used" column to the accounts table and relevant index
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		if _, err := tx.Exec(ctx, `ALTER TABLE accounts ADD COLUMN last_used TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();`); err != nil {
+			return fmt.Errorf("failed to add last_used column: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `CREATE INDEX accounts_last_used_idx ON accounts(last_used);`); err != nil {
+			return fmt.Errorf("failed to add last_used index: %w", err)
+		}
+		return nil
+	},
 	// add indexes to speed up unpinning slabs
 	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
 		if _, err := tx.Exec(ctx, `CREATE INDEX account_slabs_slab_id_idx ON account_slabs(slab_id);`); err != nil {

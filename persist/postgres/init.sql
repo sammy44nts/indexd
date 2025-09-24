@@ -6,8 +6,10 @@ CREATE TABLE accounts (
     service_account BOOLEAN NOT NULL DEFAULT FALSE, -- true if this is a service account
     description TEXT NOT NULL DEFAULT '',
     logo_url TEXT NOT NULL DEFAULT '',
-    service_url TEXT NOT NULL DEFAULT ''
+    service_url TEXT NOT NULL DEFAULT '',
+    last_used TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+CREATE INDEX accounts_last_used_idx ON accounts(last_used);
 
 CREATE TABLE app_connect_keys (
     app_key TEXT PRIMARY KEY,
@@ -229,6 +231,10 @@ CREATE INDEX contracts_state_good_idx ON contracts(state) WHERE state <= 1 AND g
 CREATE INDEX contracts_last_broadcast_attempt_contract_id_idx ON contracts (last_broadcast_attempt ASC, contract_id) WHERE renewed_to IS NULL; -- for fetching contracts for broadcasting
 CREATE INDEX contracts_host_id_remaining_allowance_contract_id_idx ON contracts (host_id, remaining_allowance DESC, contract_id) WHERE good = true AND remaining_allowance > 0; -- for fetching contracts for funding
 CREATE INDEX contracts_capacity_size_contract_id_idx ON contracts (capacity DESC, size DESC, contract_id) WHERE good = true AND remaining_allowance > 0; -- for fetching contracts for pinning
+
+-- stats indices
+CREATE INDEX contracts_proof_height_idx ON contracts (proof_height);
+CREATE INDEX contracts_state_active_idx ON contracts(state) WHERE state = 0 OR state = 1;
 
 -- foreign key constraint index
 CREATE INDEX contracts_host_id_idx ON contracts(host_id);

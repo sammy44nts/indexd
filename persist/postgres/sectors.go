@@ -193,7 +193,7 @@ func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.P
 }
 
 // PinSlab adds a slab to the database for pinning. The slab is associated with
-// the provided account.
+// the provided account.  The last used timestamp of the account is updated.
 func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error) {
 	digest, err := slab.Digest()
 	if err != nil {
@@ -202,7 +202,7 @@ func (s *Store) PinSlab(ctx context.Context, account proto.Account, nextIntegrit
 	return digest, s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		var accountID int64
 		var pinnedData, maxPinnedData uint64
-		err = tx.QueryRow(ctx, "SELECT id, pinned_data, max_pinned_data FROM accounts WHERE public_key = $1", sqlPublicKey(account)).Scan(&accountID, &pinnedData, &maxPinnedData)
+		err = tx.QueryRow(ctx, "UPDATE accounts SET last_used = NOW() WHERE public_key = $1 RETURNING id, pinned_data, max_pinned_data", sqlPublicKey(account)).Scan(&accountID, &pinnedData, &maxPinnedData)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
@@ -447,7 +447,7 @@ func (s *Store) UnpinSlab(ctx context.Context, account proto.Account, slabID sla
 // SlabIDs returns the IDs of slabs associated with the given account. The IDs
 // are returned in descending order of the `pinned_at` timestamp, which is the
 // time when the slab was pinned to the indexer.
-func (s *Store) SlabIDs(ctx context.Context, accountID proto.Account, offset, limit int) ([]slabs.SlabID, error) {
+func (s *Store) SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error) {
 	if err := validateOffsetLimit(offset, limit); err != nil {
 		return nil, err
 	} else if limit == 0 {
@@ -462,7 +462,7 @@ func (s *Store) SlabIDs(ctx context.Context, accountID proto.Account, offset, li
 			INNER JOIN accounts a ON a.id = ac.account_id
 			WHERE a.public_key = $1
 			ORDER BY s.pinned_at DESC
-			LIMIT $2 OFFSET $3`, sqlPublicKey(accountID), limit, offset)
+			LIMIT $2 OFFSET $3`, sqlPublicKey(account), limit, offset)
 		if err != nil {
 			return fmt.Errorf("failed to query slab digests: %w", err)
 		}
@@ -484,7 +484,7 @@ func (s *Store) SlabIDs(ctx context.Context, accountID proto.Account, offset, li
 }
 
 // Slabs returns the slabs with the given IDs from the database.
-func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []slabs.SlabID) ([]slabs.Slab, error) {
+func (s *Store) Slabs(ctx context.Context, account proto.Account, slabIDs []slabs.SlabID) ([]slabs.Slab, error) {
 	if len(slabIDs) == 0 {
 		return nil, nil
 	}
@@ -499,7 +499,7 @@ func (s *Store) Slabs(ctx context.Context, accountID proto.Account, slabIDs []sl
 				FROM slabs s
 				INNER JOIN account_slabs ac ON s.id = ac.slab_id
 				INNER JOIN accounts a ON a.id = ac.account_id
-				WHERE digest = $1 AND a.public_key = $2`, sqlHash256(slabID), sqlPublicKey(accountID)).QueryRow(func(row pgx.Row) error {
+				WHERE digest = $1 AND a.public_key = $2`, sqlHash256(slabID), sqlPublicKey(account)).QueryRow(func(row pgx.Row) error {
 				results[i].ID = slabID
 				var dbID int64
 				if err := row.Scan(&dbID, (*sqlHash256)(&results[i].EncryptionKey), &results[i].MinShards, &results[i].PinnedAt); err != nil {
