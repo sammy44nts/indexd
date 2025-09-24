@@ -268,7 +268,7 @@ CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, sl
 CREATE TABLE objects (
     id BIGSERIAL PRIMARY KEY,
     object_key BYTEA NOT NULL CHECK(LENGTH(object_key) = 32), -- user provided, object identifier
-    encrypted_master_key BYTEA NOT NULL CHECK(LENGTH(encrypted_master_key) = 32), -- user provided, master encryption key
+    encrypted_master_key BYTEA NOT NULL CHECK(LENGTH(encrypted_master_key) = 72), -- user provided, master encryption key (xchacha20 nonce + key + tag)
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns object
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by update time
