@@ -5,7 +5,7 @@ on:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-autoscale
     permissions:
       contents: read
     steps:
@@ -20,7 +20,7 @@ jobs:
           skip-cache: true
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-autoscale
     permissions:
       contents: read
     env:
