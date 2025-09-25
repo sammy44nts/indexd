@@ -2025,7 +2025,7 @@ func BenchmarkHostsForPinning(b *testing.B) {
 				size := frand.Uint64n(1e9)
 				if _, err := tx.Exec(ctx, `INSERT INTO contracts (host_id, contract_id, raw_revision, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity) VALUES ($1, $2, $3, 0, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12);`,
 					hostID,
-					sqlHash256(fcid[:]),
+					sqlHash256(fcid),
 					sqlFileContract(newTestRevision(hk)),
 					sqlCurrency(types.ZeroCurrency),
 					sqlCurrency(types.ZeroCurrency),
@@ -2037,6 +2037,8 @@ func BenchmarkHostsForPinning(b *testing.B) {
 					size,                                               // random size
 					size+frand.Uint64n(1e3),                            // random capacity
 				); err != nil {
+					return err
+				} else if _, err := tx.Exec(ctx, `INSERT INTO contract_sectors_map (contract_id) VALUES ($1)`, sqlHash256(fcid)); err != nil {
 					return err
 				}
 			}

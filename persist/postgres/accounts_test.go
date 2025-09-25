@@ -544,15 +544,13 @@ func BenchmarkHostAccountsForFunding(b *testing.B) {
 
 	// run benchmark for different number of accounts
 	for _, numAccounts := range []int{10_000, 100_000, 1_000_000} {
-		b.Logf("preparing database")
-
 		// prepare accounts
 		prune("accounts")
 		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 			batch := &pgx.Batch{}
 			for range numAccounts {
 				pk := types.GeneratePrivateKey().PublicKey()
-				batch.Queue(`INSERT INTO accounts (public_key) VALUES ($1);`, sqlPublicKey(pk))
+				batch.Queue(`INSERT INTO accounts (public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(pk))
 			}
 			return tx.SendBatch(ctx, batch).Close()
 		}); err != nil {
@@ -620,7 +618,7 @@ func BenchmarkUpdateHostAccounts(b *testing.B) {
 	// prepare database
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	for range numAccounts {
-		_, err := store.pool.Exec(context.Background(), `INSERT INTO accounts (public_key) VALUES ($1);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()))
+		_, err := store.pool.Exec(context.Background(), `INSERT INTO accounts (public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -778,7 +776,7 @@ func BenchmarkServiceAccounts(b *testing.B) {
 	// prepare database
 	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
 	for range numAccounts {
-		_, err := store.pool.Exec(context.Background(), `INSERT INTO accounts (public_key) VALUES ($1);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()))
+		_, err := store.pool.Exec(context.Background(), `INSERT INTO accounts (public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(types.GeneratePrivateKey().PublicKey()))
 		if err != nil {
 			b.Fatal(err)
 		}

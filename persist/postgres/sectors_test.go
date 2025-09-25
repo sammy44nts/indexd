@@ -1652,6 +1652,18 @@ func BenchmarkUnpinnedSectors(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+
+		// recalculate sector stats
+		_, err = store.pool.Exec(context.Background(), `
+			UPDATE stats
+			SET num_unpinned_sectors = (
+				SELECT COUNT(id)
+				FROM sectors
+				WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NULL
+			)`)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 
 	// run benchmark for various batch sizes
