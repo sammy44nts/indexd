@@ -49,11 +49,12 @@ func (o *Object) UpdatedAt() time.Time {
 
 // Seal returns a SealedObject that can be safely serialized and shared.
 func (o *Object) Seal(appKey types.PrivateKey) slabs.SealedObject {
-	keyCipher := masterKeyCipher(appKey)
+	objectID := o.ID()
+	keyCipher := masterKeyCipher(appKey, objectID)
 	nonce := frand.Bytes(keyCipher.NonceSize())
 	encryptedMasterKey := keyCipher.Seal(nonce, nonce, o.masterKey, nil)
 
-	metaCipher := metadataCipher(o.masterKey)
+	metaCipher := metadataCipher(o.masterKey, objectID)
 	nonce = frand.Bytes(metaCipher.NonceSize())
 	encryptedMeta := metaCipher.Seal(nonce, nonce, o.metadata, nil)
 
@@ -124,23 +125,23 @@ func (s *SDK) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256
 	return s.client.CreateSharedObjectURL(ctx, obj.ID(), obj.masterKey, validUntil)
 }
 
-func masterKeyCipher(appKey types.PrivateKey) cipher.AEAD {
-	key := keys.Derive(appKey, "master", 32)
+func masterKeyCipher(appKey types.PrivateKey, objectID types.Hash256) cipher.AEAD {
+	key := keys.Derive(appKey, objectID[:], []byte("master"), 32)
 	cipher, _ := chacha20poly1305.NewX(key)
 	return cipher
 }
 
-func metadataCipher(masterKey []byte) cipher.AEAD {
-	key := keys.Derive(masterKey, "metadata", 32)
+func metadataCipher(masterKey []byte, objectID types.Hash256) cipher.AEAD {
+	key := keys.Derive(masterKey, objectID[:], []byte("metadata"), 32)
 	cipher, _ := chacha20poly1305.NewX(key)
 	return cipher
 }
 
-func unlockEncryptedMetadata(masterKey []byte, encryptedMeta []byte) (json.RawMessage, error) {
+func unlockEncryptedMetadata(objectID types.Hash256, masterKey []byte, encryptedMeta []byte) (json.RawMessage, error) {
 	if len(encryptedMeta) == 0 {
 		return nil, nil
 	}
-	metadataCipher := metadataCipher(masterKey)
+	metadataCipher := metadataCipher(masterKey, objectID)
 	if len(encryptedMeta) < metadataCipher.NonceSize() {
 		return nil, fmt.Errorf("encrypted metadata too short")
 	}
@@ -158,13 +159,14 @@ func objectFromSealedObject(so slabs.SealedObject, appKey types.PrivateKey) (Obj
 		createdAt: so.CreatedAt,
 		updatedAt: so.UpdatedAt,
 	}
-	if so.ID() != obj.ID() {
+	objectID := obj.ID()
+	if so.ID() != objectID {
 		return Object{}, fmt.Errorf("object ID mismatch")
 	} else if !appKey.PublicKey().VerifyHash(so.SigHash(), so.Signature) {
 		return Object{}, fmt.Errorf("invalid object signature")
 	}
 
-	keyCipher := masterKeyCipher(appKey)
+	keyCipher := masterKeyCipher(appKey, objectID)
 	if len(so.EncryptedMasterKey) < keyCipher.NonceSize() {
 		return Object{}, fmt.Errorf("encrypted master key too short")
 	}
@@ -174,7 +176,7 @@ func objectFromSealedObject(so slabs.SealedObject, appKey types.PrivateKey) (Obj
 	if err != nil {
 		return Object{}, fmt.Errorf("failed to unlock master key: %w", err)
 	}
-	obj.metadata, err = unlockEncryptedMetadata(obj.masterKey, so.EncryptedMetadata)
+	obj.metadata, err = unlockEncryptedMetadata(objectID, obj.masterKey, so.EncryptedMetadata)
 	if err != nil {
 		return Object{}, fmt.Errorf("failed to unlock metadata: %w", err)
 	}
