@@ -237,6 +237,13 @@ CREATE INDEX object_slabs_object_id_slab_index_idx ON object_slabs(object_id, sl
 		}
 		return nil
 	},
+	// reset registered accounts
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		if _, err := tx.Exec(ctx, `UPDATE stats SET num_accounts_registered = (SELECT COUNT(*) FROM accounts WHERE service_account != TRUE);`); err != nil {
+			return fmt.Errorf("failed to reset num_accounts_registered: %w", err)
+		}
+		return nil
+	},
 	// drop host_resolved_cidrs table
 	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
 		_, err := tx.Exec(ctx, `DROP TABLE IF EXISTS host_resolved_cidrs;`)
