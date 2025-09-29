@@ -265,8 +265,6 @@ func (m *HostManager) UpdateUsabilitySettings(ctx context.Context, us UsabilityS
 // NOTE: It's important that the function passed to WithScannedHost can be
 // called twice.
 func (m *HostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h Host) error) error {
-	logger := m.log.With(zap.Stringer("hk", hk))
-
 	// fetch host
 	host, err := m.store.Host(ctx, hk)
 	if err != nil {
@@ -285,7 +283,6 @@ func (m *HostManager) WithScannedHost(ctx context.Context, hk types.PublicKey, f
 			return nil // 'fn' succeeded so we're done
 		}
 	}
-	logger.Debug("host has outdated prices, rescan")
 
 	// scan the host if the prices were outdated
 	host, err = m.ScanHost(ctx, hk)
