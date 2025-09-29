@@ -56,8 +56,7 @@ type (
 	// contract's revision.
 	RevisionStore interface {
 		ContractRevision(ctx context.Context, contractID types.FileContractID) (rhp.ContractRevision, bool, error)
-		UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision) error
-		UpdateHostUsage(ctx context.Context, hostKey types.PublicKey, usage proto.Usage) error
+		UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, usage proto.Usage) error
 	}
 )
 
@@ -141,8 +140,6 @@ func (c *HostClient) FormContract(ctx context.Context, settings proto.HostSettin
 	res, err := rhp.RPCFormContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, c.hostKey, settings.WalletAddress, params)
 	if err != nil {
 		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to form contract: %w", err)
-	} else if err := c.store.UpdateHostUsage(ctx, c.hostKey, res.Usage); err != nil {
-		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to update host usage: %w", err)
 	}
 	return res, nil
 }
@@ -282,7 +279,7 @@ func (c *HostClient) WriteSector(ctx context.Context, settings proto.HostPrices,
 	return res, nil
 }
 
-func (c *HostClient) syncRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract) (types.V2FileContract, bool, error) {
+func (c *HostClient) syncRevision(ctx context.Context, contractID types.FileContractID, revision types.V2FileContract, usage proto.Usage) (types.V2FileContract, bool, error) {
 	// apply a sane timeout for syncing the revision
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -297,7 +294,8 @@ func (c *HostClient) syncRevision(ctx context.Context, contractID types.FileCont
 	}
 
 	// update latest revision
-	err = c.store.UpdateContractRevision(ctx, rhp.ContractRevision{ID: contractID, Revision: resp.Contract})
+	contract := rhp.ContractRevision{ID: contractID, Revision: resp.Contract}
+	err = c.store.UpdateContractRevision(ctx, contract, usage)
 	if err != nil {
 		c.log.Error("failed to update contract revision", zap.Stringer("contractID", contractID), zap.Error(err))
 	}
@@ -330,7 +328,7 @@ func (c *HostClient) withRevision(ctx context.Context, contractID types.FileCont
 	// try and sync the revision if we got an error that indicates the revision is invalid
 	if err != nil && strings.Contains(err.Error(), proto.ErrInvalidSignature.Error()) {
 		c.log.Debug("syncing contract revision due to invalid signature", zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.Stringer("contractID", contractID), zap.Error(err))
-		contract.Revision, renewed, err = c.syncRevision(ctx, contractID, contract.Revision)
+		contract.Revision, renewed, err = c.syncRevision(ctx, contractID, contract.Revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to sync revision: %w", err)
 		} else if renewed {
@@ -351,10 +349,8 @@ func (c *HostClient) withRevision(ctx context.Context, contractID types.FileCont
 
 	// update revision in the database
 	if revised.Revision.RevisionNumber > contract.Revision.RevisionNumber {
-		if err := c.store.UpdateContractRevision(ctx, revised); err != nil {
+		if err := c.store.UpdateContractRevision(ctx, revised, usage); err != nil {
 			c.log.Error("failed to update contract revision", zap.Error(err))
-		} else if err := c.store.UpdateHostUsage(ctx, c.hostKey, usage); err != nil {
-			c.log.Error("failed to update host usage", zap.Error(err))
 		}
 	}
 

@@ -176,8 +176,6 @@ func pinSectors(ctx context.Context, client HostClient, hostPrices proto.HostPri
 			contractLog.Debug("some sectors were not pinned", zap.Int("pinned", len(res.Sectors)), zap.Int("missing", len(missing)))
 		}
 
-		// TODO: handle usage
-
 		usedContractID = contractID
 		return
 	}

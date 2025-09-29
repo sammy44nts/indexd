@@ -44,16 +44,12 @@ func (s *mockStore) ContractRevision(ctx context.Context, contractID types.FileC
 	return rhp.ContractRevision{ID: contractID, Revision: rev}, s.renewed[contractID], nil
 }
 
-func (s *mockStore) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision) error {
+func (s *mockStore) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, usage proto.Usage) error {
 	if contract.ID == (types.FileContractID{5, 0, 0}) {
 		return errors.New("persist error")
 	}
+	s.fundsSpent[contract.Revision.HostPublicKey] = s.fundsSpent[contract.Revision.HostPublicKey].Add(usage.RenterCost())
 	s.revisions[contract.ID] = contract.Revision
-	return nil
-}
-
-func (s *mockStore) UpdateHostUsage(ctx context.Context, hostKey types.PublicKey, usage proto.Usage) error {
-	s.fundsSpent[hostKey] = s.fundsSpent[hostKey].Add(usage.RenterCost())
 	return nil
 }
 

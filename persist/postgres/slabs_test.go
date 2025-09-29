@@ -86,7 +86,7 @@ func TestSlab(t *testing.T) {
 	// pin the first sector to a contract
 	hk := hosts[0]
 	fcid := types.FileContractID(hk)
-	if err := store.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	if err := store.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	} else if err := store.PinSectors(context.Background(), fcid, []types.Hash256{params.Sectors[0].Root}); err != nil {
 		t.Fatal(err)

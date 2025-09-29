@@ -385,6 +385,16 @@ func TestContractsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// assert usage is being tracked
+	host, err := adminClient.Host(context.Background(), h.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	} else if !host.AccountFunding.Equals(types.Siacoins(2)) {
+		t.Fatal("expected host account funding to be exactly 2 SC")
+	} else if host.TotalSpent.Cmp(host.AccountFunding) <= 0 {
+		t.Fatal("expected host total spent to greater than account funding", host.TotalSpent, host.AccountFunding)
+	}
+
 	// figure out the renew height
 	cs, err := adminClient.SettingsContracts(context.Background())
 	if err != nil {
@@ -413,11 +423,14 @@ func TestContractsAPI(t *testing.T) {
 	}
 
 	// assert usage is being tracked
-	host, err := adminClient.Host(context.Background(), h.PublicKey())
+	before := host
+	host, err = adminClient.Host(context.Background(), h.PublicKey())
 	if err != nil {
 		t.Fatal(err)
-	} else if host.TotalSpent.IsZero() {
-		t.Fatal("expected host total spent to be non-zero")
+	} else if !host.AccountFunding.Equals(before.AccountFunding) {
+		t.Fatal("expected host account funding to remain the same", before, host.AccountFunding)
+	} else if host.TotalSpent.Cmp(before.TotalSpent) <= 0 {
+		t.Fatal("expected host total spent to have increased", before.TotalSpent, host.TotalSpent)
 	}
 }
 

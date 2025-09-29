@@ -92,7 +92,7 @@ func TestContracts(t *testing.T) {
 
 	// assert WithRevisable(true) takes into account renewed_to
 	fcid4 := types.FileContractID{4}
-	if err := store.AddRenewedContract(context.Background(), fcid1, fcid4, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	if err := store.AddRenewedContract(context.Background(), fcid1, fcid4, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	} else if css, err := store.Contracts(context.Background(), 0, 10, contracts.WithRevisable(true), contracts.WithGood(true)); err != nil {
 		t.Fatal(err)
@@ -147,9 +147,9 @@ func TestContractElementsForBroadcast(t *testing.T) {
 	hk := store.addTestHost(t)
 
 	// add a contract
-	fcid := types.FileContractID{1}
-	revision := newTestRevision(hk)
-	if err := store.AddFormedContract(context.Background(), hk, fcid, revision, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	fcid := store.addTestContract(t, hk, types.FileContractID{1})
+	revision, _, err := store.ContractRevision(t.Context(), fcid)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,8 +165,8 @@ func TestContractElementsForBroadcast(t *testing.T) {
 	}
 
 	// set height to 10 blocks after expiration
-	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.UpdateLastScannedIndex(context.Background(), types.ChainIndex{Height: revision.ExpirationHeight + 10})
+	err = store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
+		return tx.UpdateLastScannedIndex(context.Background(), types.ChainIndex{Height: revision.Revision.ExpirationHeight + 10})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestContractElementsForBroadcast(t *testing.T) {
 	fce := types.V2FileContractElement{
 		ID:             fcid,
 		StateElement:   types.StateElement{LeafIndex: 1, MerkleProof: []types.Hash256{{1}}},
-		V2FileContract: revision,
+		V2FileContract: revision.Revision,
 	}
 
 	// add contract element, 1 contract to broadcast
@@ -252,7 +252,7 @@ func TestContractsForBroadcasting(t *testing.T) {
 	}
 
 	// renew the contract
-	if err := store.AddRenewedContract(context.Background(), res[0], types.FileContractID{9, 9, 9}, types.V2FileContract{}, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	if err := store.AddRenewedContract(context.Background(), res[0], types.FileContractID{9, 9, 9}, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -561,7 +561,7 @@ func TestPruneExpiredContractElements(t *testing.T) {
 
 		revision := newTestRevision(hk)
 		revision.ExpirationHeight = expirationHeight
-		if err := store.AddFormedContract(context.Background(), hk, contractID, revision, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+		if err := store.AddFormedContract(context.Background(), hk, contractID, revision, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
@@ -655,7 +655,7 @@ func TestPruneContractSectorsMap(t *testing.T) {
 
 		revision := newTestRevision(hk)
 		revision.ExpirationHeight = expirationHeight
-		if err := store.AddFormedContract(context.Background(), hk, contractID, revision, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+		if err := store.AddFormedContract(context.Background(), hk, contractID, revision, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 			t.Fatal(err)
 		}
 		return contractID
@@ -768,8 +768,22 @@ func TestFormRenewContract(t *testing.T) {
 		}
 	}
 
-	// define helper to simulate contract usage
-	simulateUsage := func(contractID types.FileContractID) {
+	// define helper to assert host usage
+	assertUsage := func(hk types.PublicKey, expectedAccountUsage, expectedTotalUsage types.Currency) {
+		t.Helper()
+
+		host, err := store.Host(t.Context(), hk)
+		if err != nil {
+			t.Fatal("failed to fetch host", err)
+		} else if host.AccountFunding != expectedAccountUsage {
+			t.Fatalf("expected host account usage to be %v, got %v", expectedAccountUsage, host.AccountFunding)
+		} else if host.TotalSpent != expectedTotalUsage {
+			t.Fatalf("expected host total usage to be %v, got %v", expectedTotalUsage, host.TotalSpent)
+		}
+	}
+
+	// define helper to simulate contract spending
+	simulateSpending := func(contractID types.FileContractID) {
 		t.Helper()
 		if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
 			resp, err := tx.Exec(context.Background(), `UPDATE contracts SET state = 1, good = FALSE, append_sector_spending = 1, free_sector_spending = 2, fund_account_spending = 3, sector_roots_spending = 4 WHERE contract_id = $1`, sqlHash256(contractID))
@@ -784,10 +798,17 @@ func TestFormRenewContract(t *testing.T) {
 		}
 	}
 
+	// assert no usage
+	assertUsage(hk, types.ZeroCurrency, types.ZeroCurrency)
+
 	// form contract
 	formation := newTestRevision(hk)
 	formation.RenterOutput.Value = types.NewCurrency64(math.MaxUint64) // initial allowance
 
+	expectedUsage := proto.Usage{
+		AccountFunding: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+		RPC:            types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+	}
 	expectedFormed := contracts.Contract{
 		ID:      types.FileContractID{1},
 		HostKey: hk,
@@ -808,12 +829,15 @@ func TestFormRenewContract(t *testing.T) {
 
 		Good: true,
 	}
-	if err := store.AddFormedContract(context.Background(), hk, expectedFormed.ID, formation, expectedFormed.ContractPrice, expectedFormed.InitialAllowance, expectedFormed.MinerFee); err != nil {
+	if err := store.AddFormedContract(context.Background(), hk, expectedFormed.ID, formation, expectedFormed.ContractPrice, expectedFormed.InitialAllowance, expectedFormed.MinerFee, expectedUsage); err != nil {
 		t.Fatal("failed to add formed contract", err)
 	}
 
 	// assert the contract matches the expectations
 	assertContract(expectedFormed.ID, expectedFormed)
+
+	// assert host usage was updated
+	assertUsage(hk, expectedUsage.AccountFunding, expectedUsage.RenterCost())
 
 	// assert the contract sector mapping exists
 	var mapID int64
@@ -822,7 +846,7 @@ func TestFormRenewContract(t *testing.T) {
 	}
 
 	// simulate usage, assert the contract is active, bad and has spending
-	simulateUsage(expectedFormed.ID)
+	simulateSpending(expectedFormed.ID)
 	expectedFormed.State = contracts.ContractStateActive
 	expectedFormed.Good = false
 	expectedFormed.Spending = contracts.ContractSpending{
@@ -863,15 +887,24 @@ func TestFormRenewContract(t *testing.T) {
 		Spending: contracts.ContractSpending{}, // spending is reset
 	}
 
-	if err := store.AddRenewedContract(context.Background(), expectedRefreshed.RenewedFrom, expectedRefreshed.ID, refresh, expectedRefreshed.ContractPrice, expectedRefreshed.MinerFee); err != nil {
+	refreshUsage := proto.Usage{
+		AccountFunding: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+		RPC:            types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+	}
+	expectedUsage = expectedUsage.Add(refreshUsage)
+
+	if err := store.AddRenewedContract(context.Background(), expectedRefreshed.RenewedFrom, expectedRefreshed.ID, refresh, expectedRefreshed.ContractPrice, expectedRefreshed.MinerFee, refreshUsage); err != nil {
 		t.Fatal("failed to add refreshed contract", err)
 	}
 	expectedFormed.RenewedTo = expectedRefreshed.ID
 	assertContract(expectedFormed.ID, expectedFormed)
 	assertContract(expectedRefreshed.ID, expectedRefreshed)
 
+	// assert host usage was updated
+	assertUsage(hk, expectedUsage.AccountFunding, expectedUsage.RenterCost())
+
 	// modify the refreshed contract
-	simulateUsage(expectedRefreshed.ID)
+	simulateSpending(expectedRefreshed.ID)
 	expectedRefreshed.State = contracts.ContractStateActive
 	expectedRefreshed.Good = false
 	expectedRefreshed.Spending = contracts.ContractSpending{
@@ -914,13 +947,22 @@ func TestFormRenewContract(t *testing.T) {
 		Spending: contracts.ContractSpending{}, // spending is reset
 	}
 
-	if err := store.AddRenewedContract(context.Background(), expectedRenewed.RenewedFrom, expectedRenewed.ID, renewal, expectedRenewed.ContractPrice, expectedRenewed.MinerFee); err != nil {
+	renewUsage := proto.Usage{
+		AccountFunding: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+		RPC:            types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
+	}
+	expectedUsage = expectedUsage.Add(renewUsage)
+
+	if err := store.AddRenewedContract(context.Background(), expectedRenewed.RenewedFrom, expectedRenewed.ID, renewal, expectedRenewed.ContractPrice, expectedRenewed.MinerFee, renewUsage); err != nil {
 		t.Fatal("failed to add renewed contract", err)
 	}
 	expectedRefreshed.RenewedTo = expectedRenewed.ID
 	assertContract(expectedFormed.ID, expectedFormed)
 	assertContract(expectedRefreshed.ID, expectedRefreshed)
 	assertContract(expectedRenewed.ID, expectedRenewed)
+
+	// assert host usage was updated
+	assertUsage(hk, expectedUsage.AccountFunding, expectedUsage.RenterCost())
 
 	// assert `contract_sectors_map` entry was updated when renewing the contract
 	var currID int64
@@ -1206,8 +1248,8 @@ func TestMarkUnrenewableContractsBad(t *testing.T) {
 	revision2.ExpirationHeight = 9999
 
 	if err := errors.Join(
-		store.AddFormedContract(context.Background(), hk, fcid, revision1, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency),
-		store.AddFormedContract(context.Background(), hk, goodFCID, revision2, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency),
+		store.AddFormedContract(context.Background(), hk, fcid, revision1, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}),
+		store.AddFormedContract(context.Background(), hk, goodFCID, revision2, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -1245,7 +1287,7 @@ func TestUpdateContractRevision(t *testing.T) {
 	update.Revision.RenterOutput.Value = types.NewCurrency64(1000)
 	update.Revision.MissedHostValue = types.NewCurrency64(100)
 
-	if err := store.UpdateContractRevision(context.Background(), update); err != nil {
+	if err := store.UpdateContractRevision(context.Background(), update, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	} else if revision, renewed, err := store.ContractRevision(context.Background(), contractID); err != nil {
 		t.Fatal(err)
@@ -1255,7 +1297,7 @@ func TestUpdateContractRevision(t *testing.T) {
 		t.Fatalf("expected revision to be %v, got %v", update, revision)
 	}
 
-	if err := store.AddRenewedContract(context.Background(), contractID, types.FileContractID{2}, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	if err := store.AddRenewedContract(context.Background(), contractID, types.FileContractID{2}, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	} else if revision, renewed, err := store.ContractRevision(context.Background(), contractID); err != nil {
 		t.Fatal(err)
@@ -1268,44 +1310,17 @@ func TestUpdateContractRevision(t *testing.T) {
 	// assert [contracts.ErrNotFound] is returned for non-existing contract
 	if _, _, err := store.ContractRevision(context.Background(), types.FileContractID{}); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("expected ErrContractNotFound, got %v", err)
-	} else if err := store.UpdateContractRevision(context.Background(), rhp.ContractRevision{Revision: newTestRevision(types.PublicKey{})}); !errors.Is(err, contracts.ErrNotFound) {
+	} else if err := store.UpdateContractRevision(context.Background(), rhp.ContractRevision{Revision: newTestRevision(types.PublicKey{})}, proto.Usage{}); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("expected ErrContractNotFound, got %v", err)
-	}
-}
-
-func TestUpdateHostUsage(t *testing.T) {
-	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
-
-	hk := store.addTestHost(t)
-
-	// assert initial fund spent is zero
-	host, err := store.Host(context.Background(), hk)
-	if err != nil {
-		t.Fatal(err)
-	} else if !host.TotalSpent.IsZero() {
-		t.Fatalf("unexpected usage: %+v", host.TotalSpent)
-	}
-
-	// update usage
-	funding := types.NewCurrency64(frand.Uint64n(math.MaxUint64))
-	egress := types.NewCurrency64(frand.Uint64n(funding.Big().Uint64()))
-	if err := store.UpdateHostUsage(context.Background(), hk, proto.Usage{AccountFunding: funding, Egress: egress}); err != nil {
-		t.Fatal(err)
-	}
-
-	// assert usage was updated correctly
-	host, err = store.Host(context.Background(), hk)
-	if err != nil {
-		t.Fatal(err)
-	} else if !host.AccountFunding.Equals(funding) {
-		t.Fatalf("unexpected usage: %+v", host.AccountFunding)
-	} else if !host.TotalSpent.Equals((funding.Add(egress))) {
-		t.Fatalf("unexpected usage: %+v", host.TotalSpent)
 	}
 
 	// assert it returns [hosts.ErrHostNotFound] for non-existing host
-	err = store.UpdateHostUsage(context.Background(), types.PublicKey{}, proto.Usage{})
-	if !errors.Is(err, hosts.ErrNotFound) {
+	revision, _, err := store.ContractRevision(context.Background(), contractID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision.HostPublicKey = types.PublicKey{} // non-existing host
+	if err := store.UpdateContractRevision(context.Background(), revision, proto.Usage{}); !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatalf("expected ErrHostNotFound, got %v", err)
 	}
 }
@@ -1600,7 +1615,9 @@ func BenchmarkContracts(b *testing.B) {
 				b.Fatal(err)
 			}
 			contract.Revision.RevisionNumber++
-			if err := store.UpdateContractRevision(context.Background(), contract); err != nil {
+
+			randomUsage := proto.Usage{RPC: types.NewCurrency64(frand.Uint64n(math.MaxInt64))}
+			if err := store.UpdateContractRevision(context.Background(), contract, randomUsage); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -1631,7 +1648,7 @@ func BenchmarkContractsStats(b *testing.B) {
 			to := from.V2RenewalID()
 			fcids[i] = to
 
-			err := store.AddRenewedContract(b.Context(), from, to, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency)
+			err := store.AddRenewedContract(b.Context(), from, to, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -1773,7 +1790,7 @@ func (s *Store) addTestContract(t testing.TB, hk types.PublicKey, fcids ...types
 		panic("developer error")
 	}
 
-	err := s.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency)
+	err := s.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}

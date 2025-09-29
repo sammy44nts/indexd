@@ -88,9 +88,10 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 }
 
 // UpdateContractRevision updates the contract revision in the database.
-func (s *Store) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision) error {
+func (s *Store) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, usage proto.Usage) error {
 	revision := contract.Revision
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
+		// update contract revision
 		query := `UPDATE contracts SET raw_revision = $1, revision_number = $2, capacity = $3, size = $4, remaining_allowance = $5, used_collateral = $6 WHERE contract_id = $7`
 		res, err := tx.Exec(ctx, query, sqlFileContract(revision), revision.RevisionNumber, revision.Capacity, revision.Filesize, sqlCurrency(revision.RenterOutput.Value), sqlCurrency(contract.Revision.RiskedCollateral()), sqlHash256(contract.ID))
 		if err != nil {
@@ -98,27 +99,21 @@ func (s *Store) UpdateContractRevision(ctx context.Context, contract rhp.Contrac
 		} else if res.RowsAffected() != 1 {
 			return fmt.Errorf("contract %q: %w", contract.ID, contracts.ErrNotFound)
 		}
-		return nil
-	})
-}
 
-// UpdateHostUsage takes the usage and adds the renter cost to the host's total
-// funds spent, thereby tracking how much funds have been spent on a host.
-func (s *Store) UpdateHostUsage(ctx context.Context, hostKey types.PublicKey, usage proto.Usage) error {
-	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
-		query := `UPDATE hosts SET usage_account_funding = usage_account_funding + $1, usage_total_spent = usage_total_spent + $2 WHERE public_key = $3`
-		res, err := tx.Exec(ctx, query, sqlCurrency(usage.AccountFunding), sqlCurrency(usage.RenterCost()), sqlPublicKey(hostKey))
+		// update host usage
+		query = `UPDATE hosts SET usage_account_funding = usage_account_funding + $1, usage_total_spent = usage_total_spent + $2 WHERE public_key = $3`
+		res, err = tx.Exec(ctx, query, sqlCurrency(usage.AccountFunding), sqlCurrency(usage.RenterCost()), sqlPublicKey(contract.Revision.HostPublicKey))
 		if err != nil {
 			return fmt.Errorf("failed to update host usage: %w", err)
 		} else if res.RowsAffected() != 1 {
-			return fmt.Errorf("host %q: %w", hostKey, hosts.ErrNotFound)
+			return fmt.Errorf("host %q: %w", contract.Revision.HostPublicKey, hosts.ErrNotFound)
 		}
 		return nil
 	})
 }
 
 // AddFormedContract adds a freshly formed contract to the database.
-func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error {
+func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency, usage proto.Usage) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var hostID int64
 		if err := tx.QueryRow(ctx, `SELECT id FROM hosts WHERE public_key = $1`, sqlPublicKey(hostKey)).Scan(&hostID); errors.Is(err, sql.ErrNoRows) {
@@ -139,6 +134,16 @@ func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, 
 		} else if resp.RowsAffected() != 1 {
 			return fmt.Errorf("expected 1 row to be affected, got %d", resp.RowsAffected())
 		}
+
+		// update host usage
+		query := `UPDATE hosts SET usage_account_funding = usage_account_funding + $1, usage_total_spent = usage_total_spent + $2 WHERE id = $3`
+		resp, err = tx.Exec(ctx, query, sqlCurrency(usage.AccountFunding), sqlCurrency(usage.RenterCost()), hostID)
+		if err != nil {
+			return fmt.Errorf("failed to update host usage: %w", err)
+		} else if resp.RowsAffected() != 1 {
+			return fmt.Errorf("host %q: %w", revision.HostPublicKey, hosts.ErrNotFound)
+		}
+
 		return nil
 	})
 }
@@ -146,7 +151,7 @@ func (s *Store) AddFormedContract(ctx context.Context, hostKey types.PublicKey, 
 // AddRenewedContract adds a renewed contract to the database. It will update
 // the renewed contract and point it to the renewal, as well as update the
 // contract id in the contract sectors map.
-func (s *Store) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee types.Currency) error {
+func (s *Store) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee types.Currency, usage proto.Usage) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		_, err := tx.Exec(ctx, `
 INSERT INTO contracts(host_id, contract_id, renewed_from, raw_revision, revision_number, proof_height, expiration_height, capacity, size, initial_allowance, remaining_allowance, total_collateral, used_collateral, contract_price, miner_fee)
@@ -182,6 +187,16 @@ INSERT INTO contracts(host_id, contract_id, renewed_from, raw_revision, revision
 		} else if res.RowsAffected() != 1 {
 			return fmt.Errorf("failed to update contract sectors map, no entry found for contract %v", sqlHash256(renewedFrom))
 		}
+
+		// update host usage
+		query := `UPDATE hosts SET usage_account_funding = usage_account_funding + $1, usage_total_spent = usage_total_spent + $2 WHERE public_key = $3`
+		res, err = tx.Exec(ctx, query, sqlCurrency(usage.AccountFunding), sqlCurrency(usage.RenterCost()), sqlPublicKey(revision.HostPublicKey))
+		if err != nil {
+			return fmt.Errorf("failed to update host usage: %w", err)
+		} else if res.RowsAffected() != 1 {
+			return fmt.Errorf("host %q: %w", revision.HostPublicKey, hosts.ErrNotFound)
+		}
+
 		return nil
 	})
 }

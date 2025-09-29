@@ -386,31 +386,15 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	store := newStoreMock()
 	hm := newHostManagerMock(store)
 
-	formContract := func(hostKey types.PublicKey, good bool) {
-		t.Helper()
-
-		err := store.AddFormedContract(context.Background(), hostKey, types.FileContractID(hostKey), newTestRevision(hostKey), types.Siacoins(1), types.Siacoins(2), types.Siacoins(3))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !good {
-			for i := range store.contracts {
-				if store.contracts[i].ID == types.FileContractID(hostKey) {
-					store.contracts[i].Good = false
-				}
-			}
-		}
-	}
-
 	// prepare hosts
 
 	// first one is good and has a good contract already -> no formation
 	good1 := goodHost(1)
-	formContract(good1.PublicKey, true)
+	store.addTestContract(t, good1.PublicKey, true)
 
 	// second one is bad with a good contract that shouldn't count -> no formation
 	bad1 := badHost(2)
-	formContract(bad1.PublicKey, true)
+	store.addTestContract(t, bad1.PublicKey, true)
 
 	// third one is good, but has the same location as the first one -> no formation
 	good2 := goodHost(3)
@@ -428,14 +412,15 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 
 	// sixth one is a good host with a bad contract which won't count -> forms a contract
 	good5 := goodHost(6)
-	formContract(good5.PublicKey, false)
+	store.addTestContract(t, good5.PublicKey, false)
 
 	// seventh one is good but full host takes priority -> no formation
 	good6 := goodHost(7)
 
 	// eighth one is good and has a full contract
 	good7 := goodHost(8)
-	formContract(good7.PublicKey, true)
+	store.addTestContract(t, good7.PublicKey, true)
+
 	for i := range store.contracts {
 		if store.contracts[i].ID == types.FileContractID(good7.PublicKey) {
 			store.contracts[i].Size = maxContractSize
@@ -464,7 +449,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	// collateral
 	good9 := goodHost(11)
 	good9.Settings.MaxCollateral = types.Siacoins(1000)
-	formContract(good9.PublicKey, true)
+	store.addTestContract(t, good9.PublicKey, true)
 	for i := range store.contracts {
 		if store.contracts[i].ID == types.FileContractID(good9.PublicKey) {
 			store.contracts[i].UsedCollateral = good9.Settings.MaxCollateral.Sub(minHostCollateral)
@@ -561,7 +546,7 @@ func TestPerformContractFormationWithContracts(t *testing.T) {
 	// form a contract with the previously ignored host to make it full and
 	// perform migrations with a 0 minimum. This should still form a contract
 	// with the host.
-	formContract(good6.PublicKey, true)
+	store.addTestContract(t, good6.PublicKey, true)
 	for i := range store.contracts {
 		if store.contracts[i].ID == types.FileContractID(good6.PublicKey) {
 			store.contracts[i].Size = maxContractSize

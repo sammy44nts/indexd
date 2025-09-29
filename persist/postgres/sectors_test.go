@@ -1049,9 +1049,9 @@ func TestUnhealthySlabs(t *testing.T) {
 
 	// renew the contract
 	renewedTo := types.FileContractID{1}
-	err = store.AddRenewedContract(context.Background(), contractID, renewedTo, types.V2FileContract{
-		ExpirationHeight: 0, // expired, will be pruned the next time PruneContractSectorsMap is called
-	}, types.ZeroCurrency, types.ZeroCurrency)
+	renewal := newTestRevision(hk)
+	renewal.ExpirationHeight = 0 // expired, will be pruned the next time PruneContractSectorsMap is called
+	err = store.AddRenewedContract(context.Background(), contractID, renewedTo, renewal, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
