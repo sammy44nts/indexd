@@ -113,7 +113,7 @@ func (c *HostClient) AccountBalance(ctx context.Context, account proto.Account) 
 // The integer returned does not indicate the number of sectors that were
 // appended, but rather the number of sectors that were attempted. Check the
 // result for the actual number of sectors that were appended.
-func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (res rhp.RPCAppendSectorsResult, remaining int, err error) {
+func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (res rhp.RPCAppendSectorsResult, attempted int, err error) {
 	// sanity check
 	if len(sectors) > proto.MaxSectorBatchSize {
 		return rhp.RPCAppendSectorsResult{}, 0, fmt.Errorf("too many sectors, %d > %d", len(sectors), proto.MaxSectorBatchSize) // developer error
@@ -142,7 +142,7 @@ func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPri
 		// only attempt to append up to the calculated maximum number of sectors
 		if uint64(len(sectors)) > maxAppendSectors {
 			sectors = sectors[:maxAppendSectors]
-			remaining = len(sectors)
+			attempted = len(sectors)
 		}
 
 		res, err = rhp.RPCAppendSectors(ctx, c.client, c.signer, c.cm.TipState(), hostPrices, contract, sectors)

@@ -194,7 +194,7 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// contracts with more
+	// contracts with greater capacity are preferred
 	for i, c := range store.contracts {
 		switch c.ID {
 		case fcid1:
