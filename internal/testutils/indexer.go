@@ -316,7 +316,7 @@ func (idx *Indexer) WalletAddr() types.Address {
 
 // AddAccount creates a test app connect key if it does not already exist and
 // creates an account using it.
-func (idx *Indexer) AddAccount(t testing.TB, ak types.PublicKey, meta accounts.AccountMeta) {
+func (idx *Indexer) AddAccount(t testing.TB, ak types.PublicKey) {
 	store := idx.Store()
 
 	const connectKey = "test"
@@ -333,7 +333,7 @@ func (idx *Indexer) AddAccount(t testing.TB, ak types.PublicKey, meta accounts.A
 		t.Fatal(err)
 	}
 
-	if err := store.UseAppConnectKey(t.Context(), connectKey, ak, meta); err != nil {
+	if err := store.UseAppConnectKey(t.Context(), connectKey, ak, accounts.AccountMeta{}); err != nil {
 		t.Fatal(err)
 	}
 }
