@@ -62,11 +62,10 @@ func TestContractPruning(t *testing.T) {
 	}
 
 	// pin the slab
-	slabID, err := client.PinSlab(context.Background(), params)
+	slabIDs, err := client.PinSlabs(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	slabIDs := []slabs.SlabID{slabID}
 
 	// assert the slab is pinned
 	time.Sleep(time.Second)
@@ -96,7 +95,7 @@ func TestContractPruning(t *testing.T) {
 	}
 
 	// unpin the slab
-	if err := client.UnpinSlab(context.Background(), slabID); err != nil {
+	if err := client.UnpinSlab(context.Background(), slabIDs[0]); err != nil {
 		t.Fatal(err)
 	}
 
