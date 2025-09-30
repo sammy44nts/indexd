@@ -245,9 +245,9 @@ func (s *Store) PinSlabs(ctx context.Context, account proto.Account, nextIntegri
 					return accounts.ErrStorageLimitExceeded
 				}
 
-				_, err := tx.Exec(ctx, `UPDATE accounts SET pinned_data = $1 WHERE id = $2`, newPinnedData, accountID)
+				_, err := tx.Exec(ctx, `UPDATE accounts SET last_used=NOW(), pinned_data = $1 WHERE id = $2`, newPinnedData, accountID)
 				if err != nil {
-					return fmt.Errorf("failed to update account's pinned data: %w", err)
+					return fmt.Errorf("failed to insert slab into account_slabs: %w", err)
 				}
 			}
 

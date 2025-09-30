@@ -41,11 +41,11 @@ type (
 		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error)
 		UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error
 
-		Object(ctx context.Context, account proto.Account, key types.Hash256) (slabs.Object, error)
+		Object(ctx context.Context, account proto.Account, key types.Hash256) (slabs.SealedObject, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
-		SaveObject(ctx context.Context, account proto.Account, obj slabs.Object) error
-		PinSharedObject(ctx context.Context, account proto.Account, shared slabs.SharedObject) error
-		ListObjects(ctx context.Context, account proto.Account, cursor slabs.Cursor, limit int) (objs []slabs.Object, _ error)
+		SaveObject(ctx context.Context, account proto.Account, obj slabs.SealedObject) error
+		ListObjects(ctx context.Context, account proto.Account, cursor slabs.Cursor, limit int) ([]slabs.SealedObject, error)
+		PinSharedObject(ctx context.Context, account proto.Account, encryptedMasterKey []byte, shared slabs.SharedObject) error
 		SharedObject(ctx context.Context, key types.Hash256) (slabs.SharedObject, error)
 	}
 
@@ -102,6 +102,12 @@ type (
 	// ApproveAppRequest is the request body for approving or rejecting an application connection request.
 	ApproveAppRequest struct {
 		Approve bool `json:"approve"`
+	}
+
+	// PinSharedObjectRequest is the request body for pinning a shared object.
+	PinSharedObjectRequest struct {
+		SharedObject       slabs.SharedObject `json:"sharedObject"`
+		EncryptedMasterKey []byte             `json:"encryptedMasterKey"`
 	}
 
 	app struct {
@@ -259,7 +265,7 @@ func (a *app) handleGETObjects(jc jape.Context, pk types.PublicKey) {
 }
 
 func (a *app) handlePOSTObjects(jc jape.Context, pk types.PublicKey) {
-	var obj slabs.Object
+	var obj slabs.SealedObject
 	if jc.Decode(&obj) != nil {
 		return
 	}
@@ -313,12 +319,12 @@ func (a *app) handlePOSTSlabs(jc jape.Context, pk types.PublicKey) {
 }
 
 func (a *app) handlePOSTObjectsShared(jc jape.Context, pk types.PublicKey) {
-	var shared slabs.SharedObject
-	if jc.Decode(&shared) != nil {
+	var req PinSharedObjectRequest
+	if jc.Decode(&req) != nil {
 		return
 	}
 
-	err := a.slabs.PinSharedObject(jc.Request.Context(), proto.Account(pk), shared)
+	err := a.slabs.PinSharedObject(jc.Request.Context(), proto.Account(pk), req.EncryptedMasterKey, req.SharedObject)
 	if errors.Is(err, slabs.ErrInvalidSlab) || errors.Is(err, slabs.ErrObjectMetadataLimitExceeded) || errors.Is(err, slabs.ErrObjectMinimumSlabs) {
 		jc.Error(err, http.StatusBadRequest)
 		return
