@@ -294,4 +294,11 @@ ALTER TABLE objects ADD COLUMN signature BYTEA UNIQUE NOT NULL CHECK (LENGTH(sig
 		}
 		return nil
 	},
+	// reset registered accounts
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		if _, err := tx.Exec(ctx, `UPDATE stats SET num_accounts_registered = (SELECT COUNT(*) FROM accounts);`); err != nil {
+			return fmt.Errorf("failed to reset num_accounts_registered: %w", err)
+		}
+		return nil
+	},
 }

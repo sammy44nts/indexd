@@ -305,10 +305,8 @@ func addAccount(ctx context.Context, tx *txn, account types.PublicKey, serviceAc
 	} else if res.RowsAffected() == 0 {
 		return accounts.ErrExists
 	}
-	if !serviceAccount {
-		if err := incrementNumAccounts(ctx, tx, 1); err != nil {
-			return fmt.Errorf("failed to increment registered accounts: %w", err)
-		}
+	if err := incrementNumAccounts(ctx, tx, 1); err != nil {
+		return fmt.Errorf("failed to increment registered accounts: %w", err)
 	}
 	return nil
 }

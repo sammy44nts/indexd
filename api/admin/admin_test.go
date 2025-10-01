@@ -892,10 +892,11 @@ func TestAccountStatsAPI(t *testing.T) {
 	cluster := testutils.NewCluster(t, testutils.WithHosts(3), testutils.WithLogger(logger))
 	indexer := cluster.Indexer
 	adminClient := indexer.Admin
+	const num_service_accounts = 2
 
 	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
 		t.Fatal(err)
-	} else if stats.Registered != 0 {
+	} else if stats.Registered != num_service_accounts {
 		t.Fatalf("expected 0 registered accounts, got %d", stats.Registered)
 	}
 
@@ -904,7 +905,7 @@ func TestAccountStatsAPI(t *testing.T) {
 
 	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
 		t.Fatal(err)
-	} else if stats.Registered != 1 {
+	} else if stats.Registered != num_service_accounts+1 {
 		t.Fatalf("expected 1 registered accounts, got %d", stats.Registered)
 	}
 
@@ -913,7 +914,7 @@ func TestAccountStatsAPI(t *testing.T) {
 
 	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
 		t.Fatal(err)
-	} else if stats.Registered != 2 {
+	} else if stats.Registered != num_service_accounts+2 {
 		t.Fatalf("expected 2 registered accounts, got %d", stats.Registered)
 	}
 
@@ -923,7 +924,7 @@ func TestAccountStatsAPI(t *testing.T) {
 
 	if stats, err := adminClient.StatsAccounts(t.Context()); err != nil {
 		t.Fatal(err)
-	} else if stats.Registered != 1 {
+	} else if stats.Registered != num_service_accounts+1 {
 		t.Fatalf("expected 1 registered accounts, got %d", stats.Registered)
 	}
 }
