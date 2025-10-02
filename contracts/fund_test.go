@@ -19,8 +19,18 @@ type fundAccountsCall struct {
 }
 
 type accountsManagerMock struct {
-	mu    sync.Mutex
-	calls []fundAccountsCall
+	mu             sync.Mutex
+	activeAccounts uint64
+	calls          []fundAccountsCall
+}
+
+func (am *accountsManagerMock) FundTarget(ctx context.Context, minAllowance types.Currency) (types.Currency, error) {
+	target := types.Siacoins(1).Mul64(am.activeAccounts)
+	if minAllowance.Cmp(target) == 1 {
+		target = minAllowance
+	}
+
+	return target, nil
 }
 
 func (am *accountsManagerMock) FundAccounts(ctx context.Context, host hosts.Host, contractIDs []types.FileContractID, _ bool, log *zap.Logger) error {

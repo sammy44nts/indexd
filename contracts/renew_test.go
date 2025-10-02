@@ -174,3 +174,85 @@ func TestPerformContractRenewals(t *testing.T) {
 		t.Fatal("expected bad host to not be dialed")
 	}
 }
+
+func TestRenewalAllowance(t *testing.T) {
+	amMock := &accountsManagerMock{}
+	cmMock := newChainManagerMock()
+	syncerMock := &syncerMock{}
+	badSettings := proto.HostSettings{}
+
+	const (
+		period      = 50
+		renewWindow = 10
+	)
+
+	// helper to create a good host
+	goodHost := func(i int) hosts.Host {
+		return hosts.Host{
+			PublicKey: types.PublicKey{byte(i)},
+			Settings:  badSettings, // will be updated by scan to good settings
+			Usability: hosts.GoodUsability,
+		}
+	}
+
+	store := &storeMock{}
+	hm := newHostManagerMock(store)
+
+	blockHeight := cmMock.state.Index.Height
+	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good bool) {
+		t.Helper()
+		revision := newTestRevision(hostKey)
+		revision.ProofHeight = blockHeight + renewWindow + 1
+		revision.ExpirationHeight = 9999
+		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !good {
+			for i := range store.contracts {
+				if store.contracts[i].ID == contractID {
+					store.contracts[i].Good = false
+				}
+			}
+		}
+	}
+
+	// prepare hosts
+
+	// first one is good with a good contract and a bad one
+	good := goodHost(1)
+	hm.settings[good.PublicKey] = goodSettings
+	formContract(types.FileContractID{1}, good.PublicKey, true)  // will renew
+	formContract(types.FileContractID{2}, good.PublicKey, false) // won't renew
+
+	// populate store
+	store.hosts = map[types.PublicKey]hosts.Host{
+		good.PublicKey: good,
+	}
+
+	dialer := newDialerMock()
+	renterKey := types.PublicKey{1, 2, 3, 4, 5}
+	wallet := &walletMock{}
+	contracts := newContractManager(renterKey, amMock, cmMock, store, dialer, hm, syncerMock, wallet)
+
+	assertRenewal := func(allowance types.Currency, call renewContractCall) {
+		t.Helper()
+		if call.params.Allowance != allowance {
+			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
+		}
+	}
+
+	cmMock.state.Index.Height++
+	blockHeight = cmMock.state.Index.Height
+
+	store.activeAccounts = 1000
+	if err := contracts.performContractRenewals(context.Background(), period, renewWindow, zap.NewNop()); err != nil {
+		t.Fatal(err)
+	}
+
+	allowance, err := amMock.FundTarget(context.Background(), minAllowance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRenewal(allowance, dialer.HostClient(good.PublicKey).renewCalls[0])
+}
