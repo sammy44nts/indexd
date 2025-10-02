@@ -27,10 +27,6 @@ const (
 	maxLimit     = 500
 )
 
-var (
-	apiLimits = []int{defaultLimit, maxLimit, 2 * maxLimit}
-)
-
 func TestContracts(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
@@ -1482,6 +1478,10 @@ func BenchmarkContracts(b *testing.B) {
 		maxContractSize     = 10 * 1 << 40 // 10TB
 		numContractsPerHost = 100
 		numHosts            = 1000
+	)
+
+	var (
+		apiLimits = []int{defaultLimit, maxLimit, 2 * maxLimit}
 	)
 
 	randomTime := func() time.Time {

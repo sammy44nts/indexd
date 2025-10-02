@@ -38,7 +38,7 @@ func (s *Store) ContractsStats(ctx context.Context) (resp admin.ContractsStatsRe
 		var numContracts, numGood, totalCapacity, totalSize uint64
 		err := tx.QueryRow(ctx, `
 			WITH globals AS (
-			SELECT scanned_height FROM global_settings
+				SELECT scanned_height FROM global_settings
 			)
 			SELECT
 				COUNT(*),       				-- non-expired contracts
