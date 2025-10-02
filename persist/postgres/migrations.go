@@ -301,4 +301,37 @@ ALTER TABLE objects ADD COLUMN signature BYTEA UNIQUE NOT NULL CHECK (LENGTH(sig
 		}
 		return nil
 	},
+	// recreate all contracts indices
+	func(ctx context.Context, tx *txn, l *zap.Logger) error {
+		if _, err := tx.Exec(ctx, `
+			DROP INDEX contracts_state_formation_idx;
+			DROP INDEX contracts_state_good_idx;
+			DROP INDEX contracts_last_broadcast_attempt_contract_id_idx;
+			DROP INDEX contracts_host_id_remaining_allowance_contract_id_idx;
+			DROP INDEX contracts_capacity_size_contract_id_idx;
+			DROP INDEX contracts_proof_height_idx;
+			DROP INDEX contracts_state_active_idx;
+			DROP INDEX contracts_active_host_size_idx;
+			DROP INDEX contracts_host_active_idx;
+		`); err != nil {
+			return fmt.Errorf("failed to drop contracts indices: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx, `
+			CREATE INDEX contracts_active_host_size_idx ON contracts(proof_height, host_id) INCLUDE (good, capacity, size) WHERE state IN (0,1) AND renewed_to IS NULL;
+			CREATE INDEX contracts_host_id_active_good_idx ON contracts(host_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good;
+			CREATE INDEX contracts_host_id_active_bad_idx ON contracts(host_id) WHERE state IN (0,1) AND renewed_to IS NULL AND NOT good;
+			CREATE INDEX contracts_host_id_inactive_good_idx ON contracts (host_id) WHERE state IN (2,3,4) AND good;
+			CREATE INDEX contracts_host_id_inactive_bad_idx ON contracts (host_id) WHERE state IN (2,3,4) AND NOT good;
+			CREATE INDEX contracts_last_broadcast_attempt_active_idx ON contracts (last_broadcast_attempt ASC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL;
+			CREATE INDEX contracts_host_id_remaining_allowance_active_idx ON contracts (host_id, remaining_allowance DESC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+			CREATE INDEX contracts_capacity_size_contract_id_idx ON contracts (host_id, capacity DESC, size DESC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+			CREATE INDEX contracts_size_contract_id_idx ON contracts (host_id, size DESC, contract_id) INCLUDE(next_prune) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+			CREATE INDEX contracts_formation_pending_idx ON contracts(formation) WHERE state = 0;
+		`); err != nil {
+			return fmt.Errorf("failed to create contracts indices: %w", err)
+		}
+
+		return nil
+	},
 }

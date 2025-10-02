@@ -220,28 +220,39 @@ CREATE TABLE contracts (
   -- raw contract revision data
   raw_revision BYTEA NOT NULL
 );
-CREATE INDEX contracts_state_formation_idx ON contracts(state, formation); -- for rejecting expired contracts
-CREATE INDEX contracts_state_good_idx ON contracts(state) WHERE state <= 1 AND good; -- for filtering contracts
-CREATE INDEX contracts_last_broadcast_attempt_contract_id_idx ON contracts (last_broadcast_attempt ASC, contract_id) WHERE renewed_to IS NULL; -- for fetching contracts for broadcasting
-CREATE INDEX contracts_host_id_remaining_allowance_contract_id_idx ON contracts (host_id, remaining_allowance DESC, contract_id) WHERE good = true AND remaining_allowance > 0; -- for fetching contracts for funding
-CREATE INDEX contracts_capacity_size_contract_id_idx ON contracts (capacity DESC, size DESC, contract_id) WHERE good = true AND remaining_allowance > 0; -- for fetching contracts for pinning
-
--- stats indices
-CREATE INDEX contracts_proof_height_idx ON contracts (proof_height);
-CREATE INDEX contracts_state_active_idx ON contracts(state) WHERE (state = 0 OR state = 1) AND renewed_to IS NULL;
-CREATE INDEX contracts_active_host_size_idx ON contracts(proof_height, host_id) INCLUDE (size) WHERE (state = 0 OR state = 1) AND renewed_to IS NULL;
 
 -- foreign key constraint index
 CREATE INDEX contracts_host_id_idx ON contracts(host_id);
+
+-- fetching contracts statistics
+CREATE INDEX contracts_active_host_size_idx ON contracts(proof_height, host_id) INCLUDE (good, capacity, size) WHERE state IN (0,1) AND renewed_to IS NULL;
+
+ -- listing contracts
+CREATE INDEX contracts_host_id_active_good_idx ON contracts(host_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good;
+CREATE INDEX contracts_host_id_active_bad_idx ON contracts(host_id) WHERE state IN (0,1) AND renewed_to IS NULL AND NOT good;
+CREATE INDEX contracts_host_id_inactive_good_idx ON contracts (host_id) WHERE state IN (2,3,4) AND good;
+CREATE INDEX contracts_host_id_inactive_bad_idx ON contracts (host_id) WHERE state IN (2,3,4) AND NOT good;
+
+-- contracts for broadcasting
+CREATE INDEX contracts_last_broadcast_attempt_active_idx ON contracts (last_broadcast_attempt ASC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL;
+
+-- contracts for funding
+CREATE INDEX contracts_host_id_remaining_allowance_active_idx ON contracts (host_id, remaining_allowance DESC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+
+-- contracts for pinning
+CREATE INDEX contracts_capacity_size_contract_id_idx ON contracts (host_id, capacity DESC, size DESC, contract_id) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+
+-- contracts for pruning
+CREATE INDEX contracts_size_contract_id_idx ON contracts (host_id, size DESC, contract_id) INCLUDE(next_prune) WHERE state IN (0,1) AND renewed_to IS NULL AND good AND remaining_allowance > 0;
+
+-- rejecting contracts
+CREATE INDEX contracts_formation_pending_idx ON contracts(formation) WHERE state = 0;
 
 CREATE TABLE contract_sectors_map (
     id SERIAL PRIMARY KEY,
     contract_id BYTEA UNIQUE REFERENCES contracts(contract_id) NOT NULL
 );
 CREATE INDEX contract_sectors_map_contract_id_idx ON contract_sectors_map(contract_id);
-
--- speeds up usable hosts lookup
-CREATE INDEX contracts_host_active_idx ON contracts (host_id) WHERE state <= 1;
 
 CREATE TABLE contract_elements (
     id SERIAL PRIMARY KEY,

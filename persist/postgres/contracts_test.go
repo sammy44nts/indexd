@@ -22,6 +22,15 @@ import (
 	"lukechampine.com/frand"
 )
 
+const (
+	defaultLimit = 100
+	maxLimit     = 500
+)
+
+var (
+	apiLimits = []int{defaultLimit, maxLimit, 2 * maxLimit}
+)
+
 func TestContracts(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
@@ -1479,6 +1488,7 @@ func BenchmarkContracts(b *testing.B) {
 		maxOneHour := time.Duration(frand.Uint64n(60*60)) * time.Second
 		return time.Now().Add(-30 * time.Minute).Add(maxOneHour)
 	}
+	_ = randomTime
 
 	// prepare database
 	store := initPostgres(b, zap.NewNop())
@@ -1510,6 +1520,13 @@ func BenchmarkContracts(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	// analyze tables to ensure query planner has up-to-date statistics
+	_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) hosts;`)
+	_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contracts;`)
+	if err := errors.Join(vErr1, vErr2); err != nil {
+		b.Fatal(err)
+	}
+
 	b.Run("contract", func(b *testing.B) {
 		if b.N > len(contractIDs) {
 			b.Fatalf("too many iterations, %d > %d", b.N, len(contractIDs))
@@ -1523,7 +1540,22 @@ func BenchmarkContracts(b *testing.B) {
 		}
 	})
 
-	for _, limit := range []int{100, 1000} {
+	b.Run("contracts_revisions", func(b *testing.B) {
+		for b.Loop() {
+			contractID := contractIDs[frand.Intn(len(contractIDs))]
+			contract, _, err := store.ContractRevision(context.Background(), contractID)
+			if err != nil {
+				b.Fatal(err)
+			}
+			contract.Revision.RevisionNumber++
+			if err := store.UpdateContractRevision(context.Background(), contract); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	// benchmark store.Contracts and all permutations of its parameters
+	for _, limit := range apiLimits {
 		b.Run(fmt.Sprintf("contracts_%d", limit), func(b *testing.B) {
 			for b.Loop() {
 				_, err := store.Contracts(context.Background(), 0, limit)
@@ -1532,15 +1564,7 @@ func BenchmarkContracts(b *testing.B) {
 				}
 			}
 		})
-		b.Run(fmt.Sprintf("contracts_revisable_%d", limit), func(b *testing.B) {
-			for b.Loop() {
-				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true))
-				if err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-		b.Run(fmt.Sprintf("contracts_revisable+good_%d", limit), func(b *testing.B) {
+		b.Run(fmt.Sprintf("contracts_revisable_good_limit_%d", limit), func(b *testing.B) {
 			for b.Loop() {
 				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true), contracts.WithGood(true))
 				if err != nil {
@@ -1548,7 +1572,33 @@ func BenchmarkContracts(b *testing.B) {
 				}
 			}
 		})
+		b.Run(fmt.Sprintf("contracts_revisable_bad_limit_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true), contracts.WithGood(false))
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("contracts_nonrevisable_good_limit_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(false), contracts.WithGood(true))
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("contracts_nonrevisable_bad_limit_%d", limit), func(b *testing.B) {
+			for b.Loop() {
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(false), contracts.WithGood(false))
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 
+	for _, limit := range apiLimits {
 		b.Run(fmt.Sprintf("contracts_for_broadcasting_%d", limit), func(b *testing.B) {
 			for b.Loop() {
 				_, err := store.ContractsForBroadcasting(context.Background(), randomTime(), limit)
@@ -1557,7 +1607,10 @@ func BenchmarkContracts(b *testing.B) {
 				}
 			}
 		})
-		b.Run(fmt.Sprintf("contracts_for_funding_%d", limit), func(b *testing.B) {
+	}
+
+	for _, limit := range apiLimits {
+		b.Run(fmt.Sprintf("contracts_for_funding_limit_%d", limit), func(b *testing.B) {
 			for b.Loop() {
 				_, err := store.ContractsForFunding(context.Background(), hosts[frand.Intn(len(hosts))], limit)
 				if err != nil {
@@ -1585,17 +1638,26 @@ func BenchmarkContracts(b *testing.B) {
 		}
 	})
 
-	b.Run("contracts_revisions", func(b *testing.B) {
+	b.Run("reject_expired_contracts", func(b *testing.B) {
+		now := time.Now()
+		start := now.Add(-30 * time.Minute)
+
 		for b.Loop() {
-			contractID := contractIDs[frand.Intn(len(contractIDs))]
-			contract, _, err := store.ContractRevision(context.Background(), contractID)
+			err := store.RejectPendingContracts(context.Background(), start)
 			if err != nil {
 				b.Fatal(err)
 			}
-			contract.Revision.RevisionNumber++
-			if err := store.UpdateContractRevision(context.Background(), contract); err != nil {
-				b.Fatal(err)
+
+			b.StopTimer()
+			start = start.Add(time.Minute)
+			if start.Equal(now.Add(30 * time.Minute)) {
+				start = now.Add(-30 * time.Minute)
+				_, err := store.pool.Exec(b.Context(), `UPDATE contracts SET state = 0, formation = $1::timestamptz + ((random() * 2 - 1) * (INTERVAL '30 minutes')) WHERE state = 4 AND id %2 = 0`, now)
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
+			b.StartTimer()
 		}
 	})
 }
@@ -1792,13 +1854,37 @@ func insertRandomContract(b *testing.B, tx *txn, hostID int64, hostKey types.Pub
 		return time.Now().Add(-30 * time.Minute).Add(maxOneHour)
 	}
 
+	// randomContractState returns a random contract state that somewhat resembles production
+	// distribution.
+	//
+	//   -  5%   Pending
+	//   - 10%   Active
+	//   - 75%   Resolved
+	//   -  5%   Expired
+	//   -  5%   Rejected
+	randomContractState := func() contracts.ContractState {
+		r := frand.Uint64n(100) // 0–99
+		switch {
+		case r < 5:
+			return contracts.ContractStatePending
+		case r < 15:
+			return contracts.ContractStateActive
+		case r < 90:
+			return contracts.ContractStateResolved
+		case r < 95:
+			return contracts.ContractStateExpired
+		default:
+			return contracts.ContractStateRejected
+		}
+	}
+
 	revision := newTestRevision(hostKey)
 	revision.Filesize = frand.Uint64n(1e9)                                                            // random size
 	revision.Capacity = revision.Filesize + frand.Uint64n(1e3)                                        // random capacity
 	revision.RenterOutput.Value = types.Siacoins(100).Add(types.Siacoins(uint32(frand.Uint64n(100)))) // random allowance
 
 	if _, err := tx.Exec(b.Context(), `
-		INSERT INTO contracts (host_id, contract_id, raw_revision, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity, last_broadcast_attempt, next_prune) VALUES ($1, $2, $3, 1, 2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);`,
+		INSERT INTO contracts (host_id, contract_id, raw_revision, proof_height, expiration_height, contract_price, initial_allowance, miner_fee, total_collateral, remaining_allowance, state, good, size, capacity, last_broadcast_attempt, next_prune, formation) VALUES ($1, $2, $3, 1, 2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);`,
 		hostID,
 		sqlHash256(fcid),
 		sqlFileContract(revision),
@@ -1807,12 +1893,13 @@ func insertRandomContract(b *testing.B, tx *txn, hostID int64, hostKey types.Pub
 		sqlCurrency(types.ZeroCurrency),
 		sqlCurrency(revision.RemainingAllowance().Add(types.Siacoins(1))), // 1SC more than initial allowance
 		sqlCurrency(revision.RemainingAllowance()),
-		sqlContractState(uint8(frand.Uint64n(5))), // random contract state (40% active)
-		frand.Uint64n(2) == 0,                     // random good state (50% good)
+		sqlContractState(randomContractState()),
+		frand.Uint64n(10) < 7, // random good state (70% good - based on production data)
 		revision.Filesize,
 		revision.Capacity,
 		randomTime(), // random last_broadcast_attempt
 		randomTime(), // random next_prune
+		randomTime(), // random formation
 	); err != nil {
 		b.Fatal(err)
 	} else if _, err := tx.Exec(b.Context(), `INSERT INTO contract_sectors_map (contract_id) VALUES ($1)`, sqlHash256(fcid)); err != nil {
