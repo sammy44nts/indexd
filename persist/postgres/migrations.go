@@ -344,9 +344,14 @@ FROM objects o;
 			return fmt.Errorf("failed to insert object events: %w", err)
 		}
 
-		_, err = t.Exec(ctx, `CREATE INDEX object_events ON object_events(updated_at ASC, object_key ASC);`)
+		_, err = t.Exec(ctx, `CREATE INDEX object_events_updated_at_object_key_idx ON object_events(updated_at ASC, object_key ASC);`)
 		if err != nil {
 			return fmt.Errorf("failed to create object event index: %w", err)
+		}
+
+		_, err = t.Exec(ctx, `DROP INDEX objects_updated_at_object_key_idx;`)
+		if err != nil {
+			return fmt.Errorf("failed to drop old index: %w", err)
 		}
 
 		return nil
