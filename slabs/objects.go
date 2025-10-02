@@ -81,7 +81,7 @@ var (
 	// object containing a slab that is not pinned to their account.
 	ErrObjectUnpinnedSlab = errors.New("object contains unpinned slab")
 
-	// ErrInvalidSlab is returned when a slab in the object contains an invalid slab.
+	// ErrInvalidSlab is returned when an invalid slab is being pinned
 	ErrInvalidSlab = errors.New("slab is invalid")
 )
 
