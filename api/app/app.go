@@ -35,8 +35,8 @@ type (
 
 	// Slabs defines the slab interface for the application API.
 	Slabs interface {
+		PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin ...slabs.SlabPinParams) ([]slabs.SlabID, error)
 		PruneSlabs(ctx context.Context, account proto.Account) error
-		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab slabs.SlabPinParams) (slabs.SlabID, error)
 		PinnedSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) (slabs.PinnedSlab, error)
 		SlabIDs(ctx context.Context, account proto.Account, offset, limit int) ([]slabs.SlabID, error)
 		UnpinSlab(ctx context.Context, account proto.Account, slabID slabs.SlabID) error
@@ -44,7 +44,7 @@ type (
 		Object(ctx context.Context, account proto.Account, key types.Hash256) (slabs.SealedObject, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
 		SaveObject(ctx context.Context, account proto.Account, obj slabs.SealedObject) error
-		ListObjects(ctx context.Context, account proto.Account, cursor slabs.Cursor, limit int) (objs []slabs.SealedObject, _ error)
+		ListObjects(ctx context.Context, account proto.Account, cursor slabs.Cursor, limit int) ([]slabs.SealedObject, error)
 		SharedObject(ctx context.Context, key types.Hash256) (slabs.SharedObject, error)
 	}
 
@@ -292,21 +292,26 @@ func (a *app) handleDELETEObjects(jc jape.Context, pk types.PublicKey) {
 }
 
 func (a *app) handlePOSTSlabs(jc jape.Context, pk types.PublicKey) {
-	var params slabs.SlabPinParams
+	var params []slabs.SlabPinParams
 	if err := jc.Decode(&params); err != nil {
 		jc.Error(err, http.StatusBadRequest)
 		return
-	} else if err := params.Validate(); err != nil {
-		jc.Error(fmt.Errorf("invalid slab pin params: %w", err), http.StatusBadRequest)
-		return
+	}
+	for _, param := range params {
+		if err := param.Validate(); err != nil {
+			jc.Error(fmt.Errorf("invalid slab pin params: %w", err), http.StatusBadRequest)
+			return
+		}
 	}
 
-	slabID, err := a.slabs.PinSlab(jc.Request.Context(), proto.Account(pk), time.Now(), params)
+	slabIDs, err := a.slabs.PinSlabs(jc.Request.Context(), proto.Account(pk), time.Now(), params...)
 	if jc.Check("failed to pin slab", err) != nil {
 		return
+	} else if len(slabIDs) == 0 {
+		jc.Error(fmt.Errorf("PinSlabs did not return any slab IDs"), http.StatusInternalServerError)
 	}
 
-	jc.Encode(slabID)
+	jc.Encode(slabIDs)
 }
 
 func (a *app) handlePOSTSlabsPrune(jc jape.Context, pk types.PublicKey) {

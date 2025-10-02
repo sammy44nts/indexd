@@ -121,7 +121,7 @@ func TestHost(t *testing.T) {
 	// pin a sector and mark it as lost
 	r1 := types.Hash256{1}
 	db.addTestAccount(t, hk)
-	if _, err := db.PinSlab(context.Background(), proto4.Account(hk), time.Now(), slabs.SlabPinParams{
+	if _, err := db.PinSlabs(context.Background(), proto4.Account(hk), time.Now(), slabs.SlabPinParams{
 		EncryptionKey: [32]byte{},
 		MinShards:     1,
 		Sectors:       []slabs.PinnedSector{{Root: r1, HostKey: hk}},
@@ -812,7 +812,7 @@ func TestHostsWithLostSectors(t *testing.T) {
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
 	root4 := frand.Entropy256()
-	_, err := db.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+	_, err := db.PinSlabs(context.Background(), account, time.Time{}, slabs.SlabPinParams{
 		EncryptionKey: [32]byte{},
 		MinShards:     10,
 		Sectors: []slabs.PinnedSector{
@@ -904,7 +904,7 @@ func TestHostsWithUnpinnableSectors(t *testing.T) {
 	hk4 := db.addTestHost(t)
 	db.addTestContract(t, hk4)
 
-	_, err := db.PinSlab(context.Background(), account, time.Time{}, slabs.SlabPinParams{
+	_, err := db.PinSlabs(context.Background(), account, time.Time{}, slabs.SlabPinParams{
 		EncryptionKey: [32]byte{},
 		MinShards:     1,
 		Sectors: []slabs.PinnedSector{
@@ -1617,7 +1617,7 @@ func TestHostsForPinning(t *testing.T) {
 
 	// pin a slab with sector on both hosts
 	r1 := frand.Entropy256()
-	if _, err := db.PinSlab(context.Background(), acc, time.Now(), slabs.SlabPinParams{
+	if _, err := db.PinSlabs(context.Background(), acc, time.Now(), slabs.SlabPinParams{
 		EncryptionKey: [32]byte{},
 		MinShards:     1,
 		Sectors: []slabs.PinnedSector{
@@ -1814,7 +1814,7 @@ func TestHostsForIntegrityChecks(t *testing.T) {
 	// helper to pin sector with a given checkTime
 	pinSector := func(hk types.PublicKey, root types.Hash256, nextCheck time.Time) {
 		t.Helper()
-		_, err := db.PinSlab(context.Background(), acc, nextCheck, slabs.SlabPinParams{
+		_, err := db.PinSlabs(context.Background(), acc, nextCheck, slabs.SlabPinParams{
 			EncryptionKey: [32]byte{},
 			MinShards:     1,
 			Sectors: []slabs.PinnedSector{
@@ -1966,7 +1966,7 @@ func BenchmarkHostsForPinning(b *testing.B) {
 				})
 				roots = append(roots, root)
 			}
-			if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			if _, err := store.PinSlabs(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 				MinShards:     1,
 				EncryptionKey: frand.Entropy256(),
 				Sectors:       sectors,
@@ -2021,7 +2021,7 @@ func BenchmarkHostsForIntegrityCheck(b *testing.B) {
 					HostKey: hk,
 				})
 			}
-			if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			if _, err := store.PinSlabs(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 				MinShards:     1,
 				EncryptionKey: frand.Entropy256(),
 				Sectors:       sectors,
@@ -2082,7 +2082,7 @@ func BenchmarkHostsWithLostSectors(b *testing.B) {
 					HostKey: hk,
 				})
 			}
-			if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			if _, err := store.PinSlabs(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 				MinShards:     1,
 				EncryptionKey: frand.Entropy256(),
 				Sectors:       sectors,
@@ -2136,7 +2136,7 @@ func BenchmarkHostsWithUnpinnableSectors(b *testing.B) {
 					HostKey: hk,
 				})
 			}
-			if _, err := store.PinSlab(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
+			if _, err := store.PinSlabs(context.Background(), account, time.Now().Add(time.Hour), slabs.SlabPinParams{
 				MinShards:     1,
 				EncryptionKey: frand.Entropy256(),
 				Sectors:       sectors,

@@ -121,21 +121,21 @@ func (s SlabPinParams) Size() uint64 {
 // are no duplicate host keys or empty roots in the sectors.
 func (s SlabPinParams) Validate() error {
 	if s.EncryptionKey == ([32]byte{}) {
-		return errors.New("encryption key is empty")
+		return fmt.Errorf("%w: encryption key is empty", ErrInvalidSlab)
 	} else if len(s.Sectors) < int(s.MinShards*DefaultRedundancy) {
-		return fmt.Errorf("%w: minimum redundancy of %dx is not met", ErrInsufficientRedundancy, DefaultRedundancy)
+		return fmt.Errorf("%w: %w: minimum redundancy of %dx is not met", ErrInvalidSlab, ErrInsufficientRedundancy, DefaultRedundancy)
 	} else if len(s.Sectors) > MaxTotalShards {
-		return fmt.Errorf("total number of shards %d exceeds maximum of %d", len(s.Sectors), MaxTotalShards)
+		return fmt.Errorf("%w: total number of shards %d exceeds maximum of %d", ErrInvalidSlab, len(s.Sectors), MaxTotalShards)
 	}
 
 	hks := make(map[types.PublicKey]struct{}, len(s.Sectors))
 	for i, sector := range s.Sectors {
 		if sector.Root == (types.Hash256{}) {
-			return errors.New("sector root is empty")
+			return fmt.Errorf("%w: sector root is empty", ErrInvalidSlab)
 		} else if sector.HostKey == (types.PublicKey{}) {
-			return fmt.Errorf("sector %d host key is empty", i)
+			return fmt.Errorf("%w: sector %d host key is empty", ErrInvalidSlab, i)
 		} else if _, exists := hks[sector.HostKey]; exists {
-			return fmt.Errorf("duplicate host key %s in slab pin params", sector.HostKey)
+			return fmt.Errorf("%w: duplicate host key %s in slab pin params", ErrInvalidSlab, sector.HostKey)
 		}
 		hks[sector.HostKey] = struct{}{}
 	}
@@ -143,9 +143,10 @@ func (s SlabPinParams) Validate() error {
 	return nil
 }
 
-// PinSlab pins the given slab and associates it with the given account.
-func (m *SlabManager) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error) {
-	return m.store.PinSlab(ctx, account, nextIntegrityCheck, slab)
+// PinSlabs adds slabs to the database for pinning. The slabs are associated
+// with the provided account.
+func (m *SlabManager) PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin ...SlabPinParams) ([]SlabID, error) {
+	return m.store.PinSlabs(ctx, account, nextIntegrityCheck, toPin...)
 }
 
 // UnpinSlab removes the association between the account and the given slab. If

@@ -166,37 +166,41 @@ func (s *mockStore) MigrateSector(ctx context.Context, root types.Hash256, hostK
 	return false, nil
 }
 
-func (s *mockStore) PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error) {
-	slabID, err := slab.Digest()
-	if err != nil {
-		return SlabID{}, err
-	}
-
-	sectors := make([]Sector, 0, len(slab.Sectors))
-	for _, ss := range slab.Sectors {
-		contract, ok := s.contracts[ss.HostKey]
-		if !ok {
-			sectors = append(sectors, Sector{Root: ss.Root})
-			continue
+func (s *mockStore) PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slabs ...SlabPinParams) ([]SlabID, error) {
+	var digests []SlabID
+	for _, slab := range slabs {
+		slabID, err := slab.Digest()
+		if err != nil {
+			return nil, err
 		}
-		sectors = append(sectors, Sector{
-			Root:       ss.Root,
-			ContractID: &contract.ID,
-			HostKey:    &contract.HostKey,
-		})
-	}
+		digests = append(digests, slabID)
 
-	_, ok := s.pinnedSlabs[account]
-	if !ok {
-		s.pinnedSlabs[account] = make(map[SlabID]Slab)
+		sectors := make([]Sector, 0, len(slab.Sectors))
+		for _, ss := range slab.Sectors {
+			contract, ok := s.contracts[ss.HostKey]
+			if !ok {
+				sectors = append(sectors, Sector{Root: ss.Root})
+				continue
+			}
+			sectors = append(sectors, Sector{
+				Root:       ss.Root,
+				ContractID: &contract.ID,
+				HostKey:    &contract.HostKey,
+			})
+		}
+
+		_, ok := s.pinnedSlabs[account]
+		if !ok {
+			s.pinnedSlabs[account] = make(map[SlabID]Slab)
+		}
+		s.pinnedSlabs[account][slabID] = Slab{
+			ID:            slabID,
+			EncryptionKey: slab.EncryptionKey,
+			MinShards:     slab.MinShards,
+			Sectors:       sectors,
+		}
 	}
-	s.pinnedSlabs[account][slabID] = Slab{
-		ID:            slabID,
-		EncryptionKey: slab.EncryptionKey,
-		MinShards:     slab.MinShards,
-		Sectors:       sectors,
-	}
-	return slabID, nil
+	return digests, nil
 }
 
 func (s *mockStore) UnpinSlab(ctx context.Context, account proto.Account, slabID SlabID) error {
