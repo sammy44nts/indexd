@@ -36,6 +36,7 @@ type storeMock struct {
 	pruneCalls                int
 	pruneContractSectorsCalls int
 	rejectCalls               int
+	activeAccounts            uint64
 	settings                  MaintenanceSettings
 	hosts                     map[types.PublicKey]hosts.Host
 	sectors                   map[types.PublicKey][]sector
@@ -48,13 +49,14 @@ type sector struct {
 
 func newStoreMock() *storeMock {
 	return &storeMock{
-		hosts:   make(map[types.PublicKey]hosts.Host),
-		sectors: make(map[types.PublicKey][]sector),
+		hosts:          make(map[types.PublicKey]hosts.Host),
+		sectors:        make(map[types.PublicKey][]sector),
+		activeAccounts: 1,
 	}
 }
 
 func (s *storeMock) ActiveAccounts(ctx context.Context, threshold time.Time) (uint64, error) {
-	return 1, nil
+	return s.activeAccounts, nil
 }
 
 func (s *storeMock) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error {
