@@ -2,11 +2,13 @@ package client
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.uber.org/zap"
 )
@@ -55,13 +57,35 @@ func NewDialer(cm ChainManager, signer rhp.FormContractSigner, store RevisionSto
 // DialHost dials the host and returns a Client that can be used to interact
 // with the host. It uses the SiaMux protocol to establish a connection and
 // returns a host client that exposes the RPC methods defined in the RHP.
-func (d *Dialer) DialHost(ctx context.Context, hk types.PublicKey, addr string) (*HostClient, error) {
+func (d *Dialer) DialHost(ctx context.Context, hk types.PublicKey, addrs []chain.NetAddress) (*HostClient, error) {
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
-	tc, err := siamux.Dial(ctx, addr, hk)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial host: %w", err)
+	var tc rhp.TransportClient
+	for _, addr := range addrs {
+		if addr.Protocol == siamux.Protocol {
+			var err error
+			tc, err = siamux.Dial(ctx, addr.Address, hk)
+			if err != nil {
+				d.log.Debug("failed to dial host over siamux", zap.Stringer("pk", hk), zap.String("addr", addr.Address), zap.Error(err))
+				break
+			}
+			break
+		}
+	}
+	for _, addr := range addrs {
+		if addr.Protocol == quic.Protocol {
+			var err error
+			tc, err = quic.Dial(ctx, addr.Address, hk)
+			if err != nil {
+				d.log.Debug("failed to dial host over QUIC", zap.Stringer("pk", hk), zap.String("addr", addr.Address), zap.Error(err))
+				break
+			}
+			break
+		}
+	}
+	if tc == nil {
+		return nil, errors.New("host has no valid addresses")
 	}
 
 	return newHostClient(hk, d.cm, tc, d.signer, d.store, d.revisionSubmissionBuffer, d.log.With(zap.Stringer("hostKey", hk))), nil

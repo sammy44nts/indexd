@@ -50,7 +50,7 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 	contractLog := log.With(zap.Stringer("hostKey", contract.HostKey), zap.Stringer("contractID", contract.ID))
 
 	return cm.hosts.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
-		hc, err := cm.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+		hc, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
 		if err != nil {
 			contractLog.Debug("failed to dial host", zap.Error(err))
 			return nil

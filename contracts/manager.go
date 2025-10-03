@@ -9,6 +9,7 @@ import (
 	"go.sia.tech/core/consensus"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
@@ -81,7 +82,7 @@ type (
 	// Dialer defines an interface for dialing the host and returning a host client. This client can be used to
 	// interact with the host using the RHP methods. The client is expected to be closed when no longer needed.
 	Dialer interface {
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
+		DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error)
 	}
 
 	// HostManager defines the minimal interface of HostManager functionality
@@ -250,8 +251,8 @@ type wrapper struct {
 }
 
 // DialHost dials the host and returns a HostClient.
-func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
-	client, err := w.d.DialHost(ctx, hostKey, addr)
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addrs)
 	if err != nil {
 		return nil, err
 	}

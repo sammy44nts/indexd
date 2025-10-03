@@ -287,7 +287,7 @@ func (idx *Indexer) HostClient(t *testing.T, hk types.PublicKey) *client.HostCli
 	if err != nil {
 		t.Fatalf("failed to get host %s: %v", hk, err) // developer error
 	}
-	hc, err := idx.dialer.DialHost(context.Background(), hk, h.SiamuxAddr())
+	hc, err := idx.dialer.DialHost(context.Background(), hk, h.RHP4Addrs())
 	if err != nil {
 		t.Fatalf("failed to dial host %s: %v", hk, err) // developer error
 	}

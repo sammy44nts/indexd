@@ -54,7 +54,7 @@ func (d *dialerMock) HostClient(hostKey types.PublicKey) *hostClientMock {
 	return d.clients[hostKey]
 }
 
-func (d *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+func (d *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
 	if _, ok := d.clients[hostKey]; !ok {
 		d.clients[hostKey] = newHostClientMock()
 	}

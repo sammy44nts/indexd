@@ -146,7 +146,7 @@ func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, sector Se
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
 
-	client, err := m.dialer.DialHost(ctx, h.PublicKey, h.SiamuxAddr())
+	client, err := m.dialer.DialHost(ctx, h.PublicKey, h.RHP4Addrs())
 	if err != nil {
 		return proto.Usage{}, nil, fmt.Errorf("failed to dial host: %w", err)
 	}

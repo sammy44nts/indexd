@@ -10,6 +10,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/accounts"
@@ -61,7 +62,7 @@ type (
 
 	// A Dialer is an interface for writing and reading sectors to/from hosts.
 	Dialer interface {
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
+		DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error)
 	}
 
 	// HostClient defines the dependencies required to upload and download
@@ -161,8 +162,8 @@ type wrapper struct {
 }
 
 // DialHost dials the host and returns a HostClient.
-func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
-	client, err := w.d.DialHost(ctx, hostKey, addr)
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addrs)
 	if err != nil {
 		return nil, err
 	}

@@ -52,7 +52,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 	)
 
 	return cm.hosts.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
-		hc, err := cm.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+		hc, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
 		if err != nil {
 			contractLog.Debug("failed to dial host", zap.Error(err))
 			return nil
