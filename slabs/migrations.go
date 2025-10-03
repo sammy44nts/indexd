@@ -199,7 +199,7 @@ func sectorsToMigrate(slab Slab, allHosts []hosts.Host, goodContracts []contract
 		// add the host to the spaced set to ensure we don't use hosts that are
 		// too close to existing hosts
 		if host, ok := hostsMap[*sector.HostKey]; ok {
-			set.Add(host)
+			set.Add(host.Info())
 		}
 	}
 
@@ -207,7 +207,7 @@ func sectorsToMigrate(slab Slab, allHosts []hosts.Host, goodContracts []contract
 	// are sufficiently far apart
 	var candidates []hosts.Host
 	for _, contract := range goodContractMap {
-		if host, ok := hostsMap[contract.HostKey]; ok && set.Add(host) {
+		if host, ok := hostsMap[contract.HostKey]; ok && set.Add(host.Info()) {
 			candidates = append(candidates, host)
 		}
 	}

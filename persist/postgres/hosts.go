@@ -636,9 +636,8 @@ WHERE
 
 		for _, h := range dbHosts {
 			usable = append(usable, hosts.HostInfo{
-				PublicKey: h.PublicKey,
-				Addresses: h.Addresses,
-
+				PublicKey:   h.PublicKey,
+				Addresses:   h.Addresses,
 				CountryCode: h.CountryCode,
 				Latitude:    h.Latitude,
 				Longitude:   h.Longitude,
