@@ -49,7 +49,7 @@ type (
 		Deleted   bool          `json:"deleted"`
 		UpdatedAt time.Time     `json:"updatedAt"`
 
-		Object *SealedObject `json:"object"`
+		Object *SealedObject `json:"object,omitempty"`
 	}
 
 	// Cursor describes a cursor for paginating through objects. During
