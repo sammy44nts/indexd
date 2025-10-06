@@ -614,7 +614,7 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 2 {
 		t.Fatal("unexpected", len(hosts))
-	} else if hosts[0].PublicKey != uh2 || hosts[1].PublicKey != uh1 {
+	} else if hosts[0].PublicKey != uh1 || hosts[1].PublicKey != uh2 {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
 	} else if hosts[0].Addresses == nil || hosts[1].Addresses == nil {
 		t.Fatal("expected hosts to have addresses")
@@ -625,13 +625,13 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 1 {
 		t.Fatal("unexpected", len(hosts))
-	} else if hosts[0].PublicKey != uh2 {
+	} else if hosts[0].PublicKey != uh1 {
 		t.Fatal("unexpected host", hosts[0].PublicKey)
 	} else if hosts, err := db.UsableHosts(context.Background(), 1, 1); err != nil {
 		t.Fatal("unexpected", err)
 	} else if len(hosts) != 1 {
 		t.Fatal("unexpected", len(hosts))
-	} else if hosts[0].PublicKey != uh1 {
+	} else if hosts[0].PublicKey != uh2 {
 		t.Fatal("unexpected host", hosts[0].PublicKey)
 	} else if hosts, err := db.UsableHosts(context.Background(), 2, 1); err != nil {
 		t.Fatal("unexpected", err)

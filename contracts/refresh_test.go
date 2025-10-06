@@ -84,24 +84,26 @@ func TestPerformContractRefreshes(t *testing.T) {
 
 	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good, oof, ooc bool) {
 		t.Helper()
-		revision := newTestRevision(hostKey)
-		revision.ProofHeight = proofHeight
-		revision.ExpirationHeight = expirationHeight
-		revision.TotalCollateral = totalCollateral
-		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), initialAllowance, types.Siacoins(3))
-		if err != nil {
-			t.Fatal(err)
+
+		store.addTestContract(t, hostKey, good, contractID)
+
+		i := len(store.contracts) - 1
+		if store.contracts[i].ID != contractID || store.revisions[i].ID != contractID {
+			panic("unexpected contract/revision") // developer error
 		}
-		for i := range store.contracts {
-			if store.contracts[i].ID == contractID {
-				store.contracts[i].Good = good
-				if oof {
-					store.contracts[i].RemainingAllowance = types.Siacoins(9)
-				}
-				if ooc {
-					store.contracts[i].UsedCollateral = types.Siacoins(91)
-				}
-			}
+
+		store.revisions[i].Revision.ProofHeight = proofHeight
+		store.revisions[i].Revision.ExpirationHeight = expirationHeight
+		store.revisions[i].Revision.TotalCollateral = totalCollateral
+
+		store.contracts[i].InitialAllowance = initialAllowance
+		store.contracts[i].RemainingAllowance = initialAllowance
+
+		if oof {
+			store.contracts[i].RemainingAllowance = types.Siacoins(9)
+		}
+		if ooc {
+			store.contracts[i].UsedCollateral = types.Siacoins(91)
 		}
 	}
 

@@ -56,8 +56,7 @@ type (
 	// contract's revision.
 	RevisionStore interface {
 		ContractRevision(ctx context.Context, contractID types.FileContractID) (rhp.ContractRevision, bool, error)
-		UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision) error
-		UpdateHostUsage(ctx context.Context, hostKey types.PublicKey, usage proto.Usage) error
+		UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, usage proto.Usage) error
 	}
 )
 
@@ -167,8 +166,6 @@ func (c *HostClient) FormContract(ctx context.Context, settings proto.HostSettin
 	res, err := rhp.RPCFormContract(ctx, c.client, c.cm, c.signer, c.cm.TipState(), settings.Prices, c.hostKey, settings.WalletAddress, params)
 	if err != nil {
 		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to form contract: %w", err)
-	} else if err := c.store.UpdateHostUsage(ctx, c.hostKey, res.Usage); err != nil {
-		return rhp.RPCFormContractResult{}, fmt.Errorf("failed to update host usage: %w", err)
 	}
 	return res, nil
 }
@@ -322,8 +319,17 @@ func (c *HostClient) syncRevision(ctx context.Context, contractID types.FileCont
 		return types.V2FileContract{}, false, errors.New("local revision is newer than host revision")
 	}
 
+	// attribute a lower remaining allowance to the usage, note: we don't know
+	// what it was spent on, we track it as storage so it comes up in total
+	// spending but not in account funding
+	var usage proto.Usage
+	if resp.Contract.RemainingAllowance().Cmp(revision.RemainingAllowance()) < 0 {
+		usage.Storage = revision.RemainingAllowance().Sub(resp.Contract.RemainingAllowance())
+	}
+
 	// update latest revision
-	err = c.store.UpdateContractRevision(ctx, rhp.ContractRevision{ID: contractID, Revision: resp.Contract})
+	contract := rhp.ContractRevision{ID: contractID, Revision: resp.Contract}
+	err = c.store.UpdateContractRevision(ctx, contract, usage)
 	if err != nil {
 		c.log.Error("failed to update contract revision", zap.Stringer("contractID", contractID), zap.Error(err))
 	}
@@ -377,10 +383,8 @@ func (c *HostClient) withRevision(ctx context.Context, contractID types.FileCont
 
 	// update revision in the database
 	if revised.Revision.RevisionNumber > contract.Revision.RevisionNumber {
-		if err := c.store.UpdateContractRevision(ctx, revised); err != nil {
+		if err := c.store.UpdateContractRevision(ctx, revised, usage); err != nil {
 			c.log.Error("failed to update contract revision", zap.Error(err))
-		} else if err := c.store.UpdateHostUsage(ctx, c.hostKey, usage); err != nil {
-			c.log.Error("failed to update host usage", zap.Error(err))
 		}
 	}
 
