@@ -85,8 +85,7 @@ func (s *formContractSigner) SignV2Inputs(txn *types.V2Transaction, toSign []int
 // performContractFormation makes sure that we have at least 'wanted' good
 // contracts with good hosts that are sufficiently spaced apart.
 func (cm *ContractManager) performContractFormation(ctx context.Context, period uint64, wanted int64, log *zap.Logger) error {
-	formationLog := log.Named("formation")
-	formationLog.Debug("started", zap.Uint64("period", period), zap.Int64("wanted", wanted))
+	log.Debug("started", zap.Uint64("period", period), zap.Int64("wanted", wanted))
 
 	// fetch all revisable contracts
 	var activeContracts []Contract
@@ -115,7 +114,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		}
 	}
 
-	formationLog.Debug("found candidates", zap.Uint64("n", uint64(len(candidates))))
+	log.Debug("found candidates", zap.Uint64("n", uint64(len(candidates))))
 
 	// forceFormation is a map of hosts that we will always form a contract with
 	// regardless of how many we already have or where the host is located
@@ -128,7 +127,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		settings[host.PublicKey] = host.Settings
 	}
 	for _, contract := range activeContracts {
-		contractLog := formationLog.Named(contract.ID.String()).With(zap.Stringer("hostKey", contract.HostKey))
+		log := log.With(zap.Stringer("contractID", contract.ID), zap.Stringer("hostKey", contract.HostKey))
 
 		s, ok := settings[contract.HostKey]
 		maxCollReached := ok && contract.UsedCollateral.Add(minHostCollateral).Cmp(s.MaxCollateral) >= 0 // less than minHostCollateral from MaxCollateral
@@ -141,7 +140,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		}
 
 		if full {
-			contractLog.Debug("contract is full", zap.Bool("maxCollReached", maxCollReached),
+			log.Debug("contract is full", zap.Bool("maxCollReached", maxCollReached),
 				zap.Bool("maxSizeReached", maxSizeReached),
 				zap.Uint64("size", contract.Size),
 				zap.Stringer("usedCollateral", contract.UsedCollateral),
@@ -182,14 +181,14 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 
 	// determine how many contracts we need to form
 	for _, contract := range activeContracts {
-		contractLog := formationLog.Named(contract.ID.String()).With(zap.Stringer("hostKey", contract.HostKey))
+		log := log.With(zap.Stringer("contractID", contract.ID), zap.Stringer("hostKey", contract.HostKey))
 
 		// host checks
 		host, err := cm.hosts.Host(ctx, contract.HostKey)
 		if err != nil {
-			contractLog.Error("failed to fetch host for contract", zap.Error(err))
+			log.Error("failed to fetch host for contract", zap.Error(err))
 			continue
-		} else if !isGood(host, contractLog) {
+		} else if !isGood(host, log) {
 			continue
 		}
 
@@ -230,21 +229,22 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		}
 
 		hostKey := candidates[i].PublicKey
-		hostLog := formationLog.With(zap.Stringer("hostKey", hostKey), zap.Bool("force", forceFormation[hostKey]))
+		log := log.With(zap.Stringer("hostKey", hostKey), zap.Bool("force", forceFormation[hostKey]))
 
 		err := cm.hosts.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {
 			// make sure host is still good
-			if !isGood(host, hostLog) {
+			if !isGood(host, log) {
 				return fmt.Errorf("%w: %s", hosts.ErrBadHost, host.PublicKey)
 			}
 
 			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, period)
-			formationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			formationCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // note: broadcasting on the host-side can block for up to a minute by default
 			defer cancel()
 			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
 			if err != nil {
 				return fmt.Errorf("failed to dial host: %w", err)
 			}
+			defer hc.Close()
 
 			res, err := hc.FormContract(formationCtx, host.Settings, proto.RPCFormContractParams{
 				RenterPublicKey: cm.renterKey,
@@ -253,16 +253,22 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				Collateral:      collateral,
 				ProofHeight:     cm.chain.TipState().Index.Height + period,
 			})
-			_ = hc.Close()
 			if err != nil {
 				return fmt.Errorf("failed to form contract: %w", err)
+			}
+			log := log.With(zap.Stringer("formedContractID", res.Contract.ID))
+			if err := cm.wallet.BroadcastV2TransactionSet(res.FormationSet.Basis, res.FormationSet.Transactions); err != nil {
+				// error is ignored as it is assumed the host has validated the transaction set.
+				// It will eventually be mined or rejected. This is to prevent minor synchronization
+				// differences from causing a renewal to not be registered in the database but later
+				// confirmed.
+				log.Warn("failed to broadcast contract formation transaction set", zap.Error(err))
 			}
 
 			contract := res.Contract
 			minerFee := res.FormationSet.Transactions[len(res.FormationSet.Transactions)-1].MinerFee
 			err = cm.store.AddFormedContract(ctx, hostKey, contract.ID, contract.Revision, host.Settings.Prices.ContractPrice, allowance, minerFee, res.Usage)
 			if err != nil {
-				formationLog.Error("failed to add formed contract", zap.Error(err))
 				return fmt.Errorf("failed to add formed contract: %w", err)
 			}
 
@@ -270,16 +276,15 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 			set.Add(host)
 			wanted--
 
-			hostLog.Debug("formed contract", zap.Stringer("contractID", contract.ID))
+			log.Debug("formed contract")
 			return nil
 		})
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			formationLog.Warn("context cancelled, stopping contract formation")
 			break
 		} else if errors.Is(err, hosts.ErrBadHost) {
 			continue // ignore bad host
 		} else if err != nil {
-			hostLog.Error("failed to form contract", zap.Error(err))
+			log.Error("failed to form contract", zap.Error(err))
 			continue
 		}
 	}
