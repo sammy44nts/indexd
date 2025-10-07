@@ -88,12 +88,12 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	}
 
 	// renew any good contracts within their renew window
-	if err := cm.performContractRenewals(ctx, settings.Period, settings.RenewWindow, log); err != nil {
+	if err := cm.performContractRenewals(ctx, settings.Period, settings.RenewWindow, log.Named("renew")); err != nil {
 		return fmt.Errorf("failed to renew contracts: %w", err)
 	}
 
 	// refresh any good contracts that are either out of collateral or funds
-	if err := cm.performContractRefreshes(ctx, settings.Period, log); err != nil {
+	if err := cm.performContractRefreshes(ctx, settings.Period, log.Named("refresh")); err != nil {
 		return fmt.Errorf("failed to perform contract refreshes: %w", err)
 	}
 
@@ -103,7 +103,7 @@ func (cm *ContractManager) performContractMaintenance(ctx context.Context, log *
 	}
 
 	// form new contracts until there are enough good contracts to use
-	if err := cm.performContractFormation(ctx, settings.Period, int64(settings.WantedContracts), log); err != nil {
+	if err := cm.performContractFormation(ctx, settings.Period, int64(settings.WantedContracts), log.Named("formation")); err != nil {
 		return fmt.Errorf("failed to form contracts: %w", err)
 	}
 

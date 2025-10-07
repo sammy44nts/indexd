@@ -147,8 +147,6 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 			continue
 		}
 
-		// TODO: handle usage
-
 		prunable := make(map[types.Hash256]struct{}, len(res.Roots))
 		for start := 0; start < len(res.Roots); start += rootsBatchSize {
 			end := min(start+rootsBatchSize, len(res.Roots))
@@ -159,8 +157,6 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 			for _, root := range batch {
 				prunable[root] = struct{}{}
 			}
-
-			// TODO: handle usage
 		}
 
 		var indices []uint64

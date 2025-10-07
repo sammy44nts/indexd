@@ -190,27 +190,12 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	}
 	store.hosts[hk5] = h5
 
-	// add two contracts for h1
-	fcid1 := types.FileContractID{1}
-	if err := store.AddFormedContract(context.Background(), hk1, fcid1, newTestRevision(hk1), types.ZeroCurrency, types.NewCurrency64(1), types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-	fcid2 := types.FileContractID{2}
-	if err := store.AddFormedContract(context.Background(), hk1, fcid2, newTestRevision(hk2), types.ZeroCurrency, types.NewCurrency64(1), types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-
-	// add one contract for h2
-	fcid3 := types.FileContractID{3}
-	if err := store.AddFormedContract(context.Background(), hk2, fcid3, newTestRevision(hk2), types.ZeroCurrency, types.NewCurrency64(1), types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-
-	// add one contract for h5 to give it all chances of succeeding, but it won't
-	fcid4 := types.FileContractID{4}
-	if err := store.AddFormedContract(context.Background(), hk5, fcid4, newTestRevision(hk5), types.ZeroCurrency, types.NewCurrency64(1), types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
+	// add two contracts for h1, one for h2 and one for h5 to give it all
+	// chances of succeeding, but it won't
+	fcid1 := store.addTestContract(t, hk1, true, types.FileContractID{1})
+	fcid2 := store.addTestContract(t, hk1, true, types.FileContractID{2})
+	fcid3 := store.addTestContract(t, hk2, true, types.FileContractID{3})
+	fcid4 := store.addTestContract(t, hk5, true, types.FileContractID{4})
 
 	// prepare roots
 	r1 := types.Hash256{1}

@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"fmt"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/indexd/hosts"
@@ -10,8 +11,6 @@ import (
 )
 
 func (cm *ContractManager) performContractRefreshes(ctx context.Context, period uint64, log *zap.Logger) error {
-	refreshLog := log.Named("refresh")
-
 	batchSize := 50
 	for offset := 0; ; offset += batchSize {
 		contracts, err := cm.store.Contracts(ctx, offset, batchSize, WithGood(true), WithRevisable(true))
@@ -24,11 +23,8 @@ func (cm *ContractManager) performContractRefreshes(ctx context.Context, period 
 				continue
 			}
 
-			if err := cm.refreshContract(ctx, contract, period, refreshLog); err != nil {
-				refreshLog.Error("failed to refresh contract",
-					zap.Stringer("contractID", contract.ID),
-					zap.Error(err),
-				)
+			if err := cm.refreshContract(ctx, contract, period, log); err != nil {
+				log.Error("failed to refresh contract", zap.Stringer("contractID", contract.ID), zap.Error(err))
 			}
 		}
 
@@ -41,7 +37,7 @@ func (cm *ContractManager) performContractRefreshes(ctx context.Context, period 
 }
 
 func (cm *ContractManager) refreshContract(ctx context.Context, contract Contract, period uint64, log *zap.Logger) error {
-	contractLog := log.With(zap.Stringer("hostKey", contract.HostKey),
+	log = log.With(zap.Stringer("hostKey", contract.HostKey),
 		zap.Stringer("contractID", contract.ID),
 		zap.Stringer("remainingAllowance", contract.RemainingAllowance),
 		zap.Stringer("initialAllowance", contract.InitialAllowance),
@@ -52,13 +48,6 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 	)
 
 	return cm.hosts.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
-		hc, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
-		if err != nil {
-			contractLog.Debug("failed to dial host", zap.Error(err))
-			return nil
-		}
-		defer hc.Close()
-
 		// scale funding by number of active accounts
 		target, err := cm.accounts.FundTarget(ctx, minAllowance)
 		if err != nil {
@@ -73,28 +62,45 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		// 2. The total collateral might exceed the host's maximum collateral
 		//    since 'contractFunding' doesn't take into account existing collateral
 		allowance, collateral := contractFunding(host.Settings, contract.Size, target, minHostCollateral, period)
-		res, err := hc.RefreshContract(ctx, host.Settings, proto.RPCRefreshContractParams{
+
+		refreshCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		hc, err := cm.dialer.DialHost(refreshCtx, host.PublicKey, host.RHP4Addrs())
+		if err != nil {
+			log.Debug("failed to dial host", zap.Error(err))
+			return nil
+		}
+		defer hc.Close()
+
+		res, err := hc.RefreshContract(refreshCtx, host.Settings, proto.RPCRefreshContractParams{
 			Allowance:  allowance,
 			Collateral: collateral,
 			ContractID: contract.ID,
 		})
 		if err != nil {
-			contractLog.Debug("failed to renew", zap.Error(err))
-			return nil
+			return fmt.Errorf("failed to refresh contract: %w", err)
+		}
+		log := log.With(zap.Stringer("newContractID", res.Contract.ID))
+		if err := cm.wallet.BroadcastV2TransactionSet(res.RenewalSet.Basis, res.RenewalSet.Transactions); err != nil {
+			// error is ignored as it is assumed the host has validated the transaction set.
+			// It will eventually be mined or rejected. This is to prevent minor synchronization
+			// differences from causing a renewal to not be registered in the database but later
+			// confirmed.
+			log.Warn("failed to broadcast contract refresh transaction set", zap.Error(err))
 		}
 		renewed := res.Contract
 		minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
 
-		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee); err != nil {
-			return fmt.Errorf("failed to store renewed contract: %w", err)
+		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, res.Usage); err != nil {
+			return fmt.Errorf("failed to store refreshed contract %q: %w", renewed.ID, err)
 		}
 
-		contractLog.Info("successfully refreshed contract",
+		log.Info("successfully refreshed contract",
 			zap.Stringer("computedAllowance", allowance),
 			zap.Stringer("computedCollateral", collateral),
 			zap.Stringer("newRemainingAllowance", renewed.Revision.RemainingAllowance()),
-			zap.Stringer("newRemainingCollateral", renewed.Revision.RemainingCollateral()),
-			zap.Stringer("newContractID", renewed.ID))
+			zap.Stringer("newRemainingCollateral", renewed.Revision.RemainingCollateral()))
 		return nil
 	})
 }

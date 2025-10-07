@@ -63,37 +63,25 @@ func TestPerformContractRenewals(t *testing.T) {
 	store := &storeMock{}
 	hm := newHostManagerMock(store)
 
-	blockHeight := cmMock.state.Index.Height
-	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good bool) {
-		t.Helper()
-		revision := newTestRevision(hostKey)
-		revision.ProofHeight = blockHeight + renewWindow + 1
-		revision.ExpirationHeight = 9999
-		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !good {
-			for i := range store.contracts {
-				if store.contracts[i].ID == contractID {
-					store.contracts[i].Good = false
-				}
-			}
-		}
-	}
-
 	// prepare hosts
 
 	// first one is good with a good contract and a bad one
 	good := goodHost(1)
 	hm.settings[good.PublicKey] = goodSettings
-	formContract(types.FileContractID{1}, good.PublicKey, true)  // will renew
-	formContract(types.FileContractID{2}, good.PublicKey, false) // won't renew
+	store.addTestContract(t, good.PublicKey, true, types.FileContractID{1})  // will renew
+	store.addTestContract(t, good.PublicKey, false, types.FileContractID{2}) // won't renew
 
 	// second one is bad since it's not accepting contracts with a good contract
 	bad := goodHost(2)
 	hm.settings[bad.PublicKey] = badSettings
-	formContract(types.FileContractID{3}, bad.PublicKey, true) // won't renew
+	store.addTestContract(t, bad.PublicKey, true, types.FileContractID{3}) // won't renew
+
+	// update contracts
+	blockHeight := cmMock.state.Index.Height
+	for i := range store.contracts {
+		store.contracts[i].ProofHeight = blockHeight + renewWindow + 1
+		store.contracts[i].ExpirationHeight = 9999
+	}
 
 	// populate store
 	store.hosts = map[types.PublicKey]hosts.Host{
@@ -204,7 +192,7 @@ func TestRenewalAllowance(t *testing.T) {
 		revision := newTestRevision(hostKey)
 		revision.ProofHeight = blockHeight + renewWindow + 1
 		revision.ExpirationHeight = 9999
-		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3))
+		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3), proto.Usage{})
 		if err != nil {
 			t.Fatal(err)
 		}
