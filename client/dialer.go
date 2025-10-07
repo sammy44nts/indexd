@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -15,7 +16,7 @@ import (
 
 const dialTimeout = 10 * time.Second
 
-// Dialer can be used to dial a host using the SiaMux protocol.
+// Dialer can be used to dial a host using SiaMux or QUIC.
 type Dialer struct {
 	cm                       ChainManager
 	revisionSubmissionBuffer uint64
@@ -61,6 +62,7 @@ func (d *Dialer) DialHost(ctx context.Context, hk types.PublicKey, addrs []chain
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
+	var lastErr error
 	tryDial := func(proto chain.Protocol, dial func(addr string) (rhp.TransportClient, error)) rhp.TransportClient {
 		for _, addr := range addrs {
 			if addr.Protocol != proto {
@@ -74,6 +76,7 @@ func (d *Dialer) DialHost(ctx context.Context, hk types.PublicKey, addrs []chain
 					zap.String("addr", addr.Address),
 					zap.Error(err),
 				)
+				lastErr = err
 				continue
 			}
 			return tc
@@ -90,8 +93,12 @@ func (d *Dialer) DialHost(ctx context.Context, hk types.PublicKey, addrs []chain
 			return quic.Dial(ctx, addr, hk)
 		})
 	}
-	if tc == nil {
-		return nil, errors.New("host has no valid addresses")
+	if len(addrs) == 0 {
+		return nil, errors.New("no addresses provided")
+	} else if lastErr != nil {
+		return nil, fmt.Errorf("all dials failed: %w", lastErr)
+	} else if tc == nil {
+		return nil, errors.New("no supported protocols in address list")
 	}
 
 	return newHostClient(hk, d.cm, tc, d.signer, d.store, d.revisionSubmissionBuffer, d.log.With(zap.Stringer("hostKey", hk))), nil
