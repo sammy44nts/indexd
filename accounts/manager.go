@@ -22,6 +22,13 @@ const (
 var (
 	// defaultFundTarget is the target amount of funds per account per host.
 	defaultFundTarget = types.Siacoins(1)
+
+	// accountActivityThreshold is the threshold for determining whether an
+	// account has been active recently for the purposes of contract funding.
+	// An account is considered active if it has been used within the threshold
+	// period.  We multiply the funding per contract by the number of active
+	// accounts.
+	accountActivityThreshold = 24 * 7 * time.Hour
 )
 
 type (
@@ -45,6 +52,7 @@ type (
 		AppConnectKey(ctx context.Context, key string) (ConnectKey, error)
 		AppConnectKeys(ctx context.Context, offset, limit int) ([]ConnectKey, error)
 
+		ActiveAccounts(ctx context.Context, threshold time.Time) (uint64, error)
 		Account(context.Context, types.PublicKey) (Account, error)
 		Accounts(ctx context.Context, offset, limit int, opts ...QueryAccountsOpt) ([]Account, error)
 		HasAccount(context.Context, types.PublicKey) (bool, error)
@@ -165,6 +173,23 @@ func (m *AccountManager) Accounts(ctx context.Context, offset, limit int, opts .
 // DeleteAccount deletes the account for the given public key.
 func (m *AccountManager) DeleteAccount(ctx context.Context, ak types.PublicKey) error {
 	return m.store.DeleteAccount(ctx, ak)
+}
+
+// FundTarget returns the configured fund target of the account manager.
+func (am *AccountManager) FundTarget(ctx context.Context, minAllowance types.Currency) (types.Currency, error) {
+	activeAccounts, err := am.store.ActiveAccounts(ctx, time.Now().Add(-accountActivityThreshold))
+	if err != nil {
+		return types.ZeroCurrency, err
+	}
+
+	// get the greater of the min allowance or the funding target multiplied by
+	// the number of active accounts
+	target := am.fundTarget.Mul64(activeAccounts)
+	if minAllowance.Cmp(target) == 1 {
+		target = minAllowance
+	}
+
+	return target, nil
 }
 
 func updateFundedAccounts(accounts []HostAccount, n int) {

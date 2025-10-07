@@ -59,6 +59,12 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		}
 		defer hc.Close()
 
+		// scale funding by number of active accounts
+		target, err := cm.accounts.FundTarget(ctx, minAllowance)
+		if err != nil {
+			return fmt.Errorf("failed to get fund target: %w", err)
+		}
+
 		// TODO: Right now this isn't quite correct since allowance and
 		// collateral are added on top of the existing one. This should fix
 		// itself once the new version of the refresh RPC is used. The problems
@@ -66,7 +72,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		// 1. If the contract is out of funds we also add collateral and vice versa
 		// 2. The total collateral might exceed the host's maximum collateral
 		//    since 'contractFunding' doesn't take into account existing collateral
-		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance, minHostCollateral, period)
+		allowance, collateral := contractFunding(host.Settings, contract.Size, target, minHostCollateral, period)
 		res, err := hc.RefreshContract(ctx, host.Settings, proto.RPCRefreshContractParams{
 			Allowance:  allowance,
 			Collateral: collateral,
@@ -79,7 +85,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		renewed := res.Contract
 		minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
 
-		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee); err != nil {
+		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, res.Usage); err != nil {
 			return fmt.Errorf("failed to store renewed contract: %w", err)
 		}
 

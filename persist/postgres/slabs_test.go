@@ -51,13 +51,13 @@ func TestSlab(t *testing.T) {
 	}
 
 	// pin slab
-	slabID, err := store.PinSlab(context.Background(), account, time.Time{}, params)
+	slabIDs, err := store.PinSlabs(context.Background(), account, time.Time{}, params)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// fetch slab
-	got, err := store.Slab(context.Background(), slabID)
+	got, err := store.Slab(context.Background(), slabIDs[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,14 +83,14 @@ func TestSlab(t *testing.T) {
 	// pin the first sector to a contract
 	hk := hosts[0]
 	fcid := types.FileContractID(hk)
-	if err := store.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency); err != nil {
+	if err := store.AddFormedContract(context.Background(), hk, fcid, newTestRevision(hk), types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	} else if err := store.PinSectors(context.Background(), fcid, []types.Hash256{params.Sectors[0].Root}); err != nil {
 		t.Fatal(err)
 	}
 
 	// fetch slab again
-	got, err = store.Slab(context.Background(), slabID)
+	got, err = store.Slab(context.Background(), slabIDs[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,10 +140,11 @@ func TestPinnedSlab(t *testing.T) {
 		expected.Sectors[i] = slabs.PinnedSector(sector)
 	}
 
-	slabID, err := store.PinSlab(context.Background(), account, time.Time{}, pinned)
+	slabIDs, err := store.PinSlabs(context.Background(), account, time.Time{}, pinned)
 	if err != nil {
 		t.Fatal(err)
 	}
+	slabID := slabIDs[0]
 
 	slab, err := store.PinnedSlab(context.Background(), account, slabID)
 	if err != nil {
@@ -194,14 +195,14 @@ func TestSlabPruning(t *testing.T) {
 	// pin slab for both accounts
 	slab1 := slabs.SlabPinParams{MinShards: 1}
 	for _, acc := range []proto.Account{acc1, acc2} {
-		if _, err := store.PinSlab(context.Background(), acc, time.Time{}, slab1); err != nil {
+		if _, err := store.PinSlabs(context.Background(), acc, time.Time{}, slab1); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// pin second slab for first account
 	slab2 := slabs.SlabPinParams{MinShards: 2}
-	if _, err := store.PinSlab(context.Background(), acc1, time.Time{}, slab2); err != nil {
+	if _, err := store.PinSlabs(context.Background(), acc1, time.Time{}, slab2); err != nil {
 		t.Fatal(err)
 	}
 

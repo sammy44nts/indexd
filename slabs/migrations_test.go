@@ -84,7 +84,7 @@ func TestMigrateSlab(t *testing.T) {
 	dialer.clients[h3.PublicKey].sectors[r3] = ([proto.SectorSize]byte)(shards[2])
 
 	// pin a slab
-	slabID, err := db.PinSlab(context.Background(), proto.Account(a1), time.Time{}, SlabPinParams{
+	slabIDs, err := db.PinSlabs(context.Background(), proto.Account(a1), time.Time{}, SlabPinParams{
 		EncryptionKey: encryptionKey,
 		MinShards:     2,
 		Sectors: []PinnedSector{
@@ -97,6 +97,7 @@ func TestMigrateSlab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	slabID := slabIDs[0]
 
 	// prepare slab manager
 	msk := types.GeneratePrivateKey()

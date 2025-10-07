@@ -161,10 +161,11 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// pin the slab
-	slabID, err := client.PinSlab(context.Background(), params())
+	slabIDs, err := client.PinSlabs(context.Background(), params())
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
+	slabID := slabIDs[0]
 
 	// unpin the slab
 	if err := client.UnpinSlab(context.Background(), slabID); err != nil {
@@ -174,7 +175,7 @@ func TestApplicationAPI(t *testing.T) {
 	// assert minimum redundancy is enforced
 	p := params()
 	p.Sectors = p.Sectors[:2]
-	_, err = client.PinSlab(context.Background(), p)
+	_, err = client.PinSlabs(context.Background(), p)
 	if err == nil || !strings.Contains(err.Error(), slabs.ErrInsufficientRedundancy.Error()) {
 		t.Fatal("expected [slabs.ErrInsufficientRedundancy], got:", err)
 	}
@@ -289,14 +290,17 @@ func TestApplicationAPI(t *testing.T) {
 	// pin 2 slabs
 	slab1Params := params()
 	slab2Params := params()
-	slabID1, err := client.PinSlab(context.Background(), slab1Params)
+	slabIDs1, err := client.PinSlabs(context.Background(), slab1Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
-	slabID2, err := client.PinSlab(context.Background(), slab2Params)
+	slabID1 := slabIDs1[0]
+
+	slabIDs2, err := client.PinSlabs(context.Background(), slab2Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
+	slabID2 := slabIDs2[0]
 
 	// assert slab IDs are returned
 	slabsIDs, err := client.SlabIDs(context.Background())
@@ -381,9 +385,9 @@ func TestApplicationAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(objs) != 1 {
-		t.Fatalf("expected 1 objects, got %d", len(objs))
+		t.Fatalf("expected 1 object, got %d", len(objs))
 	}
-	obj1 := objs[0]
+	obj1 := *objs[0].Object
 
 	if objs, err := client.ListObjects(context.Background(), slabs.Cursor{
 		After: obj1.UpdatedAt,
@@ -397,7 +401,7 @@ func TestApplicationAPI(t *testing.T) {
 	obj, err = client.Object(context.Background(), obj1.ID())
 	if err != nil {
 		t.Fatal(err)
-	} else if !reflect.DeepEqual(obj, objs[0]) {
+	} else if !reflect.DeepEqual(obj, *objs[0].Object) {
 		t.Fatal("objects not equal")
 	}
 
@@ -417,8 +421,10 @@ func TestApplicationAPI(t *testing.T) {
 	objs, err = client.ListObjects(context.Background(), slabs.Cursor{}, 100)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(objs) != 0 {
-		t.Fatalf("expected 0 objects, got %d", len(objs))
+	} else if len(objs) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(objs))
+	} else if !objs[0].Deleted {
+		t.Fatalf("expected object to be deleted")
 	}
 
 	// We are not allowed to create objects using slabs that we have not pinned
@@ -427,10 +433,12 @@ func TestApplicationAPI(t *testing.T) {
 	sk2, _ := newAccount(t, cluster)
 	client2 := indexer.App(sk2)
 
-	slabID, err = client2.PinSlab(context.Background(), params())
+	slabIDs, err = client2.PinSlabs(context.Background(), params())
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
+	slabID = slabIDs[0]
+
 	// Try to save an object referencing that slab on first account
 	badObj := slabs.SealedObject{
 		EncryptedMasterKey: frand.Bytes(72),
@@ -611,15 +619,18 @@ func TestSharedObjects(t *testing.T) {
 	}
 	// generate and pin a slab
 	slab1Params := randomSlab()
-	slab1ID, err := client1.PinSlab(ctx, slab1Params)
+	slab1sID, err := client1.PinSlabs(ctx, slab1Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
+	slab1ID := slab1sID[0]
+
 	slab2Params := randomSlab()
-	slab2ID, err := client1.PinSlab(ctx, slab2Params)
+	slab2sID, err := client1.PinSlabs(ctx, slab2Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
+	slab2ID := slab2sID[0]
 
 	expectedSharedObj := slabs.SharedObject{
 		Slabs: []slabs.SharedSlab{
@@ -709,6 +720,13 @@ func TestSharedObjects(t *testing.T) {
 		t.Fatal("encryption key mismatch")
 	} else if !reflect.DeepEqual(expectedSharedObj, sharedObj) {
 		t.Fatal("shared object mismatch")
+	}
+
+	// make sure client2 has no objects
+	if objs, err := client2.ListObjects(ctx, slabs.Cursor{}, 100); err != nil {
+		t.Fatal(err)
+	} else if len(objs) != 0 {
+		t.Fatalf("expected 0 objects, got %d", len(objs))
 	}
 
 	time.Sleep(time.Second * 2)

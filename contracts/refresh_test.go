@@ -84,24 +84,26 @@ func TestPerformContractRefreshes(t *testing.T) {
 
 	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good, oof, ooc bool) {
 		t.Helper()
-		revision := newTestRevision(hostKey)
-		revision.ProofHeight = proofHeight
-		revision.ExpirationHeight = expirationHeight
-		revision.TotalCollateral = totalCollateral
-		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), initialAllowance, types.Siacoins(3))
-		if err != nil {
-			t.Fatal(err)
+
+		store.addTestContract(t, hostKey, good, contractID)
+
+		i := len(store.contracts) - 1
+		if store.contracts[i].ID != contractID || store.revisions[i].ID != contractID {
+			panic("unexpected contract/revision") // developer error
 		}
-		for i := range store.contracts {
-			if store.contracts[i].ID == contractID {
-				store.contracts[i].Good = good
-				if oof {
-					store.contracts[i].RemainingAllowance = types.Siacoins(9)
-				}
-				if ooc {
-					store.contracts[i].UsedCollateral = types.Siacoins(91)
-				}
-			}
+
+		store.revisions[i].Revision.ProofHeight = proofHeight
+		store.revisions[i].Revision.ExpirationHeight = expirationHeight
+		store.revisions[i].Revision.TotalCollateral = totalCollateral
+
+		store.contracts[i].InitialAllowance = initialAllowance
+		store.contracts[i].RemainingAllowance = initialAllowance
+
+		if oof {
+			store.contracts[i].RemainingAllowance = types.Siacoins(9)
+		}
+		if ooc {
+			store.contracts[i].UsedCollateral = types.Siacoins(91)
 		}
 	}
 
@@ -208,4 +210,95 @@ func TestPerformContractRefreshes(t *testing.T) {
 			t.Fatalf("expected total collateral %v, got %v", totalCollateral, contract.TotalCollateral)
 		}
 	}
+}
+
+func TestRefreshAllowance(t *testing.T) {
+	amMock := &accountsManagerMock{}
+	cmMock := newChainManagerMock()
+	syncerMock := &syncerMock{}
+
+	// helper to create a good host
+	goodHost := func(i int) hosts.Host {
+		return hosts.Host{
+			PublicKey: types.PublicKey{byte(i)},
+			Settings:  goodSettings,
+			Usability: hosts.GoodUsability,
+		}
+	}
+
+	store := &storeMock{}
+	hm := newHostManagerMock(store)
+
+	var (
+		initialAllowance = types.Siacoins(100)
+		totalCollateral  = types.Siacoins(100)
+	)
+
+	const (
+		proofHeight      = 100
+		expirationHeight = 200
+		period           = 300
+	)
+
+	formContract := func(contractID types.FileContractID, hostKey types.PublicKey, good, oof, ooc bool) {
+		t.Helper()
+		revision := newTestRevision(hostKey)
+		revision.ProofHeight = proofHeight
+		revision.ExpirationHeight = expirationHeight
+		revision.TotalCollateral = totalCollateral
+		err := store.AddFormedContract(context.Background(), hostKey, contractID, revision, types.Siacoins(1), initialAllowance, types.Siacoins(3), proto.Usage{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range store.contracts {
+			if store.contracts[i].ID == contractID {
+				store.contracts[i].Good = good
+				if oof {
+					store.contracts[i].RemainingAllowance = types.Siacoins(9)
+				}
+				if ooc {
+					store.contracts[i].UsedCollateral = types.Siacoins(91)
+				}
+			}
+		}
+	}
+
+	// prepare hosts
+
+	// first one is good with 3 contracts
+	good := goodHost(1)
+	hm.settings[good.PublicKey] = goodSettings
+	formContract(types.FileContractID{1}, good.PublicKey, true, false, false) // is good
+	formContract(types.FileContractID{2}, good.PublicKey, true, true, false)  // out-of-funds
+	formContract(types.FileContractID{3}, good.PublicKey, true, false, true)  // out-of-collateral
+	formContract(types.FileContractID{4}, good.PublicKey, true, true, true)   // out-of-both
+
+	// populate store
+	store.hosts = map[types.PublicKey]hosts.Host{
+		good.PublicKey: good,
+	}
+
+	dialer := newDialerMock()
+	renterKey := types.PublicKey{1, 2, 3, 4, 5}
+	wallet := &walletMock{}
+	contracts := newContractManager(renterKey, amMock, cmMock, store, dialer, hm, syncerMock, wallet)
+
+	assertRefresh := func(allowance types.Currency, call refreshContractCall) {
+		t.Helper()
+		if !call.params.Allowance.Equals(allowance) {
+			t.Fatalf("expected allowance %v, got %v", allowance, call.params.Allowance)
+		}
+	}
+
+	amMock.activeAccounts = 1000
+	if err := contracts.performContractRefreshes(context.Background(), period, zap.NewNop()); err != nil {
+		t.Fatal(err)
+	}
+	allowance, err := amMock.FundTarget(context.Background(), minAllowance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRefresh(allowance, dialer.HostClient(good.PublicKey).refreshCalls[0])
+	assertRefresh(allowance, dialer.HostClient(good.PublicKey).refreshCalls[1])
+	assertRefresh(allowance, dialer.HostClient(good.PublicKey).refreshCalls[2])
 }

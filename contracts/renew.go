@@ -57,6 +57,12 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		}
 		defer hc.Close()
 
+		// scale funding by active account count
+		target, err := cm.accounts.FundTarget(ctx, minAllowance)
+		if err != nil {
+			return fmt.Errorf("failed to get fund target: %w", err)
+		}
+
 		// NOTE: In theory using 'contractFunding' here might push the
 		// collateral over the max collateral of the host. Previously we tried
 		// to avoid that by not changing the allowance/collateral amounts in the
@@ -66,7 +72,7 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		// might as well keep the funding logic consistent with formations and
 		// refreshes and rely on the host checks to identify hosts with a
 		// MaxCollateral too low for us to use them.
-		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance, minHostCollateral, period)
+		allowance, collateral := contractFunding(host.Settings, contract.Size, target, minHostCollateral, period)
 
 		res, err := hc.RenewContract(ctx, host.Settings, rhp.RPCRenewContractParams{
 			Allowance:   allowance,
@@ -81,7 +87,7 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		renewed := res.Contract
 		minerFee := res.RenewalSet.Transactions[len(res.RenewalSet.Transactions)-1].MinerFee
 
-		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee); err != nil {
+		if err := cm.store.AddRenewedContract(ctx, contract.ID, renewed.ID, renewed.Revision, host.Settings.Prices.ContractPrice, minerFee, res.Usage); err != nil {
 			return fmt.Errorf("failed to store renewed contract: %w", err)
 		}
 

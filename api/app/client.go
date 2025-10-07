@@ -147,9 +147,9 @@ func (c *Client) Hosts(ctx context.Context, opts ...api.URLQueryParameterOption)
 	return
 }
 
-// PinSlab pins a slab to the indexer.
-func (c *Client) PinSlab(ctx context.Context, params slabs.SlabPinParams) (slabID slabs.SlabID, err error) {
-	err = c.signedRequestJSON(ctx, http.MethodPost, "/slabs", params, &slabID)
+// PinSlabs pins slabs to the indexer.
+func (c *Client) PinSlabs(ctx context.Context, params ...slabs.SlabPinParams) (slabIDs []slabs.SlabID, err error) {
+	err = c.signedRequestJSON(ctx, http.MethodPost, "/slabs", params, &slabIDs)
 	return
 }
 
@@ -190,7 +190,7 @@ func (c *Client) Object(ctx context.Context, objectID types.Hash256) (resp slabs
 
 // ListObjects lists objects for the given account that were updated after the
 // the given 'after' time.
-func (c *Client) ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) (resp []slabs.SealedObject, err error) {
+func (c *Client) ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) (resp []slabs.ObjectEvent, err error) {
 	values := url.Values{}
 	values.Set("limit", fmt.Sprintf("%d", limit))
 	values.Set("after", cursor.After.Format(time.RFC3339Nano))

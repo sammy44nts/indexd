@@ -92,7 +92,7 @@ type (
 		MarkFailingSectorsLost(ctx context.Context, hostKey types.PublicKey, maxFailedIntegrityChecks uint) error
 		MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) error
 		MigrateSector(ctx context.Context, root types.Hash256, hostKey types.PublicKey) (bool, error)
-		PinSlab(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, slab SlabPinParams) (SlabID, error)
+		PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin ...SlabPinParams) ([]SlabID, error)
 		UnpinSlab(context.Context, proto.Account, SlabID) error
 		RecordIntegrityCheck(ctx context.Context, success bool, nextCheck time.Time, hostKey types.PublicKey, roots []types.Hash256) error
 		SectorsForIntegrityCheck(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
@@ -107,7 +107,7 @@ type (
 		Object(ctx context.Context, account proto.Account, key types.Hash256) (SealedObject, error)
 		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
 		SaveObject(ctx context.Context, account proto.Account, obj SealedObject) error
-		ListObjects(ctx context.Context, account proto.Account, cursor Cursor, limit int) ([]SealedObject, error)
+		ListObjects(ctx context.Context, account proto.Account, cursor Cursor, limit int) ([]ObjectEvent, error)
 		SharedObject(ctx context.Context, key types.Hash256) (SharedObject, error)
 	}
 
@@ -262,7 +262,7 @@ func (m *SlabManager) initServiceAccounts(migrationAccount, integrityAccount typ
 // perform on slabs
 func (m *SlabManager) maintenanceLoop(ctx context.Context) {
 	var wg sync.WaitGroup
-	launch := func(task func()) {
+	launch := func(descr string, task func(context.Context) error) {
 		healthTicker := time.NewTicker(m.healthCheckInterval)
 
 		wg.Add(1)
@@ -275,21 +275,15 @@ func (m *SlabManager) maintenanceLoop(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				}
-				task()
+				if err := task(ctx); err != nil && !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+					m.log.Error("failed to perform "+descr, zap.Error(err))
+				}
 			}
 		}()
 	}
 
-	launch(func() {
-		if err := m.performIntegrityChecks(ctx); err != nil {
-			m.log.Error("failed to perform integrity checks", zap.Error(err))
-		}
-	})
-	launch(func() {
-		if err := m.performSlabMigrations(ctx); err != nil {
-			m.log.Error("failed to perform slab migrations", zap.Error(err))
-		}
-	})
+	launch("integrity checks", m.performIntegrityChecks)
+	launch("slab migrations", m.performSlabMigrations)
 	wg.Wait()
 }
 

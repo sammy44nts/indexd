@@ -36,6 +36,7 @@ type storeMock struct {
 	pruneCalls                int
 	pruneContractSectorsCalls int
 	rejectCalls               int
+	activeAccounts            uint64
 	settings                  MaintenanceSettings
 	hosts                     map[types.PublicKey]hosts.Host
 	sectors                   map[types.PublicKey][]sector
@@ -48,16 +49,17 @@ type sector struct {
 
 func newStoreMock() *storeMock {
 	return &storeMock{
-		hosts:   make(map[types.PublicKey]hosts.Host),
-		sectors: make(map[types.PublicKey][]sector),
+		hosts:          make(map[types.PublicKey]hosts.Host),
+		sectors:        make(map[types.PublicKey][]sector),
+		activeAccounts: 1,
 	}
 }
 
 func (s *storeMock) ActiveAccounts(ctx context.Context, threshold time.Time) (uint64, error) {
-	return 1, nil
+	return s.activeAccounts, nil
 }
 
-func (s *storeMock) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency) error {
+func (s *storeMock) AddFormedContract(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID, revision types.V2FileContract, contractPrice, allowance, minerFee types.Currency, _ proto.Usage) error {
 	s.contracts = append(s.contracts, Contract{
 		ID:      contractID,
 		HostKey: hostKey,
@@ -80,7 +82,7 @@ func (s *storeMock) AddFormedContract(ctx context.Context, hostKey types.PublicK
 	return nil
 }
 
-func (s *storeMock) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee types.Currency) error {
+func (s *storeMock) AddRenewedContract(ctx context.Context, renewedFrom, renewedTo types.FileContractID, revision types.V2FileContract, contractPrice, minerFee types.Currency, _ proto.Usage) error {
 	var source *Contract
 	for i := range s.contracts {
 		if s.contracts[i].ID == renewedFrom {
@@ -341,7 +343,7 @@ func (s *storeMock) UpdateHostSettings(hostKey types.PublicKey, settings proto.H
 	return nil
 }
 
-func (s *storeMock) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision) error {
+func (s *storeMock) UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, _ proto.Usage) error {
 	for i, c := range s.contracts {
 		if c.ID == contract.ID {
 			s.revisions[i] = contract
@@ -351,8 +353,27 @@ func (s *storeMock) UpdateContractRevision(ctx context.Context, contract rhp.Con
 	return errors.New("contract not found")
 }
 
-func (s *storeMock) UpdateHostUsage(hostKey types.PublicKey, usage proto.Usage) error {
-	return nil
+func (s *storeMock) addTestContract(t *testing.T, hk types.PublicKey, good bool, fcids ...types.FileContractID) types.FileContractID {
+	t.Helper()
+
+	var fcid types.FileContractID
+	switch len(fcids) {
+	case 0:
+		fcid = types.FileContractID(hk)
+	case 1:
+		fcid = fcids[0]
+	default:
+		panic("developer error")
+	}
+
+	revision := newTestRevision(hk)
+	err := s.AddFormedContract(t.Context(), hk, fcid, revision, types.Siacoins(1), types.Siacoins(2), types.Siacoins(3), proto.Usage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.contracts[len(s.contracts)-1].Good = good
+	return fcid
 }
 
 // mockUpdateTx is a mocked implementation of UpdateTx which allows for unit
