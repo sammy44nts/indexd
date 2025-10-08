@@ -10,6 +10,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/indexd/accounts"
@@ -61,7 +62,7 @@ type (
 
 	// A Dialer is an interface for writing and reading sectors to/from hosts.
 	Dialer interface {
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
+		DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error)
 	}
 
 	// HostClient defines the dependencies required to upload and download
@@ -157,12 +158,12 @@ func WithLogger(l *zap.Logger) Option {
 }
 
 type wrapper struct {
-	d *client.SiamuxDialer
+	d *client.Dialer
 }
 
 // DialHost dials the host and returns a HostClient.
-func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
-	client, err := w.d.DialHost(ctx, hostKey, addr)
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addrs)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +171,7 @@ func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr st
 }
 
 // NewManager creates a new slab manager.
-func NewManager(am AccountManager, hm HostManager, store Store, dialer *client.SiamuxDialer, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func NewManager(am AccountManager, hm HostManager, store Store, dialer *client.Dialer, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	sm, err := newSlabManager(am, hm, store, &wrapper{d: dialer}, alerter, migrationAccount, integrityAccount, opts...)
 	if err != nil {
 		return nil, err

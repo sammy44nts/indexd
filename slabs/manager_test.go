@@ -10,6 +10,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/contracts"
@@ -405,7 +406,7 @@ func newMockDialer(hosts []hosts.Host) *mockDialer {
 	return &mockDialer{clients: clients}
 }
 
-func (d *mockDialer) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
+func (d *mockDialer) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
 	if client, ok := d.clients[hostKey]; ok {
 		return client, nil
 	}

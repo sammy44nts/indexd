@@ -88,7 +88,7 @@ func (m *SlabManager) uploadShard(ctx context.Context, h hosts.Host, shard io.Re
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
 
-	client, err := m.dialer.DialHost(ctx, h.PublicKey, h.SiamuxAddr())
+	client, err := m.dialer.DialHost(ctx, h.PublicKey, h.RHP4Addrs())
 	if err != nil {
 		return proto.Usage{}, types.Hash256{}, fmt.Errorf("failed to dial host: %w", err)
 	}

@@ -77,7 +77,7 @@ loop:
 
 func (cm *ContractManager) performContractPruningOnHost(ctx context.Context, host hosts.Host, hostLog *zap.Logger) error {
 	// dial the host
-	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
 	if err != nil {
 		return fmt.Errorf("failed to dial host: %w", err)
 	}

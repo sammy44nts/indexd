@@ -68,7 +68,7 @@ func (cm *ContractManager) performSectorPinningOnHost(ctx context.Context, host 
 	}
 
 	// dial the host
-	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
 	if err != nil {
 		return fmt.Errorf("failed to dial host: %w", err)
 	}

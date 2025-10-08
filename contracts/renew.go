@@ -65,7 +65,8 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 
 		renewCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		hc, err := cm.dialer.DialHost(renewCtx, host.PublicKey, host.SiamuxAddr())
+
+		hc, err := cm.dialer.DialHost(renewCtx, host.PublicKey, host.RHP4Addrs())
 		if err != nil {
 			log.Debug("failed to dial host", zap.Error(err))
 			return nil

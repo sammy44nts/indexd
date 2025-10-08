@@ -56,7 +56,7 @@ type (
 		App   func(types.PrivateKey) *app.Client
 
 		cm        *chain.Manager
-		dialer    *client.SiamuxDialer
+		dialer    *client.Dialer
 		accounts  *accounts.AccountManager
 		contracts *contracts.ContractManager
 		hosts     *hosts.HostManager
@@ -139,7 +139,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 	}
 
 	signer := contracts.NewFormContractSigner(wm, walletKey)
-	dialer := client.NewSiamuxDialer(c.cm, signer, store, log, client.WithRevisionSubmissionBuffer(1))
+	dialer := client.NewDialer(c.cm, signer, store, log, client.WithRevisionSubmissionBuffer(1))
 	am := accounts.NewManager(store, accounts.NewFunder(dialer), accounts.WithLogger(log.Named("accounts")))
 
 	contractOpts := []contracts.ContractManagerOpt{
@@ -287,7 +287,7 @@ func (idx *Indexer) HostClient(t *testing.T, hk types.PublicKey) *client.HostCli
 	if err != nil {
 		t.Fatalf("failed to get host %s: %v", hk, err) // developer error
 	}
-	hc, err := idx.dialer.DialHost(context.Background(), hk, h.SiamuxAddr())
+	hc, err := idx.dialer.DialHost(context.Background(), hk, h.RHP4Addrs())
 	if err != nil {
 		t.Fatalf("failed to dial host %s: %v", hk, err) // developer error
 	}

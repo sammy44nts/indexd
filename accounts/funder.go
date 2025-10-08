@@ -8,6 +8,7 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/client"
 	"go.sia.tech/indexd/hosts"
@@ -25,7 +26,7 @@ type (
 	// Dialer defines an interface for dialing the host and returning a host client. This client can be used to
 	// interact with the host using the RHP methods. The client is expected to be closed when no longer needed.
 	Dialer interface {
-		DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error)
+		DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error)
 	}
 
 	// Funder dials a host and replenish a set of ephemeral accounts.
@@ -35,12 +36,12 @@ type (
 )
 
 type wrapper struct {
-	d *client.SiamuxDialer
+	d *client.Dialer
 }
 
 // DialHost dials the host and returns a HostClient.
-func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr string) (HostClient, error) {
-	client, err := w.d.DialHost(ctx, hostKey, addr)
+func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (HostClient, error) {
+	client, err := w.d.DialHost(ctx, hostKey, addrs)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +49,7 @@ func (w *wrapper) DialHost(ctx context.Context, hostKey types.PublicKey, addr st
 }
 
 // NewFunder creates a new Funder.
-func NewFunder(dialer *client.SiamuxDialer) *Funder {
+func NewFunder(dialer *client.Dialer) *Funder {
 	return &Funder{dialer: &wrapper{d: dialer}}
 }
 
@@ -70,7 +71,7 @@ func (f *Funder) FundAccounts(ctx context.Context, host hosts.Host, contractIDs 
 	}
 
 	// dial the host
-	hc, err := f.dialer.DialHost(ctx, host.PublicKey, host.SiamuxAddr())
+	hc, err := f.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to dial host %s: %w", host.PublicKey, err)
 	}

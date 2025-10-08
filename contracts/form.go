@@ -240,7 +240,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // note: broadcasting on the host-side can block for up to a minute by default
 			defer cancel()
-			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.SiamuxAddr())
+			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.RHP4Addrs())
 			if err != nil {
 				return fmt.Errorf("failed to dial host: %w", err)
 			}

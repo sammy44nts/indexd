@@ -130,14 +130,9 @@ type (
 	}
 )
 
-// SiamuxAddr returns a siamux protocol address of the host to use.
-func (h *Host) SiamuxAddr() string {
-	for _, addr := range h.Addresses {
-		if addr.Protocol == siamux.Protocol {
-			return addr.Address
-		}
-	}
-	return ""
+// RHP4Addrs returns the addresses of the host.
+func (h *Host) RHP4Addrs() []chain.NetAddress {
+	return h.Addresses
 }
 
 // Host returns the host with the given key.
