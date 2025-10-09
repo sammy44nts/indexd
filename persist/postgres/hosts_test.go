@@ -506,9 +506,14 @@ func TestHosts(t *testing.T) {
 	assertHosts([]types.PublicKey{hk1, hk2}, 0, 4, hosts.WithActiveContracts(true))
 	assertHosts([]types.PublicKey{hk3, hk4}, 0, 4, hosts.WithActiveContracts(false))
 
+	// public keys
+	assertHosts([]types.PublicKey{hk1, hk2}, 0, 4, hosts.WithPublicKeys([]types.PublicKey{hk1, hk2}))
+	assertHosts([]types.PublicKey{hk1, hk2, hk3, hk4}, 0, 4, hosts.WithPublicKeys([]types.PublicKey{hk1, hk2, hk3, hk4}))
+
 	// mix filters
 	assertHosts([]types.PublicKey{hk3}, 0, 4, hosts.WithUsable(true), hosts.WithBlocked(true))
 	assertHosts([]types.PublicKey{hk2}, 0, 4, hosts.WithUsable(false), hosts.WithBlocked(false), hosts.WithActiveContracts(true))
+	assertHosts([]types.PublicKey{hk2}, 0, 4, hosts.WithUsable(false), hosts.WithPublicKeys([]types.PublicKey{hk1, hk2}))
 
 	// mix filters and offset/limit
 	assertHosts([]types.PublicKey{hk1}, 0, 1, hosts.WithUsable(true))
@@ -520,6 +525,7 @@ func TestHosts(t *testing.T) {
 	assertHosts([]types.PublicKey{hk1}, 0, 1, hosts.WithBlocked(false))
 	assertHosts([]types.PublicKey{hk2}, 1, 1, hosts.WithBlocked(false))
 	assertHosts([]types.PublicKey{hk2}, 1, 1, hosts.WithActiveContracts(true))
+	assertHosts([]types.PublicKey{hk3}, 1, 1, hosts.WithPublicKeys([]types.PublicKey{hk2, hk3, hk4}))
 }
 
 func TestUsableHosts(t *testing.T) {
