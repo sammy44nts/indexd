@@ -1636,23 +1636,12 @@ func BenchmarkContracts(b *testing.B) {
 			}
 		})
 
-		b.Run(fmt.Sprintf("contracts_ids_revisable_good_limit_%d", limit), func(b *testing.B) {
+		b.Run(fmt.Sprintf("contracts_ids_%d", limit), func(b *testing.B) {
 			for b.Loop() {
 				idx := frand.Intn(len(contractIDs) - limit)
 				ids := contractIDs[idx : idx+limit]
 
-				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true), contracts.WithGood(true), contracts.WithIDs(ids))
-				if err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-		b.Run(fmt.Sprintf("contracts_ids_revisable_bad_limit_%d", limit), func(b *testing.B) {
-			for b.Loop() {
-				idx := frand.Intn(len(contractIDs) - limit)
-				ids := contractIDs[idx : idx+limit]
-
-				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithRevisable(true), contracts.WithGood(false), contracts.WithIDs(ids))
+				_, err := store.Contracts(context.Background(), 0, limit, contracts.WithIDs(ids))
 				if err != nil {
 					b.Fatal(err)
 				}
