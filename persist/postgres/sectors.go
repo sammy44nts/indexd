@@ -56,7 +56,7 @@ func (s *Store) MarkSectorsLost(ctx context.Context, hostKey types.PublicKey, ro
 		if _, err := tx.Exec(ctx, `UPDATE sectors SET host_id = NULL, contract_sectors_map_id = NULL WHERE id = ANY($1)`, sectorIDs); err != nil {
 			return fmt.Errorf("failed to mark sectors as lost: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE hosts SET lost_sectors = lost_sectors + $1 WHERE id = $2`, len(sectorIDs), hostID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE hosts SET lost_sectors = lost_sectors + $1 WHERE id = $2`, totalLost, hostID); err != nil {
 			return fmt.Errorf("failed to increment host's lost sectors: %w", err)
 		}
 		if pinned > 0 {
@@ -158,8 +158,8 @@ func (s *Store) MarkFailingSectorsLost(ctx context.Context, hostKey types.Public
 // markFailingSectorsLostBatch marks a batch of failing sectors as lost. We have
 // to batch it because we first need to select all sectors to update in order to
 // correctly updated the pinned sectors statistics.
-func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.PublicKey, maxChecks, batchSize uint) (int, error) {
-	var totalUpdated int
+func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.PublicKey, maxChecks, batchSize uint) (int64, error) {
+	var totalLost int64
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		var hostID int64
 		err := tx.QueryRow(ctx, "SELECT id FROM hosts WHERE public_key = $1", sqlPublicKey(hostKey)).Scan(&hostID)
@@ -185,12 +185,11 @@ func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.P
 			return nil
 		}
 
-		totalUpdated = len(sectorIDs)
-		totalLost := pinned + unpinned
+		totalLost = pinned + unpinned
 		if _, err := tx.Exec(ctx, `UPDATE sectors SET host_id = NULL, contract_sectors_map_id = NULL WHERE id = ANY($1)`, sectorIDs); err != nil {
 			return fmt.Errorf("failed to mark failing sectors as lost: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE hosts SET lost_sectors = lost_sectors + $1 WHERE id = $2`, totalUpdated, hostID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE hosts SET lost_sectors = lost_sectors + $1 WHERE id = $2`, totalLost, hostID); err != nil {
 			return fmt.Errorf("failed to mark failing sectors as lost: %w", err)
 		}
 		if pinned > 0 {
@@ -213,7 +212,7 @@ func (s *Store) markFailingSectorsLostBatch(ctx context.Context, hostKey types.P
 		return 0, err
 	}
 
-	return totalUpdated, nil
+	return totalLost, nil
 }
 
 // PinSlabs adds slabs to the database for pinning. The slabs are associated
