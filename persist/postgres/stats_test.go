@@ -188,7 +188,27 @@ func TestSectorStats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertStats(3, 0, 0, 4) // 2 pinned, 1 unpinned, 0 unpinnable
+	assertStats(3, 0, 0, 4) // all sectors are pinned
+
+	// everything below this point verifies MarkSectorsLost properly tracks both
+	// pinned and unpinned sectors, moving them to unpinnable but more
+	// importantly correctly decrementing from pinned/unpinned stats
+	if err := store.MarkSectorsLost(t.Context(), hk4, []types.Hash256{roots[0]}); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(2, 0, 1, 4)
+
+	if migrated, err := store.MigrateSector(t.Context(), roots[0], hk4); err != nil {
+		t.Fatal(err)
+	} else if !migrated {
+		t.Fatal("expected sector to be migrated")
+	}
+	assertStats(2, 1, 0, 5)
+
+	if err := store.MarkSectorsLost(t.Context(), hk4, roots); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(0, 0, 3, 5)
 }
 
 func TestAccountStatsRegistered(t *testing.T) {
