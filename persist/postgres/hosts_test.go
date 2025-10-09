@@ -667,12 +667,8 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh1 {
 		t.Fatal("unexpected host", hosts[0])
-	} else if hosts[0].CountryCode != locationUS.CountryCode {
-		t.Fatalf("expected country code %v, got %v", locationUS.CountryCode, hosts[0].CountryCode)
-	} else if hosts[0].Latitude != locationUS.Latitude {
-		t.Fatalf("expected latitude %v, got %v", locationUS.Latitude, hosts[0].Latitude)
-	} else if hosts[0].Longitude != locationUS.Longitude {
-		t.Fatalf("expected longitude %v, got %v", locationUS.Longitude, hosts[0].Longitude)
+	} else if hosts[0].Location() != locationUS {
+		t.Fatalf("expected location %v, got %v", locationUS, hosts[0].Location())
 	}
 
 	if hosts, err := db.UsableHosts(context.Background(), 0, 10, hosts.WithCountry(locationAU.CountryCode)); err != nil {
@@ -681,12 +677,8 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected", len(hosts))
 	} else if hosts[0].PublicKey != uh2 {
 		t.Fatal("unexpected host", hosts[0])
-	} else if hosts[0].CountryCode != locationAU.CountryCode {
-		t.Fatalf("expected country code %v, got %v", locationAU.CountryCode, hosts[0].CountryCode)
-	} else if hosts[0].Latitude != locationAU.Latitude {
-		t.Fatalf("expected latitude %v, got %v", locationAU.Latitude, hosts[0].Latitude)
-	} else if hosts[0].Longitude != locationAU.Longitude {
-		t.Fatalf("expected longitude %v, got %v", locationAU.Longitude, hosts[0].Longitude)
+	} else if hosts[0].Location() != locationAU {
+		t.Fatalf("expected location %v, got %v", locationAU, hosts[0].Location())
 	}
 
 	// block usable hosts and add 3 new usable hosts in the EU
