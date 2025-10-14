@@ -9,6 +9,13 @@ RUN go mod download
 
 # copy source
 COPY . .
+
+# install git lfs
+RUN apt-get -y update && apt-get install -y --no-install-recommends git-lfs
+
+# mark as safe in git
+RUN git config --global --add safe.directory .
+
 # codegen
 RUN go generate ./...
 
