@@ -609,6 +609,20 @@ func TestHostsAPI(t *testing.T) {
 		t.Fatalf("expected 2 host, got %d", len(hosts))
 	}
 
+	// test sorting
+	hosts, err = adminClient.Hosts(t.Context(), admin.WithSort("settings.prices.storagePrice", "asc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adminClient.Hosts(t.Context(), admin.WithSort("settings.prices.storagePrice", "foo"))
+	if err == nil || !strings.Contains(err.Error(), api.ErrInvalidSortDirection.Error()) {
+		t.Fatal("expected sorting error", err)
+	}
+	_, err = adminClient.Hosts(t.Context(), admin.WithSort("foo.bar", "asc"))
+	if err == nil || !strings.Contains(err.Error(), "invalid sorting option") {
+		t.Fatal("expected sorting error")
+	}
+
 	// manually scan host
 	host1, err := adminClient.Host(context.Background(), h1.PublicKey())
 	if err != nil {

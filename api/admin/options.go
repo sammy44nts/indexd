@@ -96,6 +96,17 @@ func WithPublicKeys(hks []types.PublicKey) HostQueryParameterOption {
 	}
 }
 
+// WithSort sets the 'sortby' and 'sortdir' parameter, it can be called multiple
+// times to add multiple sorting options. The parameters must be provided in
+// pairs, i.e. both 'sortby' and 'sortdir' must be set. Valid sort directions
+// are "ASC" and "DESC".
+func WithSort(sortby, sortdir string) HostQueryParameterOption {
+	return func(q url.Values) {
+		q.Set("sortby", sortby)
+		q.Set("sortdir", sortdir)
+	}
+}
+
 // AlertQueryParameterOption is an option to configure the query string for the
 // Alerts endpoint.
 type AlertQueryParameterOption api.URLQueryParameterOption
