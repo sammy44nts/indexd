@@ -619,8 +619,8 @@ func TestHostsAPI(t *testing.T) {
 		t.Fatal("expected sorting error", err)
 	}
 	_, err = adminClient.Hosts(t.Context(), admin.WithSort("foo.bar", "asc"))
-	if err == nil || !strings.Contains(err.Error(), "invalid sorting option") {
-		t.Fatal("expected sorting error")
+	if err == nil || !strings.Contains(err.Error(), "invalid sort field") {
+		t.Fatal("expected sorting error", err)
 	}
 
 	// manually scan host
