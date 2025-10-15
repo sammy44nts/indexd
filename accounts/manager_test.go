@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
@@ -105,17 +104,6 @@ func (s testStore) addTestAccount(t testing.TB, ak types.PublicKey) {
 	}
 
 	if err := s.Store.UseAppConnectKey(t.Context(), connectKey, ak, accounts.AccountMeta{}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func (s testStore) addTestServiceAccount(t testing.TB, hk types.PublicKey, ak proto.Account) {
-	t.Helper()
-
-	if err := s.Store.AddServiceAccount(t.Context(), types.PublicKey(ak), accounts.AccountMeta{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Store.UpdateServiceAccountBalance(t.Context(), hk, ak, types.ZeroCurrency); err != nil {
 		t.Fatal(err)
 	}
 }
