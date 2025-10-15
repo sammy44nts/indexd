@@ -199,7 +199,7 @@ func TestAccountManager(t *testing.T) {
 	}
 	expected := time.Now().Add(accounts.AccountFundInterval)
 	for _, ea := range s.eas[host.PublicKey] {
-		if !approxEqual(ea.NextFund, expected, time.Second) {
+		if !approxEqual(ea.NextFund, expected) {
 			t.Fatal("expected next fund to be updated to the next fund interval", ea.NextFund)
 		}
 	}
@@ -217,7 +217,7 @@ func TestAccountManager(t *testing.T) {
 	// assert the exponential backoff was applied
 	expected = time.Now().Add(8 * time.Minute)
 	for _, ea := range s.eas[host.PublicKey] {
-		if !approxEqual(ea.NextFund, expected, time.Second) {
+		if !approxEqual(ea.NextFund, expected) {
 			t.Fatal("expected next fund to be updated to the exponential backoff", ea.NextFund)
 		}
 	}
@@ -261,7 +261,7 @@ func TestAccountManager(t *testing.T) {
 	// assert all accounts next fund was updated and consecutive failed funds was reset
 	expected = time.Now().Add(time.Hour)
 	for _, ea := range s.eas[host.PublicKey] {
-		if !approxEqual(ea.NextFund, expected, time.Second) {
+		if !approxEqual(ea.NextFund, expected) {
 			t.Fatal("expected next fund to be updated to the next fund interval", ea.NextFund)
 		}
 	}
@@ -360,7 +360,7 @@ func TestUpdateFundedAccounts(t *testing.T) {
 				// assert updates
 				if acc.ConsecutiveFailedFunds != wantConsecFailures {
 					t.Fatal("unexpected consecutive failed funds", acc.ConsecutiveFailedFunds, wantConsecFailures)
-				} else if !approxEqual(acc.NextFund, wantNextFund, time.Second) {
+				} else if !approxEqual(acc.NextFund, wantNextFund) {
 					t.Fatal("unexpected next fund", acc.NextFund, wantNextFund)
 				}
 			}
@@ -368,8 +368,11 @@ func TestUpdateFundedAccounts(t *testing.T) {
 	}
 }
 
-// approxEqual checks if two time.Time values are within a given tolerance
-func approxEqual(t1, t2 time.Time, tol time.Duration) bool {
+// approxEqual checks if two time.Time values are within a second of each
+// other.
+func approxEqual(t1, t2 time.Time) bool {
+	const tol = time.Second
+
 	diff := t1.Sub(t2)
 	if diff < 0 {
 		diff = -diff

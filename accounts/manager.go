@@ -14,8 +14,15 @@ import (
 )
 
 const (
-	AccountFundBatch            = proto.MaxAccountBatchSize // equals max batch size used in replenish RPC
-	AccountFundInterval         = time.Hour
+	// AccountFundBatch is the number of host accounts we will fund in one
+	// batch.  It is equivalent to the max batch size used in replenish RPC.
+	AccountFundBatch = proto.MaxAccountBatchSize
+	// AccountFundInterval is how often we will fund host accounts.
+	AccountFundInterval = time.Hour
+	// AccountExpBackoffMaxMinutes represents the maximum interval there can be
+	// between two funding attempts for a host.  If a funding attempt fails,
+	// repeatedly there is exponential backoff capped at
+	// AccountExpBackoffMaxMinutes minutes.
 	AccountExpBackoffMaxMinutes = 128
 )
 
