@@ -199,6 +199,9 @@ func (am *AccountManager) FundTarget(ctx context.Context, minAllowance types.Cur
 	return target, nil
 }
 
+// UpdateFundedAccounts marks in-place the first `n` accounts as having a
+// successful funding and applies the exponential backoff penalty to the
+// accounts after the first `n`.
 func UpdateFundedAccounts(accounts []HostAccount, n int) {
 	if n > len(accounts) {
 		panic("illegal number of funded accounts") // developer error
