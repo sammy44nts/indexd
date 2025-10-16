@@ -105,6 +105,17 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	} else if _, exists := store.lostSectors[host.PublicKey][r3]; !exists {
 		t.Fatalf("expected lost sector %v, got %v", r3, store.lostSectors)
 	}
+
+	// empty the service account to trigger a "not enough funds" error which
+	// causes triggering a refill.
+	if am.triggeredRefills[acc] != 0 {
+		t.Fatalf("expected 0 triggered refill, got %d", am.triggeredRefills[acc])
+	}
+	_ = am.UpdateServiceAccountBalance(context.Background(), hk, acc, types.ZeroCurrency)
+	sm.performIntegrityChecksForHost(context.Background(), host.PublicKey, zap.NewNop())
+	if am.triggeredRefills[acc] != 1 {
+		t.Fatalf("expected 1 triggered refill, got %d", am.triggeredRefills[acc])
+	}
 }
 
 func TestPerformIntegrityChecksForHostExpiredPrices(t *testing.T) {

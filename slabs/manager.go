@@ -55,10 +55,11 @@ type (
 	// AccountManager defines the SlabManager's dependencies on the account
 	// manager.
 	AccountManager interface {
+		DebitServiceAccount(ctx context.Context, hostKey types.PublicKey, account proto.Account, amount types.Currency) error
 		RegisterServiceAccount(account proto.Account)
 		ResetAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) error
 		ServiceAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) (types.Currency, error)
-		DebitServiceAccount(ctx context.Context, hostKey types.PublicKey, account proto.Account, amount types.Currency) error
+		TriggerAccountRefill(ctx context.Context, hostKey types.PublicKey, account proto.Account) error
 	}
 
 	// A Dialer is an interface for writing and reading sectors to/from hosts.
