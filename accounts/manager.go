@@ -39,11 +39,6 @@ var (
 )
 
 type (
-	// ContractManager defines the AccountManager's dependencies on the contract manager.
-	ContractManager interface {
-		TriggerAccountFunding(force bool) error
-	}
-
 	// Store defines an interface to fetch accounts that need to be funded and
 	// update them after funding.
 	Store interface {
@@ -69,7 +64,6 @@ type (
 		Accounts(ctx context.Context, offset, limit int, opts ...QueryAccountsOpt) ([]Account, error)
 		HasAccount(context.Context, types.PublicKey) (bool, error)
 		DeleteAccount(ctx context.Context, ak types.PublicKey) error
-		ScheduleAccountForFunding(ctx context.Context, hostKey types.PublicKey, account proto.Account) error
 	}
 
 	// AccountFunder defines an interface to fund accounts.
@@ -79,7 +73,6 @@ type (
 
 	// AccountManager manages accounts.
 	AccountManager struct {
-		cm         ContractManager
 		store      Store
 		funder     AccountFunder
 		fundTarget types.Currency
@@ -204,15 +197,6 @@ func (am *AccountManager) FundTarget(ctx context.Context, minAllowance types.Cur
 	}
 
 	return target, nil
-}
-
-// TriggerAccountRefill triggers a refill for the given account by marking it
-// for funding and then triggering the account funding process.
-func (am *AccountManager) TriggerAccountRefill(ctx context.Context, hostKey types.PublicKey, account proto.Account) error {
-	if err := am.store.ScheduleAccountForFunding(ctx, hostKey, account); err != nil {
-		return fmt.Errorf("failed to schedule account for funding: %w", err)
-	}
-	return am.cm.TriggerAccountFunding(true)
 }
 
 // UpdateFundedAccounts marks in-place the first `n` accounts as having a

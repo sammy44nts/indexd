@@ -128,6 +128,7 @@ type (
 		PruneExpiredContractElements(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		PruneContractSectorsMap(ctx context.Context, maxBlocksSinceExpiry uint64) error
 		RejectPendingContracts(ctx context.Context, maxFormation time.Time) error
+		ScheduleAccountForFunding(ctx context.Context, hostKey types.PublicKey, account proto.Account) error
 		ScheduleContractsForPruning(ctx context.Context) error
 		UnpinnedSectors(ctx context.Context, hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		UpdateContractRevision(ctx context.Context, contract rhp.ContractRevision, usage proto.Usage) error
@@ -388,6 +389,15 @@ func (cm *ContractManager) Contracts(ctx context.Context, offset, limit int, que
 // MaintenanceSettings returns the current maintenance settings.
 func (cm *ContractManager) MaintenanceSettings(ctx context.Context) (MaintenanceSettings, error) {
 	return cm.store.MaintenanceSettings(ctx)
+}
+
+// TriggerAccountRefill triggers a refill for the given account by marking it
+// for funding and then triggering the account funding process.
+func (cm *ContractManager) TriggerAccountRefill(ctx context.Context, hostKey types.PublicKey, account proto.Account) error {
+	if err := cm.store.ScheduleAccountForFunding(ctx, hostKey, account); err != nil {
+		return fmt.Errorf("failed to schedule account for funding: %w", err)
+	}
+	return cm.TriggerAccountFunding(true)
 }
 
 // UpdateMaintenanceSettings updates the maintenance settings.

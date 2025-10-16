@@ -302,17 +302,15 @@ func (s *mockStore) ListObjects(ctx context.Context, account proto.Account, curs
 }
 
 type mockAccountManager struct {
-	mu               sync.Mutex
-	serviceAccounts  map[proto.Account]struct{}
-	triggeredRefills map[proto.Account]int
-	store            *mockStore
+	mu              sync.Mutex
+	serviceAccounts map[proto.Account]struct{}
+	store           *mockStore
 }
 
 func newMockAccountManager(store *mockStore) *mockAccountManager {
 	return &mockAccountManager{
-		serviceAccounts:  make(map[proto.Account]struct{}),
-		store:            store,
-		triggeredRefills: make(map[proto.Account]int),
+		serviceAccounts: make(map[proto.Account]struct{}),
+		store:           store,
 	}
 }
 
@@ -336,13 +334,6 @@ func (m *mockAccountManager) ServiceAccountBalance(ctx context.Context, hostKey 
 		return types.ZeroCurrency, nil
 	}
 	return types.ZeroCurrency, nil
-}
-
-func (m *mockAccountManager) TriggerAccountRefill(ctx context.Context, hostKey types.PublicKey, account proto.Account) error {
-	m.mu.Lock()
-	m.triggeredRefills[account]++
-	m.mu.Unlock()
-	return nil
 }
 
 func (m *mockAccountManager) UpdateServiceAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account, balance types.Currency) error {
@@ -369,6 +360,21 @@ func (m *mockAccountManager) DebitServiceAccount(ctx context.Context, hostKey ty
 			}
 		}
 	}
+	return nil
+}
+
+type mockContractManager struct {
+	triggeredRefills map[proto.Account]int
+}
+
+func newMockContractManager() *mockContractManager {
+	return &mockContractManager{
+		triggeredRefills: make(map[proto.Account]int),
+	}
+}
+
+func (m *mockContractManager) TriggerAccountRefill(ctx context.Context, hostKey types.PublicKey, account proto.Account) error {
+	m.triggeredRefills[account]++
 	return nil
 }
 
