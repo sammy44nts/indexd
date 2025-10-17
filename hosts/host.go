@@ -40,6 +40,10 @@ var (
 		MinCollateral:      types.Siacoins(100).Div64(oneTB).Div64(blocksPerMonth),  // 100 SC / TB / month
 		MinProtocolVersion: rhp.ProtocolVersion501,
 	}
+
+	// DefaultUsabilityPriceThreshold defines the maximum acceptable host price
+	// as 80% of the price gouging setting.
+	DefaultUsabilityPriceThreshold = 0.8
 )
 
 type (

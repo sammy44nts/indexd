@@ -96,11 +96,11 @@ WITH globals AS (
 	has_settings AND settings_accepting_contracts,
 	has_settings AND settings_contract_price <= globals.one_sc,
 	has_settings AND settings_collateral >= globals.hosts_min_collateral AND settings_collateral >= 2 * settings_storage_price,
-	has_settings AND settings_storage_price <= globals.hosts_max_storage_price,
-	has_settings AND settings_ingress_price <= globals.hosts_max_ingress_price,
-	has_settings AND settings_egress_price <= globals.hosts_max_egress_price,
+	has_settings AND settings_storage_price <= $2*globals.hosts_max_storage_price,
+	has_settings AND settings_ingress_price <= $2*globals.hosts_max_ingress_price,
+	has_settings AND settings_egress_price <= $2*globals.hosts_max_egress_price,
 	has_settings AND settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
-FROM hosts CROSS JOIN globals;`, sqlPublicKey(hk)))
+FROM hosts CROSS JOIN globals;`, sqlPublicKey(hk), hosts.DefaultUsabilityPriceThreshold))
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
 		} else if err != nil {
@@ -134,7 +134,7 @@ func (s *Store) Hosts(ctx context.Context, offset, limit int, queryOpts ...hosts
 		hks[i] = sqlPublicKey(opts.PublicKeys[i])
 	}
 
-	var hosts []hosts.Host
+	var result []hosts.Host
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		rows, err := tx.Query(ctx, `
 WITH globals AS (
@@ -173,14 +173,14 @@ WITH globals AS (
 	has_settings AND settings_accepting_contracts,
 	has_settings AND settings_contract_price <= globals.one_sc,
 	has_settings AND settings_collateral >= globals.hosts_min_collateral AND settings_collateral >= 2 * settings_storage_price,
-	has_settings AND settings_storage_price <= globals.hosts_max_storage_price,
-	has_settings AND settings_ingress_price <= globals.hosts_max_ingress_price,
-	has_settings AND settings_egress_price <= globals.hosts_max_egress_price,
+	has_settings AND settings_storage_price <= $3*globals.hosts_max_storage_price,
+	has_settings AND settings_ingress_price <= $3*globals.hosts_max_ingress_price,
+	has_settings AND settings_egress_price <= $3*globals.hosts_max_egress_price,
 	has_settings AND settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 FROM hosts CROSS JOIN globals
 WHERE
 	-- good host filter
-	(($3::boolean IS NULL) OR ($3::boolean = (
+	(($4::boolean IS NULL) OR ($4::boolean = (
 		recent_uptime >= 0.9 AND
 		has_settings AND
 		settings_max_contract_duration >= globals.contracts_period AND
@@ -191,20 +191,20 @@ WHERE
 		settings_contract_price <= globals.one_sc AND
 		settings_collateral >= globals.hosts_min_collateral AND
 		settings_collateral >= 2 * settings_storage_price AND
-		settings_storage_price <= globals.hosts_max_storage_price AND
-		settings_ingress_price <= globals.hosts_max_ingress_price AND
-		settings_egress_price <= globals.hosts_max_egress_price AND
+		settings_storage_price <= $3*globals.hosts_max_storage_price AND
+		settings_ingress_price <= $3*globals.hosts_max_ingress_price AND
+		settings_egress_price <= $3*globals.hosts_max_egress_price AND
 		settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 		)
 	))
 	-- blocked host filter
-	AND (($4::boolean IS NULL) OR ($4::boolean = hosts.blocked))
+	AND (($5::boolean IS NULL) OR ($5::boolean = hosts.blocked))
 	-- active contracts filter
-	AND (($5::boolean IS NULL) OR ($5::boolean = EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state >= $6 AND state <= $7)))
+	AND (($6::boolean IS NULL) OR ($6::boolean = EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state >= $7 AND state <= $8)))
 	-- public key filter
-	AND ((CARDINALITY($8::bytea[]) = 0) OR (public_key = ANY($8)))
+	AND ((CARDINALITY($9::bytea[]) = 0) OR (public_key = ANY($9)))
 	LIMIT $1 OFFSET $2
-;`, limit, offset, opts.Good, opts.Blocked, opts.ActiveContracts, contracts.ContractStatePending, contracts.ContractStateActive, hks)
+;`, limit, offset, hosts.DefaultUsabilityPriceThreshold, opts.Good, opts.Blocked, opts.ActiveContracts, contracts.ContractStatePending, contracts.ContractStateActive, hks)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts: %w", err)
 		}
@@ -228,14 +228,14 @@ WHERE
 		}
 
 		for _, h := range dbHosts {
-			hosts = append(hosts, h.Host)
+			result = append(result, h.Host)
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	return hosts, nil
+	return result, nil
 }
 
 // BlockedHosts returns a list of blocked hostkeys.
@@ -611,17 +611,17 @@ WHERE
 	settings_contract_price <= globals.one_sc AND
 	settings_collateral >= globals.hosts_min_collateral AND
 	settings_collateral >= 2 * settings_storage_price AND
-	settings_storage_price <= globals.hosts_max_storage_price AND
-	settings_ingress_price <= globals.hosts_max_ingress_price AND
-	settings_egress_price <= globals.hosts_max_egress_price AND
+	settings_storage_price <= $3*globals.hosts_max_storage_price AND
+	settings_ingress_price <= $3*globals.hosts_max_ingress_price AND
+	settings_egress_price <= $3*globals.hosts_max_egress_price AND
 	settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb AND
 	-- country filter
-	($3::text IS NULL OR country_code = $3::text) AND
+	($4::text IS NULL OR country_code = $4::text) AND
 	-- active contracts
 	EXISTS (SELECT 1 FROM contracts WHERE host_id = hosts.id AND state <= 1) AND
 	-- protocol filter
-	($4::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $4::smallint)) `
-		args := []any{limit, offset, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol)}
+	($5::smallint IS NULL OR EXISTS (SELECT 1 FROM host_addresses WHERE host_id = hosts.id AND protocol = $5::smallint))`
+		args := []any{limit, offset, hosts.DefaultUsabilityPriceThreshold, queryOpts.CountryCode, (*sqlNetworkProtocol)(queryOpts.Protocol)}
 
 		if queryOpts.Location != nil {
 			baseQuery += `ORDER BY location <-> point($5, $6) `
