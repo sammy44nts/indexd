@@ -1717,10 +1717,10 @@ func BenchmarkContracts(b *testing.B) {
 		}
 
 		for b.Loop() {
-			eles, err := store.ContractElementsForBroadcast(context.Background(), frand.Uint64n(10))
+			fces, err := store.ContractElementsForBroadcast(context.Background(), frand.Uint64n(10))
 			if err != nil {
 				b.Fatal(err)
-			} else if len(eles) == 0 {
+			} else if len(fces) == 0 {
 				b.Fatal("expected at least one element")
 			}
 		}
