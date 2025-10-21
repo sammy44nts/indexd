@@ -1046,6 +1046,7 @@ func TestPinSectors(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 func TestUnhealthySlabs(t *testing.T) {
 	store := initPostgres(t, zap.NewNop())
 
@@ -1217,6 +1218,8 @@ func TestUnhealthySlabs(t *testing.T) {
 	assertUnhealthySlabs(0, 10)
 }
 
+=======
+>>>>>>> 644f48b (store: add exp. backoff mechanism to unhealthy slabs)
 func TestMarkSectorsUnpinnable(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
