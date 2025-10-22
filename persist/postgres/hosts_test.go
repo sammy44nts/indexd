@@ -2276,6 +2276,73 @@ func BenchmarkHostsWithUnpinnableSectors(b *testing.B) {
 	}
 }
 
+// BenchmarkHostStats benchmarks the HostStats method.
+func BenchmarkHostStats(b *testing.B) {
+	const (
+		numHosts            = 10_000
+		numContractsPerHost = 10
+		limit               = 500
+	)
+
+	store := initPostgres(b, zap.NewNop())
+
+	if err := store.transaction(context.Background(), func(ctx context.Context, tx *txn) error {
+		for i := range numHosts {
+			hk := types.GeneratePrivateKey().PublicKey()
+
+			accountUsage := types.NewCurrency64(frand.Uint64n(1e6) + 1)
+			totalUsage := accountUsage.Add(types.NewCurrency64(frand.Uint64n(1e6) + 1))
+
+			var hostID int64
+			if err := tx.QueryRow(ctx, `
+				INSERT INTO hosts (public_key, lost_sectors, usage_account_funding, usage_total_spent, last_announcement)
+				VALUES ($1, $2, $3, $4, NOW())
+				RETURNING id
+			`,
+				sqlPublicKey(hk),
+				frand.Uint64n(1e3),
+				sqlCurrency(accountUsage),
+				sqlCurrency(totalUsage),
+			).Scan(&hostID); err != nil {
+				return err
+			}
+
+			for range numContractsPerHost {
+				insertRandomContract(b, tx, hostID, hk)
+			}
+
+			if i%7 == 0 {
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO hosts_blocklist (public_key, reasons)
+					VALUES ($1, $2)
+					ON CONFLICT (public_key) DO UPDATE SET reasons = EXCLUDED.reasons
+				`, sqlPublicKey(hk), []string{"benchmark", "reason"}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) hosts;`)
+	_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contracts;`)
+	if err := errors.Join(vErr1, vErr2); err != nil {
+		b.Fatal(err)
+	}
+
+	for b.Loop() {
+		offset := frand.Intn(numHosts - limit)
+		stats, err := store.HostStats(b.Context(), offset, limit)
+		if err != nil {
+			b.Fatal(err)
+		} else if len(stats) != limit {
+			b.Fatalf("expected %d host stats, got %d", limit, len(stats))
+		}
+	}
+}
+
 func (s *Store) addTestHost(t testing.TB, hks ...types.PublicKey) types.PublicKey {
 	t.Helper()
 

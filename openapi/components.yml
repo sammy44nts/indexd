@@ -855,6 +855,14 @@ components:
                 allOf:
                   - $ref: "#/components/schemas/Currency"
                   - description: Total amount spent on this host
+              blocked:
+                type: boolean
+                description: Whether the host is currently blocked
+              blockedReasons:
+                type: array
+                items:
+                  type: string
+                description: Reasons why the host was blocked, if any
 
     SectorStatsResponse:
       type: object
