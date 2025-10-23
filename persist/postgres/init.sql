@@ -221,6 +221,9 @@ CREATE TABLE contracts (
   raw_revision BYTEA NOT NULL
 );
 
+-- speeds up lookup of unhealthy slabs
+CREATE INDEX contracts_bad_or_inactive_contract_id_idx ON contracts (contract_id) WHERE (NOT good) OR (state NOT IN (0,1)); 
+
 -- foreign key constraint index
 CREATE INDEX contracts_host_id_idx ON contracts(host_id);
 
@@ -269,14 +272,18 @@ CREATE TABLE slabs (
     digest BYTEA UNIQUE NOT NULL CHECK(LENGTH(digest) = 32), -- unique identifier for the slab derived from sector roots
 
     encryption_key BYTEA NOT NULL,
+    min_shards SMALLINT NOT NULL CHECK(min_shards > 0),
+
+    consecutive_failed_repairs SMALLINT NOT NULL DEFAULT 0 CHECK (consecutive_failed_repairs >= 0),
     last_repair_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    min_shards SMALLINT NOT NULL CHECK(min_shards > 0)
+    next_repair_attempt TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+
 );
 CREATE INDEX slabs_digest_idx ON slabs(digest);
 CREATE INDEX slabs_pinned_at_idx ON slabs(pinned_at ASC);
 
 -- speeds up lookup of unhealthy slabs
-CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(last_repair_attempt ASC);
+CREATE INDEX slabs_id_last_repair_attempt_idx ON slabs(last_repair_attempt ASC, consecutive_failed_repairs ASC) INCLUDE (next_repair_attempt);
 
 CREATE TABLE objects (
     id BIGSERIAL PRIMARY KEY,
@@ -393,9 +400,6 @@ CREATE TABLE slab_sectors (
     slab_index SMALLINT NOT NULL, -- index within corresponding slab to retrieve sectors in right order
     PRIMARY KEY (slab_id, sector_id)
 );
-
--- speeds up lookup of unhealthy slabs
-CREATE INDEX slab_sectors_sector_id_idx ON slab_sectors(sector_id);
 
 -- speed up fetching sectors for slab ordered by their position within the slab
 CREATE UNIQUE INDEX slab_sectors_slab_id_slab_index_idx ON slab_sectors(slab_id, slab_index ASC);
