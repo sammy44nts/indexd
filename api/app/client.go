@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,28 +37,24 @@ type Client struct {
 
 // sign signs the request with the appropriate headers and returns the signed URL
 // and request body.
-func sign(appKey types.PrivateKey, validUntil time.Time, method, endpointURL string, req any) (*url.URL, io.Reader, error) {
+func sign(appKey types.PrivateKey, validUntil time.Time, method, endpointURL string, requestBuf []byte) (*url.URL, io.Reader, error) {
 	u, err := url.Parse(endpointURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
-	var buf []byte
-	if req != nil {
-		var err error
-		buf, err = json.Marshal(req)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-	}
 	// prepare request hash
-	sigHash := requestHash(method, u.Host, u.Path, validUntil, buf)
+	sigHash := requestHash(method, u.Host, u.Path, validUntil, requestBuf)
 
 	// prepare query parameters
 	val := url.Values{}
-	val.Set("SiaIdx-ValidUntil", fmt.Sprint(validUntil.Unix()))
-	val.Set("SiaIdx-Credential", appKey.PublicKey().String())
-	val.Set("SiaIdx-Signature", appKey.SignHash(sigHash).String())
+	val.Set(queryParamValidUntil, fmt.Sprint(validUntil.Unix()))
+
+	pk := appKey.PublicKey()
+	val.Set(queryParamCredential, base64.URLEncoding.EncodeToString(pk[:]))
+
+	sig := appKey.SignHash(sigHash)
+	val.Set(queryParamSignature, base64.URLEncoding.EncodeToString(sig[:]))
 
 	// merge query params
 	q := u.Query()
@@ -68,8 +65,8 @@ func sign(appKey types.PrivateKey, validUntil time.Time, method, endpointURL str
 	}
 	u.RawQuery = q.Encode()
 	var body io.Reader = http.NoBody
-	if buf != nil {
-		body = bytes.NewReader(buf)
+	if requestBuf != nil {
+		body = bytes.NewReader(requestBuf)
 	}
 	return u, body, nil
 }
@@ -101,8 +98,16 @@ func doRequest(ctx context.Context, method string, u *url.URL, body io.Reader, a
 	return r.Body, nil
 }
 
-func (c *Client) signedRequestCustom(ctx context.Context, accept, method, route string, data any) (io.ReadCloser, error) {
-	u, body, err := sign(c.appkey, time.Now().Add(c.validity), method, fmt.Sprintf("%s%s", c.baseURL, route), data)
+func (c *Client) signedRequestCustom(ctx context.Context, accept, method, route string, request any) (io.ReadCloser, error) {
+	var requestBuf []byte
+	if request != nil {
+		var err error
+		requestBuf, err = json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request data: %w", err)
+		}
+	}
+	u, body, err := sign(c.appkey, time.Now().Add(c.validity), method, fmt.Sprintf("%s%s", c.baseURL, route), requestBuf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign request: %w", err)
 	}
