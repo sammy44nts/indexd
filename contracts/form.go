@@ -230,12 +230,6 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 		wanted--
 	}
 
-	// scale funding by number of active accounts
-	target, err := cm.accounts.FundTarget(ctx, minAllowance)
-	if err != nil {
-		return fmt.Errorf("failed to get fund target: %w", err)
-	}
-
 	// randomize the candidate order to avoid preferring any host
 	cm.shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
 
@@ -260,6 +254,12 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				return fmt.Errorf("%w: %s", hosts.ErrBadHost, host.PublicKey)
 			}
 
+			// scale funding by number of active accounts
+			target, err := cm.accounts.ContractFundTarget(ctx, host, minAllowance)
+			if err != nil {
+				return fmt.Errorf("failed to get fund target: %w", err)
+			}
+
 			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // note: broadcasting on the host-side can block for up to a minute by default
 			defer cancel()
@@ -279,7 +279,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 			if err != nil {
 				return fmt.Errorf("failed to form contract: %w", err)
 			}
-			log := log.With(zap.Stringer("formedContractID", res.Contract.ID))
+			log := log.With(zap.Stringer("formedContractID", res.Contract.ID), zap.Stringer("allowance", allowance), zap.Stringer("collateral", collateral), zap.Stringer("fundTarget", target))
 			if err := cm.wallet.BroadcastV2TransactionSet(res.FormationSet.Basis, res.FormationSet.Transactions); err != nil {
 				// error is ignored as it is assumed the host has validated the transaction set.
 				// It will eventually be mined or rejected. This is to prevent minor synchronization

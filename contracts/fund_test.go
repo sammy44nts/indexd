@@ -24,7 +24,7 @@ type accountsManagerMock struct {
 	calls          []fundAccountsCall
 }
 
-func (am *accountsManagerMock) FundTarget(ctx context.Context, minAllowance types.Currency) (types.Currency, error) {
+func (am *accountsManagerMock) ContractFundTarget(ctx context.Context, host hosts.Host, minAllowance types.Currency) (types.Currency, error) {
 	target := types.Siacoins(1).Mul64(am.activeAccounts)
 	if minAllowance.Cmp(target) == 1 {
 		target = minAllowance
@@ -87,13 +87,21 @@ func (s *storeMock) ContractsForFunding(_ context.Context, hk types.PublicKey, l
 	return out, nil
 }
 
-func (s *storeMock) HostsForFunding(_ context.Context) ([]types.PublicKey, error) {
+func (s *storeMock) HostsForFunding(ctx context.Context) ([]types.PublicKey, error) {
+	hasContract := make(map[types.PublicKey]struct{})
+	for _, c := range s.contracts {
+		hasContract[c.HostKey] = struct{}{}
+	}
+
 	var hks []types.PublicKey
 	for hk, host := range s.hosts {
 		if host.Usability == hosts.GoodUsability && !host.Blocked {
-			hks = append(hks, hk)
+			if _, ok := hasContract[hk]; ok {
+				hks = append(hks, hk)
+			}
 		}
 	}
+
 	return hks, nil
 }
 
@@ -160,6 +168,12 @@ func TestPerformAccountFunding(t *testing.T) {
 		HostKey:            hk4,
 		RemainingAllowance: types.Siacoins(1),
 	})
+
+	// give all hosts good settings
+	hmMock.settings[hk1] = goodSettings
+	hmMock.settings[hk2] = goodSettings
+	hmMock.settings[hk3] = goodSettings
+	hmMock.settings[hk4] = goodSettings
 
 	// fund accounts
 	err = cm.performAccountFunding(context.Background(), false, zap.NewNop())

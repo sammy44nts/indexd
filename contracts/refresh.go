@@ -49,7 +49,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 
 	return cm.hosts.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
 		// scale funding by number of active accounts
-		target, err := cm.accounts.FundTarget(ctx, minAllowance)
+		target, err := cm.accounts.ContractFundTarget(ctx, host, minAllowance)
 		if err != nil {
 			return fmt.Errorf("failed to get fund target: %w", err)
 		}

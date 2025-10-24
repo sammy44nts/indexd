@@ -39,10 +39,8 @@ func TestAccountFunding(t *testing.T) {
 	hp := hosts[0].Settings.Prices
 	hc := indexer.HostClient(t, hk)
 	token := proto.NewAccountToken(a1, hk)
-	target := types.Siacoins(2)
 
 	// assert we have one active contract
-	time.Sleep(time.Second)
 	contracts, err := indexer.Contracts().Contracts(context.Background(), 0, 10, contracts.WithRevisable(true), contracts.WithGood(true))
 	if err != nil {
 		t.Fatal(err)
@@ -51,11 +49,12 @@ func TestAccountFunding(t *testing.T) {
 	}
 
 	// assert the account is funded
-	balance, err := hc.AccountBalance(context.Background(), acc)
+	var balance types.Currency
+	balance, err = hc.AccountBalance(context.Background(), acc)
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Equals(target) {
-		t.Fatalf("expected account to be funded to %v, got %v", target, balance)
+	} else if balance.IsZero() {
+		t.Fatal("expected account to be funded")
 	}
 
 	// spend some money
@@ -67,11 +66,11 @@ func TestAccountFunding(t *testing.T) {
 	}
 
 	// assert it was spent
-	balance, err = hc.AccountBalance(context.Background(), acc)
+	updated, err := hc.AccountBalance(context.Background(), acc)
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Add(hp.RPCWriteSectorCost(proto.SectorSize).RenterCost()).Equals(target) {
-		t.Fatal("expected account balance to be slightly less than 1SC")
+	} else if !updated.Add(hp.RPCWriteSectorCost(proto.SectorSize).RenterCost()).Equals(balance) {
+		t.Fatalf("expected account balance to be slightly less than %v", balance)
 	}
 
 	// trigger funding
@@ -82,10 +81,10 @@ func TestAccountFunding(t *testing.T) {
 
 	// assert it was refilled
 	time.Sleep(time.Second)
-	balance, err = hc.AccountBalance(context.Background(), acc)
+	updated, err = hc.AccountBalance(context.Background(), acc)
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Equals(target) {
-		t.Fatal("expected account balance to be funded to 1SC", balance)
+	} else if !updated.Equals(balance) {
+		t.Fatalf("expected account balance to be funded to %v, instead it was %v", balance, updated)
 	}
 }

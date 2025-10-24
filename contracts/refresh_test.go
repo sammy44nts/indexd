@@ -294,7 +294,7 @@ func TestRefreshAllowance(t *testing.T) {
 	if err := contracts.performContractRefreshes(context.Background(), period, zap.NewNop()); err != nil {
 		t.Fatal(err)
 	}
-	allowance, err := amMock.FundTarget(context.Background(), minAllowance)
+	allowance, err := amMock.ContractFundTarget(context.Background(), good, minAllowance)
 	if err != nil {
 		t.Fatal(err)
 	}

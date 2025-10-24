@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 
 	proto "go.sia.tech/core/rhp/v4"
@@ -130,6 +131,7 @@ func (c *hostClientMock) FormContract(ctx context.Context, settings proto.HostSe
 type hostManagerMock struct {
 	settings map[types.PublicKey]proto.HostSettings
 
+	mu    sync.Mutex // prevents race when calling WithScannedHost concurrently, the storeMock is not thread-safe
 	store *storeMock
 }
 
@@ -144,6 +146,9 @@ func newHostManagerMock(store *storeMock) *hostManagerMock {
 // host and if successful, updates the host's settings in the store, fetches the
 // updated host and calls the provided method with the host.
 func (s *hostManagerMock) WithScannedHost(ctx context.Context, hk types.PublicKey, fn func(h hosts.Host) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	settings, ok := s.settings[hk]
 	if !ok {
 		return hosts.ErrNotFound
