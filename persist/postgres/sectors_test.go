@@ -1844,39 +1844,42 @@ func BenchmarkUnhealthySlabs(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	for _, batchSize := range []int{50, 100, 250} {
-		// reset next_repair_attempt
-		_, err = store.pool.Exec(context.Background(), "UPDATE slabs SET next_repair_attempt = NOW() - interval '1 day' - interval '1 week' * random()")
+	// reset next_repair_attempt
+	resetUnhealthySlabs := func() {
+		b.Helper()
+		_, err = store.pool.Exec(context.Background(), "UPDATE slabs SET next_repair_attempt = (NOW() - interval '3 day') + interval '1 week' * random()")
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
 
-		// analyze tables to ensure query planner has up-to-date statistics
-		_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) slabs;`)
-		_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) sectors;`)
-		_, vErr3 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contract_sectors_map;`)
-		if err := errors.Join(vErr1, vErr2, vErr3); err != nil {
-			b.Fatal(err)
-		}
+	// analyze tables to ensure query planner has up-to-date statistics
+	_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) slabs;`)
+	_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) sectors;`)
+	_, vErr3 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contract_sectors_map;`)
+	if err := errors.Join(vErr1, vErr2, vErr3); err != nil {
+		b.Fatal(err)
+	}
 
-		b.ResetTimer()
+	for _, batchSize := range []int{50, 100, 250} {
 		b.Run(fmt.Sprint(batchSize), func(b *testing.B) {
-			seen := make(map[slabs.SlabID]struct{})
+			var sanityCheck bool
 			for b.Loop() {
 				slabIDs, err := store.UnhealthySlabs(context.Background(), batchSize)
 				if err != nil {
 					b.Fatal(err)
-				} else if len(slabIDs) == 0 && len(seen) == 0 {
-					// there should be unhealthy slabs in the first run
-					b.Fatalf("got 0 slabs")
+				} else if len(slabIDs) < batchSize {
+					b.StopTimer()
+					resetUnhealthySlabs()
+					b.StartTimer()
+					continue
+				} else if len(slabIDs) != batchSize {
+					b.Fatalf("expected %d unhealthy slabs, got %d", batchSize, len(slabIDs))
 				}
-
-				for _, slabID := range slabIDs {
-					if _, exists := seen[slabID]; exists {
-						b.Fatal("known slab was returned")
-					}
-					seen[slabID] = struct{}{}
-				}
+				sanityCheck = sanityCheck || len(slabIDs) > 0
+			}
+			if !sanityCheck {
+				b.Fatal("sanity check failed, no unhealthy slabs were ever returned")
 			}
 		})
 	}
