@@ -85,29 +85,24 @@ func (h HostStats) PrometheusMetric() []prometheus.Metric {
 		},
 	}
 
-	if h.Blocked {
-		metrics = append(metrics, prometheus.Metric{
-			Name:   "indexd_host_blocked",
-			Labels: labels,
-			Value:  1,
-		})
-		if len(h.BlockedReasons) > 0 {
-			for _, reason := range h.BlockedReasons {
-				metrics = append(metrics, prometheus.Metric{
-					Name: "indexindexd_host_blocked_reason",
-					Labels: map[string]any{
-						"public_key": h.PublicKey.String(),
-						"reason":     reason,
-					},
-					Value: 1,
-				})
+	metrics = append(metrics, prometheus.Metric{
+		Name:   "indexd_host_blocked",
+		Labels: labels,
+		Value: func() float64 {
+			if h.Blocked {
+				return 1
 			}
-		}
-	} else {
+			return 0
+		}(),
+	})
+	for _, reason := range h.BlockedReasons {
 		metrics = append(metrics, prometheus.Metric{
-			Name:   "indexd_host_blocked",
-			Labels: labels,
-			Value:  0,
+			Name: "indexd_host_blocked_reason",
+			Labels: map[string]any{
+				"public_key": h.PublicKey.String(),
+				"reason":     reason,
+			},
+			Value: 1,
 		})
 	}
 
