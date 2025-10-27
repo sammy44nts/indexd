@@ -61,7 +61,7 @@ func (m *SlabManager) uploadShards(ctx context.Context, slab Slab, shards [][]by
 		usage, root, err := m.uploadShard(ctx, host, bytes.NewReader(shard), pool)
 		if err != nil {
 			logger.Debug("failed to upload shard",
-				zap.Bool("timeout", time.Now().After(start.Add(m.shardTimeout))),
+				zap.Bool("timeout", time.Since(start) > m.shardTimeout),
 				zap.Stringer("hostKey", host.PublicKey),
 				zap.Error(err),
 			)
