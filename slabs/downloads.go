@@ -112,7 +112,7 @@ outer:
 				wg.Done()
 			}()
 
-			var start time.Time
+			start := time.Now()
 			var usage proto.Usage
 			usage, shards[sectorIdx], err = m.downloadShard(ctx, host, slab.Sectors[sectorIdx], pool)
 			if isErrLostSector(err) {
