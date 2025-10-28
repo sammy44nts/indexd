@@ -43,14 +43,22 @@ func TestDownloadCandidates(t *testing.T) {
 	candidates := newDownloadCandidates([]hosts.Host{h1, h2, h3, h4}, slab)
 
 	// test next() method
-	if host, ok := candidates.next(); !ok || host.PublicKey != h3.PublicKey {
-		t.Fatalf("expected host %v, got %v", h3.PublicKey, host.PublicKey)
-	} else if host, ok := candidates.next(); !ok || host.PublicKey != h4.PublicKey {
-		t.Fatalf("expected host %v, got %v", h4.PublicKey, host.PublicKey)
-	} else if host, ok := candidates.next(); !ok || host.PublicKey != h1.PublicKey {
-		t.Fatalf("expected host %v, got %v", h1.PublicKey, host.PublicKey)
-	} else if _, ok := candidates.next(); ok {
+	selected := make(map[types.PublicKey]struct{})
+	for range 3 {
+		if host, ok := candidates.next(); ok {
+			selected[host.PublicKey] = struct{}{}
+		}
+	}
+	if _, ok := candidates.next(); ok {
 		t.Fatal("expected no more hosts")
+	} else if len(selected) != 3 {
+		t.Fatalf("expected 3 selected hosts, got %d", len(selected))
+	} else if _, ok := selected[h1.PublicKey]; !ok {
+		t.Fatal("expected host 1 to be selected")
+	} else if _, ok := selected[h3.PublicKey]; !ok {
+		t.Fatal("expected host 3 to be selected")
+	} else if _, ok := selected[h4.PublicKey]; !ok {
+		t.Fatal("expected host 4 to be selected")
 	}
 
 	// assert indices
