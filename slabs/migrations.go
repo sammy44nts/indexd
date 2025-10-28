@@ -88,12 +88,13 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts [
 	// download enough shards to reconstruct the slab's shards
 	// note: timeouts are set within downloadShards to avoid timing
 	// out the database
+	downloadStart := time.Now()
 	shards, err := m.downloadShards(ctx, slab, allHosts, pool, log.Named("recover"))
 	if err != nil {
 		log.Error("failed to download slab", zap.Error(err))
 		return err
 	}
-	log = log.With(zap.Duration("downloadElapsed", time.Since(start)))
+	log = log.With(zap.Duration("downloadElapsed", time.Since(downloadStart)))
 	log.Debug("recovered shards")
 
 	// decrypt the shards

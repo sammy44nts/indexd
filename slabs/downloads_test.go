@@ -164,23 +164,24 @@ func TestDownloadShards(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		var nFetched int
-		for _, shard := range sectors {
-			if shard == nil {
-				continue
-			}
-			nFetched++
+		fetchedS1 := sectors[0] != nil
+		fetchedS2 := sectors[1] != nil
+		fetchedS3 := sectors[2] != nil
 
-			// sanity check
-			isS1 := bytes.Equal(shard, sector1[:])
-			isS2 := bytes.Equal(shard, sector2[:])
-			isS3 := bytes.Equal(shard, sector3[:])
-			if !(isS1 || isS2 || isS3) {
-				t.Fatal("unexpected sector")
-			}
+		if fetchedS1 && !bytes.Equal(sectors[0], sector1[:]) {
+			t.Fatal("downloaded sector 1 does not match expected data")
+		} else if fetchedS2 && !bytes.Equal(sectors[1], sector2[:]) {
+			t.Fatal("downloaded sector 2 does not match expected data")
+		} else if fetchedS3 && !bytes.Equal(sectors[2], sector3[:]) {
+			t.Fatal("downloaded sector 3 does not match expected data")
 		}
-		if nFetched != int(slab.MinShards) {
-			t.Fatalf("expected %d downloaded sectors, got %d", slab.MinShards, nFetched)
+
+		if fetchedS1 && !fetchedS2 && !fetchedS3 {
+			t.Fatal("expected at least 2 sectors to be fetched")
+		} else if !fetchedS1 && fetchedS2 && !fetchedS3 {
+			t.Fatal("expected at least 2 sectors to be fetched")
+		} else if !fetchedS1 && !fetchedS2 && fetchedS3 {
+			t.Fatal("expected at least 2 sectors to be fetched")
 		}
 	})
 
@@ -206,24 +207,17 @@ func TestDownloadShards(t *testing.T) {
 	})
 
 	// assert that a host losing a sector will mark the sector as lost
-	t.Run("success with lost sector", func(t *testing.T) {
+	t.Run("mark sector lost", func(t *testing.T) {
 		dialer.clients[hk1].sectors = make(map[types.Hash256][proto.SectorSize]byte)
-		sectors, err := sm.downloadShards(context.Background(), slab, allHosts, pool, zap.NewNop())
-		if err != nil {
-			t.Fatal(err)
-		} else if !reflect.DeepEqual(sectors, [][]byte{nil, sector2[:], sector3[:]}) {
-			t.Fatal("downloaded sectors do not match expected sectors")
-		}
-
-		if len(store.lostSectors) > 0 {
-			sectors, ok := store.lostSectors[hk1]
-			if !ok {
-				t.Fatalf("expected lost sector for host %v, got none", hk1)
-			} else if len(sectors) != 1 {
-				t.Fatalf("expected 1 lost sector for host %v, got %d %+v", hk1, len(store.lostSectors[hk1]), store.lostSectors)
-			} else if _, ok := sectors[proto.SectorRoot(&sector1)]; !ok {
-				t.Fatalf("expected sector %v to be marked as lost, but it wasn't", proto.SectorRoot(&sector1))
-			}
+		_, err := sm.downloadShards(context.Background(), slab, []hosts.Host{host1, host2}, pool, zap.NewNop())
+		if !errors.Is(err, errNotEnoughHosts) {
+			t.Fatal("expected not enough hosts error due to lost sector")
+		} else if sectors, ok := store.lostSectors[hk1]; !ok {
+			t.Fatalf("expected lost sector for host %v, got none", hk1)
+		} else if len(sectors) != 1 {
+			t.Fatalf("expected 1 lost sector for host %v, got %d %+v", hk1, len(store.lostSectors[hk1]), store.lostSectors)
+		} else if _, ok := sectors[proto.SectorRoot(&sector1)]; !ok {
+			t.Fatalf("expected sector %v to be marked as lost, but it wasn't", proto.SectorRoot(&sector1))
 		}
 	})
 
