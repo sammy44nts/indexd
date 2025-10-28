@@ -866,7 +866,7 @@ func (s *Store) HostsForFunding(ctx context.Context) ([]types.PublicKey, error) 
 }
 
 // HostsForPinning returns a list of host keys that can be used for sector
-// pinning. A host is eligble for pinning if it is not blocked, has unpinned
+// pinning. A host is eligible for pinning if it is not blocked, has unpinned
 // sectors and has an active contract.
 func (s *Store) HostsForPinning(ctx context.Context) ([]types.PublicKey, error) {
 	var hosts []types.PublicKey
