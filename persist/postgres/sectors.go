@@ -219,6 +219,9 @@ func (s *Store) PinSlabs(ctx context.Context, account proto.Account, nextIntegri
 			}
 			goodHosts[hk] = struct{}{}
 		}
+		if err := hostRows.Err(); err != nil {
+			return fmt.Errorf("failed to get good host rows: %w", err)
+		}
 
 		for _, slab := range toPin {
 			digest, err := slab.Digest()
