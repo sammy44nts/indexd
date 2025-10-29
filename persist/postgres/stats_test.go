@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -310,6 +311,27 @@ func TestHostStats(t *testing.T) {
 		t.Fatalf("expected first host to have %d active contract size, got %d", testRevision.Filesize, stats[0].ActiveContractsSize)
 	} else if stats[1].ActiveContractsSize != int64(testRevision.Filesize) {
 		t.Fatalf("expected second host to have %d active contract size, got %d", testRevision.Filesize, stats[1].ActiveContractsSize)
+	}
+	if stats[0].Blocked || stats[1].Blocked {
+		t.Fatal("expected both hosts to be unblocked")
+	}
+
+	reason := t.Name()
+	if err := store.BlockHosts(t.Context(), []types.PublicKey{hk1}, []string{reason}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err = store.HostStats(t.Context(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(stats) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(stats))
+	} else if stats[0].Blocked {
+		t.Fatal("expected first host to remain unblocked")
+	} else if !stats[1].Blocked {
+		t.Fatal("expected second host to be blocked")
+	} else if !reflect.DeepEqual(stats[1].BlockedReasons, []string{reason}) {
+		t.Fatalf("expected blocked reasons %v, got %v", []string{reason}, stats[1].BlockedReasons)
 	}
 
 	// resolve first contract manually - should exclude it from total_contract_size

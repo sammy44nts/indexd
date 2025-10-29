@@ -69,6 +69,8 @@ type (
 		PublicKey           types.PublicKey `json:"publicKey"`
 		LostSectors         int64           `json:"lostSectors"`
 		TotalUsage          types.Currency  `json:"totalUsage"`
+		Blocked             bool            `json:"blocked"`
+		BlockedReasons      []string        `json:"blockedReasons"`
 	}
 
 	// OnlineChecker defines an interface to check whether the indexer is online. It's
