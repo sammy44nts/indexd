@@ -12,8 +12,10 @@ import (
 	"go.sia.tech/indexd/slabs"
 )
 
-// MarkSlabRepaired marks the slab as repaired or increments the failed repair count.
-// If the slab has failed repair 10 times consecutively, it is marked as unrecoverable.
+// MarkSlabRepaired marks the slab as repaired or increments the failed repair
+// count. If the repair was successful, the consecutive_failed_repairs counter
+// is reset to zero. If the repair failed, the counter is incremented and the
+// next repair attempt time is set using exponential backoff.
 func (s *Store) MarkSlabRepaired(ctx context.Context, slabID slabs.SlabID, success bool) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		if success {

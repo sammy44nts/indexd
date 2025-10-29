@@ -729,6 +729,8 @@ func (s *Store) UnhealthySlabs(ctx context.Context, limit int) (unhealthy []slab
 		rows.Close()
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("failed to get unhealthy slabs: %w", err)
+		} else if len(slabIDs) == 0 {
+			return nil // no unhealthy slabs
 		}
 
 		// update next repair attempt time
