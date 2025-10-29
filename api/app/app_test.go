@@ -544,12 +544,8 @@ func TestSharedObjects(t *testing.T) {
 	cluster := testutils.NewCluster(t, testutils.WithHosts(12), testutils.WithLogger(logger))
 	indexer := cluster.Indexer
 	adminClient := indexer.Admin
-	time.Sleep(time.Second)
 
-	// form contracts with hosts so we can pin slabs
-	for _, h := range cluster.Hosts {
-		indexer.Store().AddTestContract(t, h.PublicKey(), types.FileContractID(h.PublicKey()))
-	}
+	testutils.WaitForContracts(t, adminClient, len(cluster.Hosts))
 
 	// assert hosts are registered
 	hosts, err := adminClient.Hosts(ctx)
