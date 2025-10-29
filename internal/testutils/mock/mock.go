@@ -22,7 +22,7 @@ func (m *Locator) Close() error {
 	return nil
 }
 
-// Close implements geoip.Locator.
+// Locate implements geoip.Locator.
 func (m *Locator) Locate(addr net.IP) (geoip.Location, error) {
 	return Location, nil
 }
