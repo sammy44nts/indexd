@@ -939,6 +939,11 @@ func TestSectorStatsAPI(t *testing.T) {
 	indexer := cluster.Indexer
 	adminClient := indexer.Admin
 
+	// form contracts with hosts so we can pin slabs
+	for _, h := range cluster.Hosts {
+		indexer.Store().AddTestContract(t, h.PublicKey(), types.FileContractID(h.PublicKey()))
+	}
+
 	// assert 0 slabs
 	stats, err := adminClient.StatsSectors(context.Background())
 	if err != nil {

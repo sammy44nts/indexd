@@ -105,6 +105,17 @@ func (ts TestStore) AddTestHost(t testing.TB, host hosts.Host) {
 	}
 }
 
+func (ts TestStore) AddTestContract(t testing.TB, hk types.PublicKey, fcid types.FileContractID) {
+	rev := types.V2FileContract{
+		HostPublicKey:  hk,
+		RevisionNumber: 1,
+	}
+	err := ts.AddFormedContract(t.Context(), hk, fcid, rev, types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // AddTestAccount adds an account to the database for testing.
 func (ts TestStore) AddTestAccount(t testing.TB, ak types.PublicKey) {
 	t.Helper()
