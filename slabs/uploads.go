@@ -63,7 +63,7 @@ loop:
 		}
 
 		wg.Add(1)
-		go func(ctx context.Context, shard io.Reader, shardIndex int, shardRoot types.Hash256) {
+		go func(ctx context.Context, shard []byte, shardIndex int, shardRoot types.Hash256) {
 			defer func() {
 				<-sema
 				wg.Done()
@@ -84,7 +84,7 @@ loop:
 
 				// upload the shard
 				start := time.Now()
-				usage, root, err := m.uploadShard(ctx, host, shard, pool)
+				usage, root, err := m.uploadShard(ctx, host, bytes.NewReader(shard), pool)
 				if err != nil {
 					logger.Debug("failed to upload shard",
 						zap.Bool("timeout", time.Since(start) > m.shardTimeout),
@@ -118,7 +118,7 @@ loop:
 
 				break
 			}
-		}(ctx, bytes.NewReader(shard), i, slab.Sectors[i].Root)
+		}(ctx, shard, i, slab.Sectors[i].Root)
 	}
 
 	wg.Wait()
