@@ -39,8 +39,8 @@ func (m *SlabManager) uploadShards(ctx context.Context, slab Slab, shards [][]by
 		panic(fmt.Sprintf("slab %s has %d sectors but %d shards", slab.ID, len(slab.Sectors), len(shards))) // developer error
 	}
 
-	ctx, uploadCancel := context.WithCancel(ctx)
-	defer uploadCancel()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	var uploadMu sync.Mutex
 	var uploadErr error
@@ -75,7 +75,7 @@ loop:
 				if len(candidates) == 0 {
 					uploadErr = errNotEnoughHosts
 					uploadMu.Unlock()
-					uploadCancel()
+					cancel()
 					return
 				}
 				host := candidates[0]
@@ -96,17 +96,15 @@ loop:
 					uploadMu.Lock()
 					uploadErr = fmt.Errorf("failed to upload shard %d: %w", shardIndex, errRootMismatch)
 					uploadMu.Unlock()
-					uploadCancel()
+					cancel()
 					return
 				}
 
 				// debit service account
-				debitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				err = m.am.DebitServiceAccount(debitCtx, host.PublicKey, m.migrationAccount, usage.RenterCost())
+				err = m.am.DebitServiceAccount(context.Background(), host.PublicKey, m.migrationAccount, usage.RenterCost())
 				if err != nil {
 					logger.Debug("failed to debit service account for sector write", zap.Error(err))
 				}
-				cancel()
 
 				// set shard
 				uploadMu.Lock()

@@ -70,8 +70,8 @@ func (dc *downloadCandidates) next() (hosts.Host, bool) {
 // downloadShards downloads at least the minimum number of shards required to
 // recover the slab.
 func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []hosts.Host, pool *connPool, logger *zap.Logger) ([][]byte, error) {
-	ctx, downloadCancel := context.WithCancel(ctx)
-	defer downloadCancel()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	shards := make([][]byte, len(slab.Sectors))
 	var downloaded atomic.Uint32
@@ -126,15 +126,13 @@ outer:
 				return
 			}
 
-			debitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err = m.am.DebitServiceAccount(debitCtx, host.PublicKey, m.migrationAccount, usage.RenterCost())
+			err = m.am.DebitServiceAccount(context.Background(), host.PublicKey, m.migrationAccount, usage.RenterCost())
 			if err != nil {
 				logger.Debug("failed to debit service account for sector read", zap.Error(err))
 			}
-			cancel()
 
 			if n := downloaded.Add(1); n >= uint32(slab.MinShards) {
-				downloadCancel()
+				cancel()
 			}
 		}(host, candidates.indices[host.PublicKey], logger.With(zap.Stringer("hostKey", host.PublicKey)))
 	}
