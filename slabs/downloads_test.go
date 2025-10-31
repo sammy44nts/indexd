@@ -40,8 +40,14 @@ func TestDownloadCandidates(t *testing.T) {
 		},
 	}
 
+	// try to add duplicate hosts
+	candidates := newDownloadCandidates([]hosts.Host{h1, h1, h1, h1, h2, h3, h4}, slab)
+	if len(candidates.hosts) != 3 {
+		t.Fatalf("expected 3 unique candidates, got %d", len(candidates.hosts))
+	}
+
 	// prepare candidates
-	candidates := newDownloadCandidates([]hosts.Host{h1, h2, h3, h4}, slab)
+	candidates = newDownloadCandidates([]hosts.Host{h1, h2, h3, h4}, slab)
 
 	// test next() method
 	selected := make(map[types.PublicKey]struct{})
