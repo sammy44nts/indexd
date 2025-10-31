@@ -260,7 +260,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				return fmt.Errorf("%w: %s", hosts.ErrBadHost, host.PublicKey)
 			}
 
-			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, period)
+			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, host.Settings.MaxCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // note: broadcasting on the host-side can block for up to a minute by default
 			defer cancel()
 			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.RHP4Addrs())
@@ -317,7 +317,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 
 // contractFunding is a helper that calculates the funding and collateral
 // that go into forming, refreshing or renewing a contract.
-func contractFunding(settings proto.HostSettings, existingData uint64, minAllowance, minCollateral types.Currency, duration uint64) (allowance, collateral types.Currency) {
+func contractFunding(settings proto.HostSettings, existingData uint64, minAllowance, minCollateral, maxCollateral types.Currency, duration uint64) (allowance, collateral types.Currency) {
 	multiplier := 1 + (existingData / minContractGrowthRate)
 	contractGrowth := min(minContractGrowthRate*multiplier, maxContractGrowthRate) / proto.SectorSize // 100% growth clamped to [32GiB, 256GiB]
 	uploadCost := settings.Prices.RPCWriteSectorCost(proto.SectorSize).RenterCost().Mul64(contractGrowth)
@@ -334,6 +334,8 @@ func contractFunding(settings proto.HostSettings, existingData uint64, minAllowa
 	}
 	if collateral.Cmp(minCollateral) < 0 {
 		collateral = minCollateral // ensure we have at least the minimum collateral
+	} else if collateral.Cmp(maxCollateral) > 0 {
+		collateral = maxCollateral // cap collateral at maxCollateral
 	}
 	return
 }
