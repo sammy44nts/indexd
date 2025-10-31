@@ -843,8 +843,6 @@ func (s *Store) HostsForFunding(ctx context.Context) ([]types.PublicKey, error) 
 				SELECT 1
 				FROM contracts c
 				WHERE c.host_id = h.id AND c.state IN (0, 1) AND c.good AND c.renewed_to IS NULL
-			)  AND NOT EXISTS (
-				SELECT 1 FROM hosts_blocklist hb WHERE hb.public_key = h.public_key
 			)`)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts for funding: %w", err)
