@@ -110,7 +110,7 @@ func TestMigrateSlab(t *testing.T) {
 	}
 
 	// assert it's unhealthy
-	unhealthSlabIDs, err := db.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthSlabIDs, err := db.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthSlabIDs) != 1 {
@@ -143,7 +143,7 @@ func TestMigrateSlab(t *testing.T) {
 	}
 
 	// assert it's still unhealthy
-	unhealthSlabIDs, err = db.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthSlabIDs, err = db.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthSlabIDs) != 1 {
@@ -176,7 +176,7 @@ func TestMigrateSlab(t *testing.T) {
 	}
 
 	// assert it's now healthy
-	unhealthSlabIDs, err = db.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthSlabIDs, err = db.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthSlabIDs) != 0 {

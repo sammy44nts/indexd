@@ -1113,36 +1113,26 @@ func TestPinSectors(t *testing.T) {
 func TestUnhealthySlabs(t *testing.T) {
 	store := initPostgres(t, zap.NewNop())
 
-	// convenience variables
-	now := time.Now()
-	oneHourAgo := now.Add(-time.Hour)
-
-	// define a helper to assert the number of unhealthy slabs
-	assertUnhealthySlabs := func(expected, limit int, maxLastRepairTime time.Time) []slabs.SlabID {
+	// assertUnhealthySlabs asserts the number of unhealthy slabs
+	assertUnhealthySlabs := func(expected, limit int) []slabs.SlabID {
 		t.Helper()
-		unhealthyIDs, err := store.UnhealthySlabs(context.Background(), maxLastRepairTime, limit)
+
+		unhealthy, err := store.UnhealthySlabs(context.Background(), limit)
 		if err != nil {
 			t.Fatal(err)
-		} else if len(unhealthyIDs) != expected {
-			t.Fatalf("expected %d unhealthy slabs, got %d", expected, len(unhealthyIDs))
+		} else if len(unhealthy) != expected {
+			t.Fatalf("expected %d unhealthy slabs, got %d", expected, len(unhealthy))
 		}
-
-		// always assert slabIDs are unique
-		seen := make(map[slabs.SlabID]struct{})
-		for _, id := range unhealthyIDs {
-			if _, exists := seen[id]; exists {
-				t.Fatalf("duplicate slab ID %v in unhealthy slabs", id)
-			}
-			seen[id] = struct{}{}
-		}
-
-		return unhealthyIDs
+		return unhealthy
 	}
 
-	// define a helper to reset the repair attempt time
-	resetLastRepairAttempt := func(val time.Time) {
+	// resetNextRepairAttemptTime sets the next_repair_attempt to an hour
+	// ago for all slabs to allow them to be returned again should they still be
+	// unhealthy
+	resetNextRepairAttemptTime := func() {
 		t.Helper()
-		_, err := store.pool.Exec(context.Background(), "UPDATE slabs SET last_repair_attempt = $1", val)
+
+		_, err := store.pool.Exec(context.Background(), "UPDATE slabs SET next_repair_attempt = NOW() - INTERVAL '1 hour'")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1156,10 +1146,10 @@ func TestUnhealthySlabs(t *testing.T) {
 	hk := store.addTestHost(t)
 	contractID := store.addTestContract(t, hk)
 
-	// add two slabs & immediately reset the LRA-time
+	// add two slabs
 	slabID1 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
 	slabID2 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
-	resetLastRepairAttempt(oneHourAgo)
+	resetNextRepairAttemptTime()
 
 	// pin all sectors to the contract
 	_, err := store.pool.Exec(context.Background(), "UPDATE sectors SET contract_sectors_map_id = 1")
@@ -1168,19 +1158,18 @@ func TestUnhealthySlabs(t *testing.T) {
 	}
 
 	// assert we have no unhealthy slabs
-	assertUnhealthySlabs(0, 10, now)
+	assertUnhealthySlabs(0, 10)
 
 	// renew the contract
-	renewedTo := types.FileContractID{1}
 	renewal := newTestRevision(hk)
 	renewal.ExpirationHeight = 0 // expired, will be pruned the next time PruneContractSectorsMap is called
-	err = store.AddRenewedContract(context.Background(), contractID, renewedTo, renewal, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
+	err = store.AddRenewedContract(context.Background(), contractID, types.FileContractID{1}, renewal, types.ZeroCurrency, types.ZeroCurrency, proto.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// assert we still have no unhealthy slabs
-	assertUnhealthySlabs(0, 10, now)
+	assertUnhealthySlabs(0, 10)
 
 	// update the contract to be bad
 	_, err = store.pool.Exec(context.Background(), "UPDATE contracts SET good = FALSE")
@@ -1189,50 +1178,42 @@ func TestUnhealthySlabs(t *testing.T) {
 	}
 
 	// assert both slabs are unhealthy
-	assertUnhealthySlabs(2, 10, now)
+	assertUnhealthySlabs(2, 10)
 
-	// consecutive calls to unhealthy slabs return no new slabs since the
-	// LRA-time has been updated
-	assertUnhealthySlabs(0, 10, now)
+	// assert consecutive calls to unhealthy slabs return no new slabs
+	assertUnhealthySlabs(0, 10)
 
-	// reset the LRA-time and assert we have no unhealthy slabs since that time
-	resetLastRepairAttempt(oneHourAgo)
-	assertUnhealthySlabs(0, 10, oneHourAgo)
+	// reset the next repair attempt time and assert we have unhealthy slabs
+	resetNextRepairAttemptTime()
+	assertUnhealthySlabs(2, 10)
 
-	// do that again but with the current time, assert we have two unhealthy slabs
-	assertUnhealthySlabs(2, 10, now)
-
-	// reset the LRA-time and assert the limit is applied
-	resetLastRepairAttempt(oneHourAgo)
-	assertUnhealthySlabs(1, 1, now)
+	// reset the next repair attempt time and assert the limit is applied
+	resetNextRepairAttemptTime()
+	assertUnhealthySlabs(1, 1)
 
 	// we can call it again since we have one left, should be SlabID2
-	unhealthyIDs := assertUnhealthySlabs(1, 1, now)
-	if unhealthyIDs[0] != slabID2 {
-		t.Fatalf("expected slab ID %v, got %v", slabID2, unhealthyIDs[0])
+	unhealthy := assertUnhealthySlabs(1, 1)
+	if unhealthy[0] != slabID2 {
+		t.Fatalf("expected slab ID %v, got %v", slabID2, unhealthy[0])
 	}
+	resetNextRepairAttemptTime()
 
-	// reset the LRA-time and make the contract good again
-	resetLastRepairAttempt(oneHourAgo)
+	// make the contract good again and assert no unhealthy slabs
 	_, err = store.pool.Exec(context.Background(), "UPDATE contracts SET good = TRUE")
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertUnhealthySlabs(0, 10)
 
-	// assert no slabs are unhealthy
-	assertUnhealthySlabs(0, 10, now)
-
-	// update the contract to be no longer active or pending
+	// update the contract to be no longer active or pending and assert both slabs are unhealthy
 	_, err = store.pool.Exec(context.Background(), "UPDATE contracts SET state = $1", sqlContractState(contracts.ContractStateExpired))
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertUnhealthySlabs(2, 10)
+	resetNextRepairAttemptTime()
 
-	// assert both slabs are unhealthy
-	assertUnhealthySlabs(2, 10, now)
-
-	// reset the LRA-time and set the state back to active
-	resetLastRepairAttempt(oneHourAgo)
+	// set the state back to active
 	_, err = store.pool.Exec(context.Background(), "UPDATE contracts SET state = $1", sqlContractState(contracts.ContractStateActive))
 	if err != nil {
 		t.Fatal(err)
@@ -1245,20 +1226,20 @@ func TestUnhealthySlabs(t *testing.T) {
 	}
 
 	// assert slab1 is unhealthy
-	unhealthyIDs = assertUnhealthySlabs(1, 10, now)
+	unhealthy = assertUnhealthySlabs(1, 10)
 	if err != nil {
 		t.Fatal(err)
-	} else if unhealthyIDs[0] != slabID1 {
-		t.Fatalf("expected slab ID %v, got %v", slabID1, unhealthyIDs[0])
+	} else if unhealthy[0] != slabID1 {
+		t.Fatalf("expected slab ID %v, got %v", slabID1, unhealthy[0])
 	}
+	resetNextRepairAttemptTime()
 
 	// add the sector back - the unhealthy slab should be gone
 	_, err = store.pool.Exec(context.Background(), "UPDATE sectors SET host_id = 1, contract_sectors_map_id = NULL WHERE id = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	resetLastRepairAttempt(oneHourAgo)
-	assertUnhealthySlabs(0, 10, now)
+	assertUnhealthySlabs(0, 10)
 
 	// recalculate sector stats
 	_, err = store.pool.Exec(context.Background(), `
@@ -1286,14 +1267,7 @@ func TestUnhealthySlabs(t *testing.T) {
 
 	// assert slab1 is not considered unhealthy since it is considered uploaded
 	// to a host but not yet pinned
-	resetLastRepairAttempt(oneHourAgo)
-	assertUnhealthySlabs(0, 10, now)
-
-	// assert maxLastRepairAttempt must be in the past
-	_, err = store.UnhealthySlabs(context.Background(), time.Now().Add(time.Second), 10)
-	if err == nil {
-		t.Fatal("expected error for future maxLastRepairAttempt, got nil")
-	}
+	assertUnhealthySlabs(0, 10)
 }
 
 func TestMarkSectorsUnpinnable(t *testing.T) {
@@ -1353,7 +1327,7 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 
 	// after pinning, no slab should be unhealthy since their sectors aren't
 	// pinned to contracts yet.
-	unhealthyIDs, err := store.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthyIDs, err := store.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthyIDs) != 0 {
@@ -1369,7 +1343,7 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 
 	// we should still have no unhealthy slabs because the host_id has not been
 	// set to null yet
-	unhealthyIDs, err = store.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthyIDs, err = store.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthyIDs) != 0 {
@@ -1384,7 +1358,7 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 
 	// sector should have had host_id nulled out due to MarkSectorsUnpinnable
 	// and should now be unhealthy
-	unhealthyIDs, err = store.UnhealthySlabs(context.Background(), time.Now(), 1)
+	unhealthyIDs, err = store.UnhealthySlabs(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(unhealthyIDs) != 1 {
@@ -1858,7 +1832,7 @@ func BenchmarkPinSectors(b *testing.B) {
 
 // BenchmarkUnhealthySlabs benchmarks UnhealthySlabs
 func BenchmarkUnhealthySlabs(b *testing.B) {
-	store := initPostgres(b, zaptest.NewLogger(b).Named("postgres"))
+	store := initPostgres(b, zap.NewNop())
 
 	account := proto.Account{1}
 	store.addTestAccount(b, types.PublicKey(account))
@@ -1909,13 +1883,6 @@ func BenchmarkUnhealthySlabs(b *testing.B) {
 		}
 	}
 
-	// make sure the slabs have a last_repair_attempt time between 1 and 7 days
-	// in the past
-	_, err = store.pool.Exec(context.Background(), "UPDATE slabs SET last_repair_attempt = NOW() - interval '1 day' - interval '1 week' * random()")
-	if err != nil {
-		b.Fatal(err)
-	}
-
 	// default to the good contract for all sectors
 	_, err = store.pool.Exec(context.Background(), `UPDATE sectors SET contract_sectors_map_id = 1`)
 	if err != nil {
@@ -1934,33 +1901,42 @@ func BenchmarkUnhealthySlabs(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	reset := func(b *testing.B) {
-		// make sure the slabs have a last_repair_attempt time between 1 and 7 days
-		// in the past
-		_, err = store.pool.Exec(context.Background(), "UPDATE slabs SET last_repair_attempt = NOW() - interval '1 day' - interval '1 week' * random()")
+	// reset next_repair_attempt
+	resetUnhealthySlabs := func() {
+		b.Helper()
+		_, err = store.pool.Exec(context.Background(), "UPDATE slabs SET next_repair_attempt = (NOW() - interval '3 day') + interval '1 week' * random()")
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 
-	for _, batchSize := range []int{10, 25, 50} {
-		b.Run(fmt.Sprint(batchSize), func(b *testing.B) {
-			reset(b)
-			b.ResetTimer()
+	// analyze tables to ensure query planner has up-to-date statistics
+	_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) slabs;`)
+	_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) sectors;`)
+	_, vErr3 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contract_sectors_map;`)
+	if err := errors.Join(vErr1, vErr2, vErr3); err != nil {
+		b.Fatal(err)
+	}
 
-			seenSlabs := make(map[slabs.SlabID]struct{})
+	for _, batchSize := range []int{50, 100, 250} {
+		b.Run(fmt.Sprint(batchSize), func(b *testing.B) {
+			var sanityCheck bool
 			for b.Loop() {
-				slabIDs, err := store.UnhealthySlabs(context.Background(), time.Now().Add(-time.Hour), batchSize)
+				slabIDs, err := store.UnhealthySlabs(context.Background(), batchSize)
 				if err != nil {
 					b.Fatal(err)
-				} else if len(slabIDs) == 0 && len(seenSlabs) == 0 {
-					// if UnhealthySlabs returns empty slice and hasn't returned
-					// any slabs yet for this iteration
-					b.Fatalf("got 0 slabs")
-				} else if _, exists := seenSlabs[slabIDs[0]]; exists {
-					b.Fatal("known slab was returned")
+				} else if len(slabIDs) < batchSize {
+					b.StopTimer()
+					resetUnhealthySlabs()
+					b.StartTimer()
+					continue
+				} else if len(slabIDs) != batchSize {
+					b.Fatalf("expected %d unhealthy slabs, got %d", batchSize, len(slabIDs))
 				}
-				seenSlabs[slabIDs[0]] = struct{}{}
+				sanityCheck = sanityCheck || len(slabIDs) > 0
+			}
+			if !sanityCheck {
+				b.Fatal("sanity check failed, no unhealthy slabs were ever returned")
 			}
 		})
 	}
