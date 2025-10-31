@@ -95,17 +95,20 @@ func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts [
 		return err
 	}
 	log = log.With(zap.Duration("downloadElapsed", time.Since(downloadStart)))
-	log.Debug("recovered shards")
 
 	// decrypt the shards
 	nonce := make([]byte, 24)
+	var recovered int
 	for i := range shards {
-		if len(shards[i]) > 0 {
-			nonce[0] = byte(i)
-			c, _ := chacha20.NewUnauthenticatedCipher(slab.EncryptionKey[:], nonce)
-			c.XORKeyStream(shards[i], shards[i])
+		if len(shards[i]) == 0 {
+			continue
 		}
+		nonce[0] = byte(i)
+		c, _ := chacha20.NewUnauthenticatedCipher(slab.EncryptionKey[:], nonce)
+		c.XORKeyStream(shards[i], shards[i])
+		recovered++
 	}
+	log.Debug("recovered shards", zap.Int("recovered", recovered))
 
 	// indicate what shards are required
 	required := make([]bool, len(slab.Sectors))
