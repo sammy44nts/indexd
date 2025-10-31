@@ -96,7 +96,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	var activeContracts []Contract
 	const batchSize = 50
 	for offset := 0; ; offset += batchSize {
-		batch, err := cm.store.Contracts(ctx, offset, batchSize, WithRevisable(true))
+		batch, err := cm.store.Contracts(ctx, offset, batchSize, WithGood(true), WithRevisable(true))
 		if err != nil {
 			return fmt.Errorf("failed to fetch active contracts: %w", err)
 		}
