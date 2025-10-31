@@ -1,5 +1,6 @@
 CREATE TABLE app_connect_keys (
-    app_key TEXT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
+    app_key TEXT UNIQUE NOT NULL,
     use_description TEXT NOT NULL,
     remaining_uses INTEGER NOT NULL,
     total_uses INTEGER NOT NULL DEFAULT 0,
@@ -12,7 +13,7 @@ CREATE TABLE app_connect_keys (
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     public_key BYTEA UNIQUE NOT NULL CHECK (LENGTH(public_key) = 32),
-    connect_key TEXT REFERENCES app_connect_keys(app_key),
+    connect_key_id INTEGER REFERENCES app_connect_keys(id),
 
     pinned_data BIGINT NOT NULL DEFAULT 0 CHECK (pinned_data >= 0), -- total pinned data in bytes
     max_pinned_data BIGINT NOT NULL CHECK (max_pinned_data >= 0), -- max pinned data in bytes
@@ -23,7 +24,7 @@ CREATE TABLE accounts (
     last_used TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX accounts_last_used_idx ON accounts(last_used);
-CREATE INDEX accounts_connect_key_idx ON accounts(connect_key);
+CREATE INDEX accounts_connect_key_id_idx ON accounts(connect_key_id);
 
 CREATE TABLE hosts (
     id SERIAL PRIMARY KEY,

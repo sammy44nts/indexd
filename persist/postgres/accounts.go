@@ -34,8 +34,10 @@ func (s *Store) Accounts(ctx context.Context, offset, limit int, opts ...account
 
 	if err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
 		rows, err := tx.Query(ctx, `
-			SELECT public_key, connect_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url, last_used
-			FROM accounts
+			SELECT a.public_key, ak.app_key, a.service_account, a.max_pinned_data, a.pinned_data, a.description, a.logo_url, a.service_url, a.last_used
+			FROM accounts a
+			LEFT JOIN app_connect_keys ak
+			ON ak.id = a.connect_key_id
 			WHERE ($1::boolean IS NULL OR service_account = $1::boolean)
 			LIMIT $2 OFFSET $3
 		`, queryOpts.ServiceAccount, limit, offset)
@@ -64,7 +66,11 @@ func (s *Store) Account(ctx context.Context, ak types.PublicKey) (accounts.Accou
 	var account accounts.Account
 	account.AccountKey = proto.Account(ak) // no need to fetch key
 	err := s.transaction(ctx, func(ctx context.Context, tx *txn) (err error) {
-		account, err = scanAccount(tx.QueryRow(ctx, `SELECT public_key, connect_key, service_account, max_pinned_data, pinned_data, description, logo_url, service_url, last_used FROM accounts WHERE public_key = $1`, sqlPublicKey(ak)))
+		account, err = scanAccount(tx.QueryRow(ctx, `SELECT a.public_key, ak.app_key, a.service_account, a.max_pinned_data, a.pinned_data, a.description, a.logo_url, a.service_url, a.last_used
+FROM accounts a
+LEFT JOIN app_connect_keys ak
+ON ak.id = a.connect_key_id
+WHERE public_key = $1`, sqlPublicKey(ak)))
 		return err
 	})
 	return account, err
@@ -313,7 +319,15 @@ func addAccount(ctx context.Context, tx *txn, connectKey *string, account types.
 	for _, opt := range opts {
 		opt(&aao)
 	}
-	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, connect_key, service_account, max_pinned_data, description, logo_url, service_url) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`, sqlPublicKey(account), connectKey, serviceAccount, aao.MaxPinnedData, meta.Description, meta.LogoURL, meta.ServiceURL)
+
+	var connectKeyID sql.NullInt64
+	if connectKey != nil {
+		if err := tx.QueryRow(ctx, `SELECT id FROM app_connect_keys WHERE app_key = $1`, connectKey).Scan(&connectKeyID); err != nil {
+			return fmt.Errorf("failed to get app connect key ID: %w", err)
+		}
+	}
+
+	res, err := tx.Exec(ctx, `INSERT INTO accounts (public_key, connect_key_id, service_account, max_pinned_data, description, logo_url, service_url) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`, sqlPublicKey(account), connectKeyID, serviceAccount, aao.MaxPinnedData, meta.Description, meta.LogoURL, meta.ServiceURL)
 	if err != nil {
 		return fmt.Errorf("failed to add account: %w", err)
 	} else if res.RowsAffected() == 0 {
