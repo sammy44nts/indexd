@@ -15,12 +15,12 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 )
 
-// HostScanner is the default implementation of Scanner.
-type HostScanner struct{}
+// scanner is the default implementation of Scanner.
+type scanner struct{}
 
 // ScanSiamux executes the RPCSettings RPC on the host and returns its settings
 // using the SiaMux protocol.
-func (c *HostScanner) ScanSiamux(ctx context.Context, hk types.PublicKey, addr string) (proto4.HostSettings, error) {
+func (c *scanner) ScanSiamux(ctx context.Context, hk types.PublicKey, addr string) (proto4.HostSettings, error) {
 	t, err := siamux.Dial(ctx, addr, hk)
 	if err != nil {
 		return proto4.HostSettings{}, fmt.Errorf("failed to upgrade connection: %w", err)
@@ -32,7 +32,7 @@ func (c *HostScanner) ScanSiamux(ctx context.Context, hk types.PublicKey, addr s
 
 // ScanQuic executes the RPCSettings RPC on the host and returns its settings
 // using the QUIC protocol.
-func (c *HostScanner) ScanQuic(ctx context.Context, hk types.PublicKey, addr string) (proto4.HostSettings, error) {
+func (c *scanner) ScanQuic(ctx context.Context, hk types.PublicKey, addr string) (proto4.HostSettings, error) {
 	t, err := quic.Dial(ctx, addr, hk)
 	if err != nil {
 		return proto4.HostSettings{}, fmt.Errorf("failed to upgrade connection: %w", err)

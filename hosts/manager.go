@@ -178,7 +178,7 @@ func (hm *HostManager) UnblockHost(ctx context.Context, hk types.PublicKey) erro
 }
 
 // NewManager creates a new host manager.
-func NewManager(syncer Syncer, scanner Scanner, locator Locator, store Store, opts ...Option) (*HostManager, error) {
+func NewManager(syncer Syncer, locator Locator, store Store, opts ...Option) (*HostManager, error) {
 	m := &HostManager{
 		announcementMaxAge: time.Hour * 24 * 365,
 		scanFrequency:      time.Hour,
@@ -186,7 +186,7 @@ func NewManager(syncer Syncer, scanner Scanner, locator Locator, store Store, op
 
 		onlineChecker: &onlineChecker{addresses: fallbackSites, syncer: syncer},
 		resolver:      &net.Resolver{},
-		scanner:       scanner,
+		scanner:       &scanner{},
 		locator:       locator,
 		store:         store,
 
