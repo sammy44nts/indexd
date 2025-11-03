@@ -499,7 +499,7 @@ func TestHostAccountsForFunding(t *testing.T) {
 		t.Fatal(err)
 	} else if len(accs) != 2 {
 		t.Fatalf("expected two accounts, got %d", len(accs))
-	} else if accs[0].AccountKey != proto.Account(sa1) && accs[1].AccountKey != proto.Account(sa2) {
+	} else if accs[0].AccountKey != proto.Account(sa1) || accs[1].AccountKey != proto.Account(sa2) {
 		t.Fatal("unexpected accounts")
 	}
 }
