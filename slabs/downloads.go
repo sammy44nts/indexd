@@ -25,31 +25,28 @@ type downloadCandidates struct {
 
 func newDownloadCandidates(allHosts []hosts.Host, slab Slab) downloadCandidates {
 	// build host lookup
-	lookup := make(map[types.PublicKey]struct{}, len(allHosts))
+	lookup := make(map[types.PublicKey]hosts.Host, len(allHosts))
 	for _, h := range allHosts {
-		lookup[h.PublicKey] = struct{}{}
+		lookup[h.PublicKey] = h
 	}
 
-	// build indices lookup
+	hosts := make([]hosts.Host, 0, len(slab.Sectors))
 	indices := make(map[types.PublicKey]int, len(slab.Sectors))
 	for i, sector := range slab.Sectors {
 		if sector.HostKey == nil {
 			continue
 		}
 		hk := *sector.HostKey
-		if _, ok := lookup[hk]; !ok {
+		h, ok := lookup[hk]
+		if !ok {
 			continue
 		}
 		indices[hk] = i
+		hosts = append(hosts, h)
+		delete(lookup, hk) // avoid duplicate candidates
 	}
 
-	// build list of hosts, randomize order to avoid bias
-	hosts := make([]hosts.Host, 0, len(lookup))
-	for _, h := range allHosts {
-		if _, ok := indices[h.PublicKey]; ok {
-			hosts = append(hosts, h)
-		}
-	}
+	// shuffle hosts to avoid always downloading from the same host first
 	frand.Shuffle(len(hosts), func(i, j int) {
 		hosts[i], hosts[j] = hosts[j], hosts[i]
 	})
@@ -69,7 +66,7 @@ func (dc *downloadCandidates) next() (hosts.Host, bool) {
 
 // downloadShards downloads at least the minimum number of shards required to
 // recover the slab.
-func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []hosts.Host, pool *connPool, logger *zap.Logger) ([][]byte, error) {
+func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []hosts.Host, pool *connPool, log *zap.Logger) ([][]byte, error) {
 	start := time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -84,7 +81,6 @@ func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []
 
 	var wg sync.WaitGroup
 	sema := make(chan struct{}, slab.MinShards)
-	var downloadErr error
 
 	var stalledCnt uint8
 	var stalledDur time.Duration
@@ -106,35 +102,32 @@ outer:
 			stalledDur += time.Since(waiting)
 		}
 		if ctx.Err() != nil {
-			if n := downloaded.Load(); uint(n) < slab.MinShards {
-				downloadErr = fmt.Errorf("downloaded %d out of %d shards: %w", downloaded.Load(), slab.MinShards, ctx.Err())
-			}
 			break outer
 		}
 
 		host, ok := candidates.next()
 		if !ok {
-			downloadErr = fmt.Errorf("downloaded %d out of %d shards: %w", downloaded.Load(), slab.MinShards, errNotEnoughHosts)
+			// no more candidates, but there may be in-flight downloads
 			break outer
 		}
 
 		wg.Add(1)
-		go func(host hosts.Host, sectorIdx int, logger *zap.Logger) {
-			var err error
+		go func(host hosts.Host, sectorIdx int) {
 			defer func() {
-				if err != nil {
-					<-sema // only release next candidate on failure
-				}
+				<-sema
 				wg.Done()
 			}()
 
-			start := time.Now()
-			var usage proto.Usage
-			usage, shards[sectorIdx], err = m.downloadShard(ctx, host, slab.Sectors[sectorIdx], pool)
-			if isErrLostSector(err) {
-				m.markSectorLost(ctx, host, slab.Sectors[sectorIdx].Root, logger)
+			if ctx.Err() != nil {
+				// context already cancelled
 				return
-			} else if err != nil {
+			}
+
+			sector := slab.Sectors[sectorIdx]
+			log := log.With(zap.Stringer("hostKey", host.PublicKey), zap.Stringer("sectorRoot", sector.Root))
+			start := time.Now()
+			usage, data, err := m.downloadShard(ctx, host, sector, pool)
+			if err != nil {
 				elapsed := time.Since(start)
 				if elapsed >= m.shardTimeout {
 					slowMu.Lock()
@@ -142,22 +135,30 @@ outer:
 					slowMu.Unlock()
 				}
 
-				logger.Debug("failed to download shard",
+				lost := isErrLostSector(err)
+				log.Debug("failed to download shard",
 					zap.Duration("elapsed", elapsed),
+					zap.Bool("lost", lost),
 					zap.Error(err),
 				)
+				if lost {
+					if err := m.store.MarkSectorsLost(ctx, host.PublicKey, []types.Hash256{sector.Root}); err != nil {
+						log.Error("failed to mark sector as lost", zap.Error(err))
+					}
+				}
 				return
 			}
+			shards[sectorIdx] = data
 
 			err = m.am.DebitServiceAccount(ctx, host.PublicKey, m.migrationAccount, usage.RenterCost())
 			if err != nil {
-				logger.Debug("failed to debit service account for sector read", zap.Error(err))
+				log.Debug("failed to debit service account for sector read", zap.Error(err))
 			}
 
 			if n := downloaded.Add(1); n >= uint32(slab.MinShards) {
 				cancel()
 			}
-		}(host, candidates.indices[host.PublicKey], logger.With(zap.Stringer("hostKey", host.PublicKey)))
+		}(host, candidates.indices[host.PublicKey])
 	}
 
 	wg.Wait()
@@ -168,12 +169,11 @@ outer:
 			zap.Duration("stallDuration", stalledDur),
 			zap.Duration("totalDuration", time.Since(start)),
 			zap.Stringers("slowestHosts", slowHosts),
-			zap.Error(downloadErr),
 		)
 	}
 
-	if downloadErr != nil {
-		return nil, downloadErr
+	if downloaded.Load() < uint32(slab.MinShards) {
+		return nil, fmt.Errorf("downloaded %d sectors, minimum required: %d: %w", downloaded.Load(), slab.MinShards, errNotEnoughShards)
 	}
 	return shards, nil
 }
@@ -182,15 +182,6 @@ func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, sector Se
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
 	return pool.downloadShard(ctx, h, m.migrationToken(h), sector)
-}
-
-func (m *SlabManager) markSectorLost(ctx context.Context, host hosts.Host, root types.Hash256, log *zap.Logger) {
-	err := m.store.MarkSectorsLost(ctx, host.PublicKey, []types.Hash256{root})
-	if err != nil {
-		log.Debug("failed to mark sector as lost", zap.Error(err))
-		return
-	}
-	m.log.Debug("marked sector as lost")
 }
 
 func isErrLostSector(err error) bool {
