@@ -67,7 +67,7 @@ func (dc *downloadCandidates) next() (hosts.Host, bool) {
 // downloadShards downloads at least the minimum number of shards required to
 // recover the slab.
 func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []hosts.Host, pool *connPool, log *zap.Logger) ([][]byte, error) {
-	start := time.Now()
+	dlStart := time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -82,12 +82,10 @@ func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, allHosts []
 	var wg sync.WaitGroup
 	sema := make(chan struct{}, slab.MinShards)
 
-	var stalledCnt uint8
-	var stalledDur time.Duration
-	const stallThreshold = 15 * time.Second
-
+	var waitDur time.Duration
+	const slowHostsThreshold = 10 * time.Second
 	var slowMu sync.Mutex
-	var slowHosts []types.PublicKey
+	slowHosts := make(map[types.PublicKey]time.Duration)
 
 outer:
 	for {
@@ -96,12 +94,10 @@ outer:
 		case <-ctx.Done():
 		case sema <- struct{}{}:
 		}
+		waitDur += time.Since(waiting)
 
-		if time.Since(waiting) > stallThreshold {
-			stalledCnt++
-			stalledDur += time.Since(waiting)
-		}
 		if ctx.Err() != nil {
+			// context cancelled, either due to timeout or enough shards downloaded
 			break outer
 		}
 
@@ -127,17 +123,16 @@ outer:
 			log := log.With(zap.Stringer("hostKey", host.PublicKey), zap.Stringer("sectorRoot", sector.Root))
 			start := time.Now()
 			usage, data, err := m.downloadShard(ctx, host, sector, pool)
+			elapsed := time.Since(start)
+			if elapsed >= slowHostsThreshold {
+				slowMu.Lock()
+				slowHosts[host.PublicKey] = elapsed
+				slowMu.Unlock()
+			}
 			if err != nil {
-				elapsed := time.Since(start)
-				if elapsed >= m.shardTimeout {
-					slowMu.Lock()
-					slowHosts = append(slowHosts, host.PublicKey)
-					slowMu.Unlock()
-				}
-
 				lost := isErrLostSector(err)
 				log.Debug("failed to download shard",
-					zap.Duration("elapsed", elapsed),
+					zap.Bool("timeout", time.Since(start) > m.shardTimeout),
 					zap.Bool("lost", lost),
 					zap.Error(err),
 				)
@@ -164,11 +159,15 @@ outer:
 	wg.Wait()
 
 	if len(slowHosts) > 0 {
+		var slowHostStrs []string
+		for hk := range slowHosts {
+			slowHostStrs = append(slowHostStrs, fmt.Sprintf("%v|%v", hk, slowHosts[hk]))
+		}
 		m.log.Warn("slow download",
-			zap.Uint8("stallCount", stalledCnt),
-			zap.Duration("stallDuration", stalledDur),
-			zap.Duration("totalDuration", time.Since(start)),
-			zap.Stringers("slowestHosts", slowHosts),
+			zap.Duration("waitDuration", waitDur),
+			zap.Duration("totalDuration", time.Since(dlStart)),
+			zap.Strings("slowHosts", slowHostStrs),
+			zap.Duration("slowHostsThreshold", slowHostsThreshold),
 		)
 	}
 
@@ -181,6 +180,7 @@ outer:
 func (m *SlabManager) downloadShard(ctx context.Context, h hosts.Host, sector Sector, pool *connPool) (proto.Usage, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
+
 	return pool.downloadShard(ctx, h, m.migrationToken(h), sector)
 }
 
