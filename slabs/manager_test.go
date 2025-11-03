@@ -93,8 +93,8 @@ func (s *mockStore) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 
 	var hosts []hosts.Host
 	for _, h := range s.hosts {
-		if opt.Good != nil {
-			if *opt.Good != h.Usability.Usable() {
+		if opt.Usable != nil {
+			if *opt.Usable != h.Usability.Usable() {
 				continue
 			}
 		}
@@ -138,6 +138,10 @@ func (s *mockStore) MarkSectorsLost(ctx context.Context, hostKey types.PublicKey
 	for _, root := range roots {
 		s.lostSectors[hostKey][root] = struct{}{}
 	}
+	return nil
+}
+
+func (s *mockStore) MarkSlabRepaired(ctx context.Context, slabID SlabID, success bool) error {
 	return nil
 }
 
@@ -255,7 +259,7 @@ func (s *mockStore) Slabs(ctx context.Context, accountID proto.Account, slabIDs 
 	return slabs, nil
 }
 
-func (s *mockStore) UnhealthySlabs(ctx context.Context, maxRepairAttempt time.Time, limit int) (result []SlabID, _ error) {
+func (s *mockStore) UnhealthySlabs(ctx context.Context, limit int) (result []SlabID, _ error) {
 	for acc := range s.accounts {
 		for _, slab := range s.pinnedSlabs[acc] {
 			for _, sector := range slab.Sectors {

@@ -55,7 +55,7 @@ type (
 	hostsQueryOpts struct {
 		ActiveContracts *bool             // return hosts that have active contracts or not
 		Blocked         *bool             // return (un)blocked hosts
-		Good            *bool             // return good/bad hosts
+		Usable          *bool             // return usable hosts
 		PublicKeys      []types.PublicKey // do not return hosts with public keys outside of this list
 		Sorting         []HostSortOpt     // return hosts sorted by the provided options
 	}
@@ -76,7 +76,7 @@ func WithSorting(field string, descending bool) HostQueryOpt {
 // whether 'usable' is true or false.
 func WithUsable(usable bool) HostQueryOpt {
 	return func(opts *hostsQueryOpts) {
-		opts.Good = &usable
+		opts.Usable = &usable
 	}
 }
 

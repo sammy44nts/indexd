@@ -242,8 +242,8 @@ func (s *storeMock) Hosts(ctx context.Context, offset, limit int, queryOpts ...h
 	filter := copied[:0]
 	for _, h := range copied {
 		keep := true
-		if opts.Good != nil {
-			keep = h.Usability.Usable() == *opts.Good
+		if opts.Usable != nil {
+			keep = h.Usability.Usable() == *opts.Usable
 		}
 		if opts.Blocked != nil {
 			keep = keep && h.Blocked == *opts.Blocked

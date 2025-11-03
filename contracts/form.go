@@ -174,9 +174,9 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 	set := hosts.NewSpacedSet(cm.minHostDistanceKm)
 	isGood := func(host hosts.Host, log *zap.Logger) bool {
 		force := forceFormation[host.PublicKey]
-		if good := host.Usability.Usable(); !good {
+		if !host.IsGood() {
 			// host should be good
-			log.Debug("host is not usable due to bad usability", zap.Strings("reasons", host.Usability.FailedChecks()))
+			log.Debug("host is not usable due to bad usability", zap.Bool("blocked", host.Blocked), zap.Strings("reasons", host.Usability.FailedChecks()))
 			return false
 		} else if spaced := set.CanAddHost(host.Info()); !spaced && !force {
 			// host should be sufficiently spaced from other hosts
