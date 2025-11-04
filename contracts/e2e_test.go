@@ -12,12 +12,13 @@ import (
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
 func TestContractPruning(t *testing.T) {
 	// create cluster
-	logger := testutils.NewLogger(false)
+	logger := zap.NewNop()
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(10))
 	indexer := cluster.Indexer
 
@@ -117,7 +118,7 @@ func TestContractPruning(t *testing.T) {
 
 func TestSectorPinning(t *testing.T) {
 	// create cluster
-	logger := testutils.NewLogger(false)
+	logger := zap.NewNop()
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(10))
 	indexer := cluster.Indexer
 
