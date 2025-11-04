@@ -20,24 +20,26 @@ func TestContractPruning(t *testing.T) {
 	logger := testutils.NewLogger(false)
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(10))
 	indexer := cluster.Indexer
-	time.Sleep(time.Second)
 
-	// add an account
-	a1 := types.GeneratePrivateKey()
-	indexer.Store().AddTestAccount(t, a1.PublicKey())
+	// create an app
+	app := cluster.App(t)
 
-	time.Sleep(time.Second)
+	// fetch account
+	acc, err := app.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// wait for contracts to be formed
+	cluster.WaitForContracts(t)
+
+	// assert we have 10 usable hosts
 	hosts, err := indexer.Hosts().Hosts(context.Background(), 0, 10, hosts.WithUsable(true), hosts.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)
 	} else if len(hosts) != 10 {
 		t.Fatalf("expected 10 usable hosts, got %d", len(hosts))
 	}
-
-	// convenience variables
-	acc := proto.Account(a1.PublicKey())
-	client := indexer.App(a1)
-	store := indexer.Store()
 
 	// prepare pin params
 	params := slabs.SlabPinParams{
@@ -49,7 +51,7 @@ func TestContractPruning(t *testing.T) {
 	for _, host := range hosts {
 		var sector [proto.SectorSize]byte
 		frand.Read(sector[:])
-		_, err = indexer.HostClient(t, host.PublicKey).WriteSector(context.Background(), host.Settings.Prices, proto.NewAccountToken(a1, host.PublicKey), bytes.NewReader(sector[:]), proto.SectorSize)
+		_, err = indexer.HostClient(t, host.PublicKey).WriteSector(context.Background(), host.Settings.Prices, app.AccountToken(host.PublicKey), bytes.NewReader(sector[:]), proto.SectorSize)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,14 +59,14 @@ func TestContractPruning(t *testing.T) {
 	}
 
 	// pin the slab
-	slabIDs, err := client.PinSlabs(context.Background(), params)
+	slabIDs, err := app.PinSlabs(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// assert the slab is pinned
 	time.Sleep(time.Second)
-	res, err := store.Slabs(context.Background(), acc, slabIDs)
+	res, err := indexer.Store().Slabs(context.Background(), acc.AccountKey, slabIDs)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 1 {
@@ -90,7 +92,7 @@ func TestContractPruning(t *testing.T) {
 	}
 
 	// unpin the slab
-	if err := client.UnpinSlab(context.Background(), slabIDs[0]); err != nil {
+	if err := app.UnpinSlab(context.Background(), slabIDs[0]); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +104,7 @@ func TestContractPruning(t *testing.T) {
 	// assert the contracts are pruned
 	time.Sleep(time.Second)
 	for _, host := range hosts {
-		contract, _, err := store.ContractRevision(context.Background(), contracts[host.PublicKey])
+		contract, _, err := indexer.Store().ContractRevision(context.Background(), contracts[host.PublicKey])
 		if err != nil {
 			t.Fatal(err)
 		} else if contract.Revision.Filesize != 0 {
@@ -118,12 +120,15 @@ func TestSectorPinning(t *testing.T) {
 	logger := testutils.NewLogger(false)
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(10))
 	indexer := cluster.Indexer
-	store := indexer.Store()
-	time.Sleep(time.Second)
 
-	// add an account
-	a1 := types.GeneratePrivateKey()
-	indexer.Store().AddTestAccount(t, a1.PublicKey())
+	// create an app
+	app := cluster.App(t)
+
+	// fetch account
+	acc, err := app.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	time.Sleep(time.Second)
 	hosts, err := indexer.Hosts().Hosts(context.Background(), 0, 10, hosts.WithUsable(true), hosts.WithActiveContracts(true))
@@ -132,10 +137,6 @@ func TestSectorPinning(t *testing.T) {
 	} else if len(hosts) != 10 {
 		t.Fatalf("expected 10 usable hosts, got %d", len(hosts))
 	}
-
-	// convenience variables
-	acc := proto.Account(a1.PublicKey())
-	client := indexer.App(a1)
 
 	// prepare pin params
 	params := slabs.SlabPinParams{
@@ -147,7 +148,7 @@ func TestSectorPinning(t *testing.T) {
 	for _, host := range hosts {
 		var sector [proto.SectorSize]byte
 		frand.Read(sector[:])
-		_, err = indexer.HostClient(t, host.PublicKey).WriteSector(context.Background(), host.Settings.Prices, proto.NewAccountToken(a1, host.PublicKey), bytes.NewReader(sector[:]), proto.SectorSize)
+		_, err = indexer.HostClient(t, host.PublicKey).WriteSector(context.Background(), host.Settings.Prices, app.AccountToken(host.PublicKey), bytes.NewReader(sector[:]), proto.SectorSize)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +156,7 @@ func TestSectorPinning(t *testing.T) {
 	}
 
 	// pin the slab
-	slabIDs, err := client.PinSlabs(context.Background(), params)
+	slabIDs, err := app.PinSlabs(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +164,7 @@ func TestSectorPinning(t *testing.T) {
 
 	// assert the slab is pinned
 	time.Sleep(time.Second)
-	res, err := store.Slabs(context.Background(), acc, slabIDs)
+	res, err := indexer.Store().Slabs(context.Background(), acc.AccountKey, slabIDs)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res) != 1 {
@@ -178,12 +179,12 @@ func TestSectorPinning(t *testing.T) {
 	}
 
 	// unpin the slab
-	if err := client.UnpinSlab(context.Background(), slabID); err != nil {
+	if err := app.UnpinSlab(context.Background(), slabID); err != nil {
 		t.Fatal(err)
 	}
 
 	// assert the slab is unpinned
-	_, err = store.Slabs(context.Background(), acc, slabIDs)
+	_, err = indexer.Store().Slabs(context.Background(), acc.AccountKey, slabIDs)
 	if !errors.Is(err, slabs.ErrSlabNotFound) {
 		t.Fatal("unexpected error", err)
 	}
