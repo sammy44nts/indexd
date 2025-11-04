@@ -57,11 +57,12 @@ func (h HostStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 
 // PrometheusMetric implements the prometheus.Marshaller interface for a single
 // host's stats.
-func (h HostStats) PrometheusMetric() (metrics []prometheus.Metric) {
+func (h HostStats) PrometheusMetric() []prometheus.Metric {
 	labels := map[string]any{
 		"public_key": h.PublicKey.String(),
 	}
-	return []prometheus.Metric{
+
+	metrics := []prometheus.Metric{
 		{
 			Name:   "indexd_host_account_usage",
 			Labels: labels,
@@ -82,7 +83,30 @@ func (h HostStats) PrometheusMetric() (metrics []prometheus.Metric) {
 			Labels: labels,
 			Value:  float64(h.ActiveContractsSize),
 		},
+		{
+			Name:   "indexd_host_blocked",
+			Labels: labels,
+			Value: func() float64 {
+				if h.Blocked {
+					return 1
+				}
+				return 0
+			}(),
+		},
 	}
+
+	for _, reason := range h.BlockedReasons {
+		metrics = append(metrics, prometheus.Metric{
+			Name: "indexd_host_blocked_reason",
+			Labels: map[string]any{
+				"public_key": h.PublicKey.String(),
+				"reason":     reason,
+			},
+			Value: 1,
+		})
+	}
+
+	return metrics
 }
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the

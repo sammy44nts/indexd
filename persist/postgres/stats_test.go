@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -21,12 +22,13 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 	account := proto.Account{1}
 	store.addTestAccount(t, types.PublicKey(account))
 	hk := store.addTestHost(t)
+	store.addTestContract(t, hk)
 
 	// helper to create slabs
 	newSlab := func(i byte) slabs.SlabPinParams {
 		slab := slabs.SlabPinParams{
 			EncryptionKey: [32]byte{i},
-			MinShards:     10,
+			MinShards:     1,
 			Sectors: []slabs.PinnedSector{
 				{
 					Root:    frand.Entropy256(),
@@ -97,6 +99,8 @@ func TestSectorStats(t *testing.T) {
 	hk2 := store.addTestHost(t)
 	hk3 := store.addTestHost(t)
 	hk4 := store.addTestHost(t)
+	store.addTestContract(t, hk2)
+	store.addTestContract(t, hk3)
 	fcidHK1 := store.addTestContract(t, hk1, types.FileContractID{1})
 	fcidHK4 := store.addTestContract(t, hk4, types.FileContractID{2})
 
@@ -276,9 +280,9 @@ func TestHostStats(t *testing.T) {
 	}
 
 	// add test contracts
-	fcid1 := store.addTestContract(t, hk1, types.FileContractID(hk1))
-	store.addTestContract(t, hk2, types.FileContractID(hk2))
-	store.addTestContract(t, hk3, types.FileContractID(hk3))
+	fcid1 := store.addTestContract(t, hk1)
+	store.addTestContract(t, hk2)
+	store.addTestContract(t, hk3)
 
 	// assert empty stats - no usage
 	stats, err = store.HostStats(t.Context(), 0, 10)
@@ -310,6 +314,27 @@ func TestHostStats(t *testing.T) {
 		t.Fatalf("expected first host to have %d active contract size, got %d", testRevision.Filesize, stats[0].ActiveContractsSize)
 	} else if stats[1].ActiveContractsSize != int64(testRevision.Filesize) {
 		t.Fatalf("expected second host to have %d active contract size, got %d", testRevision.Filesize, stats[1].ActiveContractsSize)
+	}
+	if stats[0].Blocked || stats[1].Blocked {
+		t.Fatal("expected both hosts to be unblocked")
+	}
+
+	reason := t.Name()
+	if err := store.BlockHosts(t.Context(), []types.PublicKey{hk1}, []string{reason}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err = store.HostStats(t.Context(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(stats) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(stats))
+	} else if stats[0].Blocked {
+		t.Fatal("expected first host to remain unblocked")
+	} else if !stats[1].Blocked {
+		t.Fatal("expected second host to be blocked")
+	} else if !reflect.DeepEqual(stats[1].BlockedReasons, []string{reason}) {
+		t.Fatalf("expected blocked reasons %v, got %v", []string{reason}, stats[1].BlockedReasons)
 	}
 
 	// resolve first contract manually - should exclude it from total_contract_size

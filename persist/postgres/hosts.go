@@ -187,7 +187,7 @@ WITH globals AS (
 	has_settings AND settings_free_sector_price <= globals.one_sc / globals.sectors_per_tb
 FROM hosts CROSS JOIN globals
 WHERE
-	-- good host filter
+	-- usable host filter
 	(($3::boolean IS NULL) OR ($3::boolean = (
 		recent_uptime >= 0.9 AND
 		has_settings AND
@@ -212,7 +212,7 @@ WHERE
 	-- public key filter
 	AND ((CARDINALITY($8::bytea[]) = 0) OR (public_key = ANY($8)))
 	%s -- orderClause
-	LIMIT $1 OFFSET $2`, orderClause), limit, offset, opts.Good, opts.Blocked, opts.ActiveContracts, contracts.ContractStatePending, contracts.ContractStateActive, hks)
+	LIMIT $1 OFFSET $2`, orderClause), limit, offset, opts.Usable, opts.Blocked, opts.ActiveContracts, contracts.ContractStatePending, contracts.ContractStateActive, hks)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts: %w", err)
 		}
@@ -843,8 +843,6 @@ func (s *Store) HostsForFunding(ctx context.Context) ([]types.PublicKey, error) 
 				SELECT 1
 				FROM contracts c
 				WHERE c.host_id = h.id AND c.state IN (0, 1) AND c.good AND c.renewed_to IS NULL
-			)  AND NOT EXISTS (
-				SELECT 1 FROM hosts_blocklist hb WHERE hb.public_key = h.public_key
 			)`)
 		if err != nil {
 			return fmt.Errorf("failed to query hosts for funding: %w", err)

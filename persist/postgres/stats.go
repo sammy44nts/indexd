@@ -84,10 +84,18 @@ func (s *Store) HostStats(ctx context.Context, offset, limit int) ([]hosts.HostS
 				SELECT scanned_height FROM global_settings
 			),
 			selected_hosts AS (
-				SELECT id, public_key, lost_sectors, usage_account_funding, usage_total_spent
-				FROM hosts
-				WHERE usage_total_spent > 0
-				ORDER BY usage_total_spent DESC
+				SELECT
+					h.id,
+					h.public_key,
+					h.lost_sectors,
+					h.usage_account_funding,
+					h.usage_total_spent,
+					hb.public_key IS NOT NULL AS blocked,
+					COALESCE(hb.reasons, ARRAY[]::TEXT[]) AS blocked_reasons
+				FROM hosts h
+				LEFT JOIN hosts_blocklist hb ON hb.public_key = h.public_key
+				WHERE h.usage_total_spent > 0
+				ORDER BY h.usage_total_spent DESC
 				OFFSET $1
 				LIMIT $2
 			)
@@ -96,7 +104,9 @@ func (s *Store) HostStats(ctx context.Context, offset, limit int) ([]hosts.HostS
 				h.lost_sectors,
 				COALESCE(cs.total_contracts_size, 0) AS total_contracts_size,
 				h.usage_account_funding,
-				h.usage_total_spent
+				h.usage_total_spent,
+				h.blocked,
+				h.blocked_reasons
 			FROM selected_hosts h
 			LEFT JOIN LATERAL (
 			SELECT SUM(size) AS total_contracts_size
@@ -115,7 +125,15 @@ func (s *Store) HostStats(ctx context.Context, offset, limit int) ([]hosts.HostS
 
 		for rows.Next() {
 			var hs hosts.HostStats
-			if err := rows.Scan((*sqlPublicKey)(&hs.PublicKey), &hs.LostSectors, &hs.ActiveContractsSize, (*sqlCurrency)(&hs.AccountUsage), (*sqlCurrency)(&hs.TotalUsage)); err != nil {
+			if err := rows.Scan(
+				(*sqlPublicKey)(&hs.PublicKey),
+				&hs.LostSectors,
+				&hs.ActiveContractsSize,
+				(*sqlCurrency)(&hs.AccountUsage),
+				(*sqlCurrency)(&hs.TotalUsage),
+				&hs.Blocked,
+				&hs.BlockedReasons,
+			); err != nil {
 				return err
 			}
 			stats = append(stats, hs)
