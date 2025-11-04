@@ -126,7 +126,10 @@ func TestSectorPinning(t *testing.T) {
 	// create an app
 	app := cluster.App(t)
 
-	time.Sleep(time.Second)
+	// wait for contracts to be formed
+	cluster.WaitForContracts(t)
+
+	// assert we have 10 usable hosts
 	hosts, err := indexer.Hosts().Hosts(context.Background(), 0, 10, hosts.WithUsable(true), hosts.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)
