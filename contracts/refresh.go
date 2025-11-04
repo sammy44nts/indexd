@@ -48,8 +48,8 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 	)
 
 	return cm.hosts.WithScannedHost(ctx, contract.HostKey, func(host hosts.Host) error {
-		// scale funding by number of active accounts
-		target, err := cm.accounts.ContractFundTarget(ctx, host, minAllowance)
+		// calculate funding target
+		minAllowance, err := cm.accounts.ContractFundTarget(ctx, host)
 		if err != nil {
 			return fmt.Errorf("failed to get fund target: %w", err)
 		}
@@ -61,7 +61,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		// 1. If the contract is out of funds we also add collateral and vice versa
 		// 2. The total collateral might exceed the host's maximum collateral
 		//    since 'contractFunding' doesn't take into account existing collateral
-		allowance, collateral := contractFunding(host.Settings, contract.Size, target, minHostCollateral, period)
+		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance, minHostCollateral, period)
 
 		refreshCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()

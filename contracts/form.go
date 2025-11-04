@@ -35,11 +35,6 @@ const (
 )
 
 var (
-	// minAllowance is the minimum allowance the
-	// renter will use when forming, refreshing, or renewing a
-	// contract. This is because account funding is done using
-	// 1 SC increments.
-	minAllowance = types.Siacoins(10) // 10 SC
 	// minHostCollateral is the minimum collateral the
 	// renter will request when forming, refreshing, or renewing a
 	// contract.
@@ -254,13 +249,13 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 				return fmt.Errorf("%w: %s", hosts.ErrBadHost, host.PublicKey)
 			}
 
-			// scale funding by number of active accounts
-			target, err := cm.accounts.ContractFundTarget(ctx, host, minAllowance)
+			// calculate funding target
+			minAllowance, err := cm.accounts.ContractFundTarget(ctx, host)
 			if err != nil {
 				return fmt.Errorf("failed to get fund target: %w", err)
 			}
 
-			allowance, collateral := contractFunding(host.Settings, 0, target, minHostCollateral, period)
+			allowance, collateral := contractFunding(host.Settings, 0, minAllowance, minHostCollateral, period)
 			formationCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // note: broadcasting on the host-side can block for up to a minute by default
 			defer cancel()
 			hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.RHP4Addrs())
@@ -279,7 +274,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, period 
 			if err != nil {
 				return fmt.Errorf("failed to form contract: %w", err)
 			}
-			log := log.With(zap.Stringer("formedContractID", res.Contract.ID), zap.Stringer("allowance", allowance), zap.Stringer("collateral", collateral), zap.Stringer("fundTarget", target))
+			log := log.With(zap.Stringer("formedContractID", res.Contract.ID), zap.Stringer("allowance", allowance), zap.Stringer("collateral", collateral), zap.Stringer("fundTarget", minAllowance))
 			if err := cm.wallet.BroadcastV2TransactionSet(res.FormationSet.Basis, res.FormationSet.Transactions); err != nil {
 				// error is ignored as it is assumed the host has validated the transaction set.
 				// It will eventually be mined or rejected. This is to prevent minor synchronization

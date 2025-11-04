@@ -238,7 +238,7 @@ func TestRenewalAllowance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	allowance, err := amMock.ContractFundTarget(context.Background(), good, minAllowance)
+	allowance, err := amMock.ContractFundTarget(context.Background(), good)
 	if err != nil {
 		t.Fatal(err)
 	}

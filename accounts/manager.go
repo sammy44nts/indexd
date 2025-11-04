@@ -195,23 +195,19 @@ func (m *AccountManager) DeleteAccount(ctx context.Context, ak types.PublicKey) 
 }
 
 // ContractFundTarget calculates the fund target for a contract on the given
-// host. We scale the fund target by the number of active accounts.
-func (am *AccountManager) ContractFundTarget(ctx context.Context, host hosts.Host, minAllowance types.Currency) (types.Currency, error) {
-	target := HostFundTarget(host)
-
-	// multiply by number of active accounts
+// host. We scale the fund target by the number of active accounts, if there are
+// any.
+func (am *AccountManager) ContractFundTarget(ctx context.Context, host hosts.Host) (types.Currency, error) {
+	// fetch number of active accounts
 	n, err := am.store.ActiveAccounts(ctx, time.Now().Add(-accountActivityThreshold))
 	if err != nil {
 		return types.ZeroCurrency, err
-	}
-	target = target.Mul64(n)
-
-	// take min allowance into account
-	if target.Cmp(minAllowance) < 0 {
-		target = minAllowance
+	} else if n == 0 {
+		n = 1
 	}
 
-	return target, nil
+	// calculate the target and scale by number of active accounts
+	return HostFundTarget(host).Mul64(n), nil
 }
 
 // UpdateFundedAccounts marks in-place the first `n` accounts as having a

@@ -40,12 +40,12 @@ func TestAccountFunding(t *testing.T) {
 	hc := indexer.HostClient(t, hk)
 	token := proto.NewAccountToken(a1, hk)
 
-	// assert we have one active contract
+	// assert we have at least one active contract
 	contracts, err := indexer.Contracts().Contracts(context.Background(), 0, 10, contracts.WithRevisable(true), contracts.WithGood(true))
 	if err != nil {
 		t.Fatal(err)
-	} else if len(contracts) != 1 {
-		t.Fatalf("expected 1 contract, got %d", len(contracts))
+	} else if len(contracts) < 1 {
+		t.Fatalf("expected at least 1 contract, got %d", len(contracts))
 	}
 
 	// assert the account is funded
