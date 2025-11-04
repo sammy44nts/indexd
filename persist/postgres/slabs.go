@@ -19,7 +19,7 @@ import (
 func (s *Store) MarkSlabRepaired(ctx context.Context, slabID slabs.SlabID, success bool) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *txn) error {
 		if success {
-			if res, err := tx.Exec(ctx, `UPDATE slabs SET consecutive_failed_repairs = 0 WHERE digest = $1`, sqlHash256(slabID)); err != nil {
+			if res, err := tx.Exec(ctx, `UPDATE slabs SET consecutive_failed_repairs = 0, next_repair_attempt = NOW() WHERE digest = $1`, sqlHash256(slabID)); err != nil {
 				return fmt.Errorf("failed to mark slab as repaired: %w", err)
 			} else if res.RowsAffected() == 0 {
 				return slabs.ErrSlabNotFound

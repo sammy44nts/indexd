@@ -188,7 +188,7 @@ func TestMarkSlabRepaired(t *testing.T) {
 		t.Fatal(err)
 	}
 	simulateSuccessfulRepair()
-	assertSlabState(0, oneHourAgo)
+	assertSlabState(0, time.Now())
 }
 
 func TestPinnedSlab(t *testing.T) {
