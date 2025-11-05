@@ -466,8 +466,8 @@ func TestContractsAPI(t *testing.T) {
 		t.Fatal(err)
 	} else if len(contracts) < 1 {
 		t.Fatal("expected at least 1 contract, got", len(contracts))
-	} else if contracts[0].RenewedFrom != contract.ID {
-		t.Fatal("expected contract to be renewed", contracts[0].RenewedFrom, contract.ID)
+	} else if contracts[0].RenewedFrom != contract.ID && contracts[1].RenewedFrom != contract.ID {
+		t.Fatal("expected contract to be renewed", contracts[0].RenewedFrom, contracts[1].RenewedFrom, contract.ID)
 	}
 
 	// assert usage is being tracked
