@@ -130,11 +130,21 @@ func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPri
 		maxRemainingSectors := (maxContractSize - contract.Revision.Filesize) / proto.SectorSize
 		maxAppendSectors := (contract.Revision.Capacity - contract.Revision.Filesize) / proto.SectorSize
 		duration := contract.Revision.ExpirationHeight - hostPrices.TipHeight
-		sectorCollateralCost := hostPrices.RPCAppendSectorsCost(1, duration).RiskedCollateral
+		appendSectorCost := hostPrices.RPCAppendSectorsCost(1, duration)
+
+		sectorCollateralCost := appendSectorCost.RiskedCollateral
 		if sectorCollateralCost.IsZero() {
 			sectorCollateralCost = types.NewCurrency64(1) // avoid division by zero
 		}
-		maxAppendSectors += contract.Revision.RemainingCollateral().Div(sectorCollateralCost).Big().Uint64()
+		sectorRenterCost := appendSectorCost.RenterCost()
+		if sectorRenterCost.IsZero() {
+			sectorRenterCost = types.NewCurrency64(1) // avoid division by zero
+		}
+
+		maxSectorsByCollateral := contract.Revision.RemainingCollateral().Div(sectorCollateralCost).Big().Uint64()
+		maxSectorsByAllowance := contract.Revision.RemainingAllowance().Div(sectorRenterCost).Big().Uint64()
+		maxAppendSectors += min(maxSectorsByAllowance, maxSectorsByCollateral)
+
 		// ensure the maximum contract size is not exceeded
 		maxAppendSectors = min(maxAppendSectors, maxRemainingSectors)
 		if maxAppendSectors == 0 {
