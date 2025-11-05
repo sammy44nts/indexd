@@ -124,11 +124,8 @@ func TestSectorPinning(t *testing.T) {
 	// create an app
 	app := cluster.App(t)
 
-	// fetch account
-	acc, err := app.Account(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// wait for contracts to be formed
+	cluster.WaitForContracts(t)
 
 	time.Sleep(time.Second)
 	hosts, err := indexer.Hosts().Hosts(context.Background(), 0, 10, hosts.WithUsable(true), hosts.WithActiveContracts(true))
@@ -161,6 +158,12 @@ func TestSectorPinning(t *testing.T) {
 		t.Fatal(err)
 	}
 	slabID := slabIDs[0]
+
+	// fetch account
+	acc, err := app.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// assert the slab is pinned
 	time.Sleep(time.Second)
