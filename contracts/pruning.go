@@ -161,7 +161,7 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 		var indices []uint64
 		for i, root := range res.Roots {
 			if _, found := prunable[root]; found {
-				indices = append(indices, uint64(i))
+				indices = append(indices, offset+uint64(i))
 			}
 		}
 		if len(indices) == 0 {
