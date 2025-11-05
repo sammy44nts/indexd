@@ -7,6 +7,7 @@ import (
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
+	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/internal/testutils"
@@ -44,6 +45,10 @@ func TestAccountFunding(t *testing.T) {
 	} else if len(contracts) < 1 {
 		t.Fatalf("expected at least 1 contract, got %d", len(contracts))
 	}
+
+	// mine a few blocks to ensure the contract is confirmed
+	cluster.ConsensusNode.MineBlocks(t, types.VoidAddress, 5)
+	time.Sleep(time.Second)
 
 	// fetch account
 	acc, err := app.Account(t.Context())

@@ -13,12 +13,13 @@ import (
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestContractPruning(t *testing.T) {
 	// create cluster
-	logger := zap.NewNop()
+	logger := zaptest.NewLogger(t)
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(10))
 
 	// convenience variables
