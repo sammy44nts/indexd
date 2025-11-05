@@ -35,8 +35,10 @@ func TestContractPruning(t *testing.T) {
 	// create an app
 	app := cluster.App(t)
 
-	// wait for usable hosts
-	time.Sleep(time.Second)
+	// wait for contracts
+	cluster.WaitForContracts(t)
+
+	// assert we have nHosts usable hosts
 	hosts, err := indexer.Hosts().Hosts(t.Context(), 0, nHosts, hosts.WithUsable(true), hosts.WithActiveContracts(true))
 	if err != nil {
 		t.Fatal(err)
