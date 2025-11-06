@@ -128,6 +128,13 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			log.Debug("starting scheduled maintenance")
 		}
 
+		// this is done first so that fragmenting the wallet can be prioritized before
+		// being used for other maintenance tasks
+		walletLog := log.Named("wallet")
+		if err := cm.performWalletMaintenance(ctx, walletLog); err != nil {
+			log.Debug("maintenance failed", zap.Error(err)) // wallet maintenance is best-effort
+		}
+
 		contractMaintenanceLog := log.Named("contracts")
 		logError(cm.performContractMaintenance(ctx, contractMaintenanceLog), contractMaintenanceLog)
 		fundingLog := log.Named("accounts")
@@ -136,12 +143,6 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 		logError(cm.performContractPruning(ctx, false, pruningLog), pruningLog)
 		pinningLog := log.Named("pinning")
 		logError(cm.performSectorPinning(ctx, pinningLog), pinningLog)
-		// this is done last as it leaves us with unconfirmed UTXOs that can't
-		// be used for contract maintenance until they are confirmed. This increases
-		// the chance that other maintenance tasks can run without being blocked on
-		// funding.
-		walletLog := log.Named("wallet")
-		logError(cm.performWalletMaintenance(ctx, walletLog), walletLog)
 
 		unpinnableLog := log.Named("unpinnable")
 		threshold := time.Now().Add(-unpinnableSectorThreshold)
