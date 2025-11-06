@@ -141,7 +141,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 		// the chance that other maintenance tasks can run without being blocked on
 		// funding.
 		walletLog := log.Named("wallet")
-		logError(cm.performWalletMaintenance(walletLog), walletLog)
+		logError(cm.performWalletMaintenance(ctx, walletLog), walletLog)
 
 		unpinnableLog := log.Named("unpinnable")
 		threshold := time.Now().Add(-unpinnableSectorThreshold)
@@ -151,18 +151,27 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 	}
 }
 
-func (cm *ContractManager) performWalletMaintenance(log *zap.Logger) error {
-	settings, err := cm.store.MaintenanceSettings(context.Background())
+func (cm *ContractManager) performWalletMaintenance(ctx context.Context, log *zap.Logger) error {
+	settings, err := cm.store.MaintenanceSettings(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch maintenance settings: %w", err)
 	}
+
+	// TODO: replace with COUNT(*)?
+	active, err := cm.store.Contracts(ctx, 0, 1000, WithRevisable(true)) // note: this does not check good since bad contracts are attempted to be replaced
+	if err != nil {
+		return fmt.Errorf("failed to fetch active contracts: %w", err)
+	}
+
+	utxoCount := max(len(active), int(settings.WantedContracts), 1)
+
 	// note: 1KS is arbitrary, but it's a minimum. The actual value depends on
 	// the largest UTXO the wallet has. It might be better to make it configurable
 	// in a follow-up, but we should see how this performs first.
 	//
 	// These values mean that only a UTXO >= wanted contracts * 1KS will be
 	// split.
-	if txn, err := cm.wallet.SplitUTXO(int(settings.WantedContracts), types.Siacoins(1000)); err != nil {
+	if txn, err := cm.wallet.SplitUTXO(utxoCount, types.Siacoins(1000)); err != nil {
 		return fmt.Errorf("failed to split UTXOs: %w", err)
 	} else if txn.ID() == (types.TransactionID{}) || len(txn.SiacoinInputs) == 0 || len(txn.SiacoinOutputs) == 0 {
 		log.Debug("enough UTXOs present, no split needed")
