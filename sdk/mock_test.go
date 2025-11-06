@@ -207,15 +207,15 @@ func (mc *mockAppClient) ListObjects(ctx context.Context, cursor slabs.Cursor, l
 }
 
 // SharedObject implements the [AppClient] interface.
-func (mc *mockAppClient) SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, []byte, error) {
+func (mc *mockAppClient) SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, string, []byte, error) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
 	buf, err := hex.DecodeString(sharedURL)
 	if err != nil {
-		return slabs.SharedObject{}, nil, errors.New("invalid shared URL")
+		return slabs.SharedObject{}, "", nil, errors.New("invalid shared URL")
 	} else if len(buf) != 64 {
-		return slabs.SharedObject{}, nil, errors.New("invalid shared URL")
+		return slabs.SharedObject{}, "", nil, errors.New("invalid shared URL")
 	}
 
 	objKey := (types.Hash256)(buf[:32])
@@ -223,7 +223,7 @@ func (mc *mockAppClient) SharedObject(ctx context.Context, sharedURL string) (sl
 
 	obj, ok := mc.objects[objKey]
 	if !ok {
-		return slabs.SharedObject{}, nil, errors.New("object not found")
+		return slabs.SharedObject{}, "", nil, errors.New("object not found")
 	}
 
 	var objSlabs []slabs.SharedSlab
@@ -235,7 +235,7 @@ func (mc *mockAppClient) SharedObject(ctx context.Context, sharedURL string) (sl
 		})
 	}
 
-	return slabs.SharedObject{Slabs: objSlabs}, encryptionKey, nil
+	return slabs.SharedObject{Slabs: objSlabs}, "", encryptionKey, nil
 }
 
 // SaveObject implements the [AppClient] interface.
@@ -247,7 +247,7 @@ func (mc *mockAppClient) SaveObject(ctx context.Context, obj slabs.SealedObject)
 }
 
 // CreateSharedObjectURL implements the [AppClient] interface.
-func (mc *mockAppClient) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, encryptionKey []byte, validUntil time.Time) (string, error) {
+func (mc *mockAppClient) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, name string, encryptionKey []byte, validUntil time.Time) (string, error) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 

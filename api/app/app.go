@@ -209,7 +209,7 @@ func (a *app) handleGETObject(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	jc.Encode(obj)
+	encodeResponse(jc, obj)
 }
 
 func (a *app) handleGETObjectShared(jc jape.Context, _ types.PublicKey) {
@@ -227,7 +227,7 @@ func (a *app) handleGETObjectShared(jc jape.Context, _ types.PublicKey) {
 		return
 	}
 
-	jc.Encode(obj)
+	encodeResponse(jc, obj)
 }
 
 func (a *app) handleGETObjects(jc jape.Context, pk types.PublicKey) {
@@ -339,6 +339,14 @@ func encodeBinary(jc jape.Context, resp types.EncoderTo) {
 	buf.WriteTo(jc.ResponseWriter)
 }
 
+func encodeResponse(jc jape.Context, resp types.EncoderTo) {
+	if accept := jc.Request.Header.Get(acceptHeader); accept == applicationOctetStream {
+		encodeBinary(jc, resp)
+		return
+	}
+	jc.Encode(resp)
+}
+
 func (a *app) handleGETSlab(jc jape.Context, pk types.PublicKey) {
 	var slabID slabs.SlabID
 	if err := jc.DecodeParam("slabid", &slabID); err != nil {
@@ -354,11 +362,7 @@ func (a *app) handleGETSlab(jc jape.Context, pk types.PublicKey) {
 		return
 	}
 
-	if accept := jc.Request.Header.Get(acceptHeader); accept == applicationOctetStream {
-		encodeBinary(jc, slab)
-		return
-	}
-	jc.Encode(slab)
+	encodeResponse(jc, slab)
 }
 
 func (a *app) handleGETSlabs(jc jape.Context, pk types.PublicKey) {

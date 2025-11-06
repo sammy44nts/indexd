@@ -84,6 +84,51 @@ func (o *Object) UpdateMetadata(meta json.RawMessage) {
 	o.metadata = slices.Clone(meta)
 }
 
+// A SharedObject represents a shared object that can be used to access
+// encrypted data.
+//
+// It has no public fields to prevent accidental corruption of
+// its data.
+type SharedObject struct {
+	slabs         []slabs.SharedSlab
+	name          string
+	encryptionKey []byte
+}
+
+// Slabs returns a copy of the shared object's slabs.
+func (s *SharedObject) Slabs() []slabs.SharedSlab {
+	return slices.Clone(s.slabs)
+}
+
+// Name returns the name of the shared object.
+func (s *SharedObject) Name() string {
+	return s.name
+}
+
+// Size returns the total size of the shared object in bytes.
+func (s *SharedObject) Size() uint64 {
+	var size uint64
+	for _, slab := range s.slabs {
+		size += uint64(slab.Length - slab.Offset)
+	}
+	return size
+}
+
+// ID returns the object's ID, which is a hash of its slabs.
+func (s *SharedObject) ID() types.Hash256 {
+	h := types.NewHasher()
+	for _, slab := range s.slabs {
+		// ID must be consistent with Object.ID()
+		ss := slabs.SlabSlice{
+			SlabID: slab.ID,
+			Offset: slab.Offset,
+			Length: slab.Length,
+		}
+		ss.EncodeTo(h.E)
+	}
+	return h.Sum()
+}
+
 // Object retrieves the object with the given key.
 func (s *SDK) Object(ctx context.Context, objectKey types.Hash256) (Object, error) {
 	lo, err := s.client.Object(ctx, objectKey)
@@ -115,17 +160,29 @@ func (s *SDK) ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) (
 
 // CreateSharedObjectURL creates a URL that can be used to share the object
 // until the given time. The URL contains the encryption key required to decrypt
-// the object's data and metadata.
+// the object's data. The provided name is included in the URL and can be used by
+// the recipient to identify the object.
 //
-// Sharing the URL allows anyone with the URL to read the object's data
-// and metadata. They will not be able to modify the object or access any other
-// objects in the account.
-func (s *SDK) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, validUntil time.Time) (string, error) {
-	obj, err := s.Object(ctx, objectKey)
+// Sharing the URL allows anyone with the URL to read the object's data. They will
+// not be able to modify the object or access any other objects in the account.
+func (s *SDK) CreateSharedObjectURL(ctx context.Context, obj Object, name string, validUntil time.Time) (string, error) {
+	return s.client.CreateSharedObjectURL(ctx, obj.ID(), name, obj.masterKey, validUntil)
+}
+
+// SharedObject retrieves metadata for a shared object from the given share URL.
+//
+// The returned SharedObject can be used to download the object's data by calling
+// [SDK.DownloadSharedObject].
+func (s *SDK) SharedObject(ctx context.Context, sharedURL string) (SharedObject, error) {
+	so, name, encryptionKey, err := s.client.SharedObject(ctx, sharedURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to get object: %w", err)
+		return SharedObject{}, fmt.Errorf("failed to get shared object: %w", err)
 	}
-	return s.client.CreateSharedObjectURL(ctx, obj.ID(), obj.masterKey, validUntil)
+	return SharedObject{
+		slabs:         so.Slabs,
+		name:          name,
+		encryptionKey: encryptionKey,
+	}, nil
 }
 
 func masterKeyCipher(appKey types.PrivateKey, objectID types.Hash256) cipher.AEAD {

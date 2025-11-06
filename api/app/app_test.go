@@ -3,9 +3,11 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -658,7 +660,6 @@ func TestSharedObjects(t *testing.T) {
 				Length: 256,
 			},
 		},
-		EncryptedMetadata: nil,
 	}
 
 	// add the object to the db
@@ -692,19 +693,33 @@ func TestSharedObjects(t *testing.T) {
 	encryptionKey := frand.Bytes(32)
 
 	// create a shared URL for the object
-	shareURL, err := client1.CreateSharedObjectURL(ctx, obj.ID(), encryptionKey, time.Now().Add(2*time.Second))
+	shareURL, err := client1.CreateSharedObjectURL(ctx, obj.ID(), "foo", encryptionKey, time.Now().Add(2*time.Second))
 	if err != nil {
 		t.Fatal("failed to create shared object URL:", err)
 	}
+	u, err := url.Parse(shareURL)
+	if err != nil {
+		t.Fatal("failed to parse share URL:", err)
+	}
+	params, err := url.ParseQuery(u.Fragment)
+	if err != nil {
+		t.Fatal("failed to parse share URL params:", err)
+	} else if params.Get("name") != "foo" {
+		t.Fatalf("expected name 'foo', got '%s'", params.Get("name"))
+	} else if params.Get("key") != base64.URLEncoding.EncodeToString(encryptionKey) {
+		t.Fatalf("encryption key mismatch")
+	}
 
 	// try to retrieve the object with client2
-	sharedObj, key, err := client2.SharedObject(ctx, shareURL)
+	sharedObj, name, key, err := client2.SharedObject(ctx, shareURL)
 	if err != nil {
 		t.Fatal("failed to retrieve shared object:", err)
 	} else if !bytes.Equal(key, encryptionKey) {
 		t.Fatal("encryption key mismatch")
 	} else if !reflect.DeepEqual(expectedSharedObj, sharedObj) {
 		t.Fatal("shared object mismatch")
+	} else if name != "foo" {
+		t.Fatalf("expected name 'foo', got '%s'", name)
 	}
 
 	// make sure client2 has no objects
@@ -716,7 +731,7 @@ func TestSharedObjects(t *testing.T) {
 
 	time.Sleep(time.Second * 2)
 	// try to retrieve the object again, should be expired
-	_, _, err = client1.SharedObject(ctx, shareURL)
+	_, _, _, err = client1.SharedObject(ctx, shareURL)
 	if err == nil {
 		t.Fatal("expected error when creating shared URL with past expiry")
 	}

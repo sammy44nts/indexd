@@ -37,8 +37,7 @@ type (
 	// SharedObject provides all the metadata necessary to retrieve
 	// and decrypt an object.
 	SharedObject struct {
-		Slabs             []SharedSlab `json:"slabs"`
-		EncryptedMetadata []byte       `json:"encryptedMetadata"`
+		Slabs []SharedSlab `json:"slabs"`
 	}
 
 	// ObjectEvent represents an event on an object, such as it being created,

@@ -231,50 +231,62 @@ func (c *Client) Account(ctx context.Context) (resp accounts.Account, err error)
 
 // CreateSharedObjectURL generates a signed URL for accessing the object with the given
 // key. The URL is valid until the specified validUntil time.
-func (c *Client) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, masterKey []byte, validUntil time.Time) (string, error) {
+func (c *Client) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256, name string, masterKey []byte, validUntil time.Time) (string, error) {
 	u, _, err := sign(c.appkey, validUntil, http.MethodGet, fmt.Sprintf("%s/objects/%s/shared", c.baseURL, objectKey), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign request: %w", err)
 	}
-	u.Fragment = fmt.Sprintf("encryption_key=%s", base64.URLEncoding.EncodeToString(masterKey))
+	fragment := make(url.Values)
+	fragment.Set("key", base64.URLEncoding.EncodeToString(masterKey))
+	fragment.Set("name", name)
+	u.Fragment = fragment.Encode()
 	return u.String(), nil
 }
 
 // SharedObject retrieves an object using the pre-signed URL.
-func (c *Client) SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, []byte, error) {
+func (c *Client) SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, string, []byte, error) {
 	u, err := url.Parse(sharedURL)
 	if err != nil {
-		return slabs.SharedObject{}, nil, fmt.Errorf("failed to parse shared URL: %w", err)
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("failed to parse shared URL: %w", err)
 	}
 	if !(strings.HasPrefix(u.Path, "/objects/") && strings.HasSuffix(u.Path, "/shared")) {
-		return slabs.SharedObject{}, nil, fmt.Errorf("path must start with '/objects/' and end with '/shared'")
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("path must start with '/objects/' and end with '/shared'")
 	}
 	values, err := url.ParseQuery(u.Fragment)
 	if err != nil {
-		return slabs.SharedObject{}, nil, fmt.Errorf("failed to parse URL fragment: %w", err)
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("failed to parse URL fragment: %w", err)
 	}
 
-	keyStr := values.Get("encryption_key")
+	keyStr := values.Get("key")
+	if keyStr == "" {
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("missing encryption key in URL fragment")
+	}
+
 	encryptionKey := make([]byte, 32)
 	n, err := base64.URLEncoding.Decode(encryptionKey, []byte(keyStr))
 	if err != nil {
-		return slabs.SharedObject{}, nil, fmt.Errorf("invalid base64 encoding for encryption key: %w", err)
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("invalid base64 encoding for encryption key: %w", err)
 	} else if n != 32 {
-		return slabs.SharedObject{}, nil, fmt.Errorf("missing encryption key")
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("missing encryption key")
+	}
+
+	name := values.Get("name")
+	if name == "" {
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("missing name in URL fragment")
 	}
 
 	u.Fragment = ""
 	var obj slabs.SharedObject
-	resp, err := doRequest(ctx, http.MethodGet, u, nil, applicationJSON)
+	resp, err := doRequest(ctx, http.MethodGet, u, nil, applicationOctetStream)
 	if err != nil {
-		return slabs.SharedObject{}, nil, fmt.Errorf("failed to fetch shared object: %w", err)
+		return slabs.SharedObject{}, "", nil, fmt.Errorf("failed to fetch shared object: %w", err)
 	}
 	defer io.Copy(io.Discard, resp)
 	defer resp.Close()
 
 	dec := json.NewDecoder(resp)
 	err = dec.Decode(&obj)
-	return obj, encryptionKey, err
+	return obj, name, encryptionKey, err
 }
 
 // RequestAppConnection requests an application connection to the indexer.

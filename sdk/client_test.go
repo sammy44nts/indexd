@@ -56,26 +56,25 @@ func TestRoundtrip(t *testing.T) {
 		t.Fatal("data mismatch")
 	}
 
-	objID := obj.ID()
-
 	buf.Reset()
-	url, err := s.CreateSharedObjectURL(context.Background(), objID, time.Now().Add(time.Minute))
+	shareURL, err := s.CreateSharedObjectURL(context.Background(), obj, "test", time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
-	} else if err := s.DownloadSharedObject(context.Background(), buf, url); err != nil {
+	}
+
+	sharedObj, err := s.SharedObject(context.Background(), shareURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DownloadSharedObject(context.Background(), buf, sharedObj); err != nil {
 		t.Fatal("unexpected error", err)
 	} else if !bytes.Equal(buf.Bytes(), data) {
 		t.Fatal("data mismatch")
 	}
 
 	// delete all data shards
-	sharedObj, _, err := s.client.SharedObject(context.Background(), url)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(sharedObj.Slabs) != 1 {
-		t.Fatalf("expected 1 slab, got %d", len(sharedObj.Slabs))
-	}
-	slab := sharedObj.Slabs[0]
+	slab := sharedObj.Slabs()[0]
 	for i, sector := range slab.Sectors {
 		delete(dialer.hostSectors[sector.HostKey], sector.Root)
 		if i == int(slab.MinShards) {
@@ -93,7 +92,7 @@ func TestRoundtrip(t *testing.T) {
 
 	// ensure download shared object still works
 	buf.Reset()
-	if err := s.DownloadSharedObject(context.Background(), buf, url); err != nil {
+	if err := s.DownloadSharedObject(context.Background(), buf, sharedObj); err != nil {
 		t.Fatal("unexpected error", err)
 	} else if !bytes.Equal(buf.Bytes(), data) {
 		t.Fatal("data mismatch")

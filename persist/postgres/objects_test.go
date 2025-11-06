@@ -391,13 +391,11 @@ func TestSharedObjects(t *testing.T) {
 
 	// add an object with multiple slabs
 	expectedSharedObj := slabs.SharedObject{
-		Slabs:             []slabs.SharedSlab{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
-		EncryptedMetadata: []byte("hello world"),
+		Slabs: []slabs.SharedSlab{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
 	}
 	obj := slabs.SealedObject{
 		EncryptedMasterKey: frand.Bytes(72),
 		Slabs:              make([]slabs.SlabSlice, len(expectedSharedObj.Slabs)),
-		EncryptedMetadata:  expectedSharedObj.EncryptedMetadata,
 	}
 	for i, slab := range expectedSharedObj.Slabs {
 		obj.Slabs[i] = slabs.SlabSlice{

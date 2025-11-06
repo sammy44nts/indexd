@@ -79,6 +79,16 @@ func (so *SealedObject) DecodeFrom(d *types.Decoder) {
 	so.UpdatedAt = d.ReadTime()
 }
 
+// EncodeTo implements types.EncoderTo.
+func (so SharedObject) EncodeTo(e *types.Encoder) {
+	types.EncodeSlice(e, so.Slabs)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (so *SharedObject) DecodeFrom(d *types.Decoder) {
+	types.DecodeSlice(d, &so.Slabs)
+}
+
 // MarshalSia is a convenience method to encode the object metadata into bytes
 // using the Sia encoding. This is equivalent to:
 // var buf bytes.Buffer

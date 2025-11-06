@@ -33,8 +33,8 @@ type (
 	appClient interface {
 		Hosts(context.Context, ...api.URLQueryParameterOption) ([]hosts.HostInfo, error)
 
-		CreateSharedObjectURL(ctx context.Context, objectID types.Hash256, encryptionKey []byte, validUntil time.Time) (string, error)
-		SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, []byte, error)
+		CreateSharedObjectURL(ctx context.Context, objectID types.Hash256, name string, encryptionKey []byte, validUntil time.Time) (string, error)
+		SharedObject(ctx context.Context, sharedURL string) (slabs.SharedObject, string, []byte, error)
 
 		ListObjects(ctx context.Context, cursor slabs.Cursor, limit int) ([]slabs.ObjectEvent, error)
 		Object(ctx context.Context, key types.Hash256) (slabs.SealedObject, error)
@@ -262,15 +262,13 @@ func (s *SDK) Download(ctx context.Context, w io.Writer, obj Object, opts ...Dow
 }
 
 // DownloadSharedObject downloads a shared object from a shared URL
-func (s *SDK) DownloadSharedObject(ctx context.Context, w io.Writer, sharedURL string, opts ...DownloadOption) error {
-	obj, encryptionKey, err := s.client.SharedObject(ctx, sharedURL)
-	if err != nil {
-		return err
-	} else if len(obj.Slabs) == 0 {
+func (s *SDK) DownloadSharedObject(ctx context.Context, w io.Writer, obj SharedObject, opts ...DownloadOption) error {
+	if len(obj.slabs) == 0 {
 		return errors.New("no slabs to download")
-	} else {
-		w = decrypt((*[32]byte)(encryptionKey), w, 0)
+	} else if len(obj.encryptionKey) != 32 {
+		return fmt.Errorf("invalid encryption key length: %d", len(obj.encryptionKey))
 	}
+	w = decrypt((*[32]byte)(obj.encryptionKey), w, 0)
 
 	do := downloadOption{
 		hostTimeout: 4 * time.Second, // ~10 Mbps
@@ -282,10 +280,10 @@ func (s *SDK) DownloadSharedObject(ctx context.Context, w io.Writer, sharedURL s
 
 	var curr int
 	return s.downloadSlabs(ctx, w, do.maxInflight, do.hostTimeout, func() (slabs.SharedSlab, error) {
-		if curr >= len(obj.Slabs) {
+		if curr >= len(obj.slabs) {
 			return slabs.SharedSlab{}, nil
 		}
-		slab := obj.Slabs[curr]
+		slab := obj.slabs[curr]
 		curr++
 		return slab, nil
 	})
