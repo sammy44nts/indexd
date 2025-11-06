@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	errNotEnoughHosts = errors.New("not enough hosts")
-	errRootMismatch   = errors.New("sector root of shard doesn't match expected root")
+	errNotEnoughHosts   = errors.New("not enough hosts")
+	errRootMismatch     = errors.New("sector root of shard doesn't match expected root")
+	errNotEnoughStorage = errors.New("host doesn't have enough storage remaining for a sector")
 )
 
 type (
