@@ -416,7 +416,7 @@ func (c *HostClient) withRevision(ctx context.Context, contractID types.FileCont
 	// update revision in the database
 	if revised.Revision.RevisionNumber > contract.Revision.RevisionNumber {
 		if err := c.store.UpdateContractRevision(ctx, revised, usage); err != nil {
-			c.log.Error("failed to update contract revision", zap.Error(err))
+			return fmt.Errorf("failed to update contract revision: %w", err)
 		}
 	}
 

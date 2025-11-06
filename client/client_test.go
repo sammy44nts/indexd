@@ -128,13 +128,13 @@ func TestWithRevision(t *testing.T) {
 		t.Fatalf("expected no error and revision to be updated, got: %v, revision: %v", err, db.revisions[types.FileContractID{4}])
 	}
 
-	// assert withRevision does not return an error if the update fails to persist
+	// assert withRevision returns an error if the update fails to persist
 	err = c.withRevision(context.Background(), types.FileContractID{5, 0, 0}, func(contract rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
 		contract.Revision.RevisionNumber = update
 		return contract, proto.Usage{}, nil
 	})
-	if err != nil || db.revisions[types.FileContractID{5, 0, 0}].RevisionNumber != 0 {
-		t.Fatalf("expected no error and revision to not be persisted, got: %v, revision: %v", err, db.revisions[types.FileContractID{5, 0, 0}])
+	if err == nil || !strings.Contains(err.Error(), "persist error") {
+		t.Fatalf("expected persist error, instead error was %v", err)
 	}
 
 	// assert withRevision returns an error if the latest revision cannot be

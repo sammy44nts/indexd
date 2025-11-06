@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1497,6 +1498,13 @@ func TestUpdateContractRevision(t *testing.T) {
 		t.Fatalf("expected revision to be %v, got %v", update, revision)
 	}
 
+	// assert we can't update with an older revision number
+	if revision, _, err := store.ContractRevision(context.Background(), contractID); err != nil {
+		t.Fatal(err)
+	} else if err := store.UpdateContractRevision(context.Background(), revision, proto.Usage{}); err == nil || !strings.Contains(err.Error(), "is not strictly higher than the existing revision number") {
+		t.Fatalf("expected ErrHostNotFound, got %v", err)
+	}
+
 	// assert [contracts.ErrNotFound] is returned for non-existing contract
 	if _, _, err := store.ContractRevision(context.Background(), types.FileContractID{}); !errors.Is(err, contracts.ErrNotFound) {
 		t.Fatalf("expected ErrContractNotFound, got %v", err)
@@ -1509,6 +1517,7 @@ func TestUpdateContractRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	revision.Revision.RevisionNumber++
 	revision.Revision.HostPublicKey = types.PublicKey{} // non-existing host
 	if err := store.UpdateContractRevision(context.Background(), revision, proto.Usage{}); !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatalf("expected ErrHostNotFound, got %v", err)
