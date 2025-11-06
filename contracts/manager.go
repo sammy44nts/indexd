@@ -437,7 +437,7 @@ func newContractManager(renterKey types.PublicKey, accounts AccountManager, chai
 		expiredContractBroadcastBuffer:    144,           // 144 block after expiration
 		expiredContractPruneBuffer:        144,           // 144 blocks after broadcast
 		expiredContractSectorsPruneBuffer: 36,            // 36 blocks (~6 hours) after expiration
-		maintenanceFrequency:              5 * time.Minute,
+		maintenanceFrequency:              2 * time.Minute,
 		minHostDistanceKm:                 10,                 // 10km
 		pruneIntervalSuccess:              24 * time.Hour,     // 1 day
 		pruneIntervalFailure:              3 * time.Hour,      // 3 hours

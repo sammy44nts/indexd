@@ -30,8 +30,9 @@ const (
 	// fundTargetBytes is the number of bytes used to calculate the fund target
 	// per host. We fund accounts to cover this amount of read and write usage.
 	// It roughly comes down to uploading and downloading to and from a host at
-	// ~3gbps for a period of 5 minutes.
-	fundTargetBytes = uint64(128 << 30) // 128 GiB
+	// ~1Gbps for a period of 2 minutes. With 30 good hosts, this results in about
+	// 30Gbps of maximum theoretical throughput.
+	fundTargetBytes = uint64(16 << 30) // 16 GiB
 )
 
 var (
