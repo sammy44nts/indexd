@@ -176,9 +176,9 @@ func (c *connPool) retry(ctx context.Context, hostKey types.PublicKey, addrs []c
 		// is similar, indicating that the stream hit a timeout which was set
 		// using SetDeadline. In both cases, the mux is still healthy.
 		return err
-	} else if errors.Is(err, errNotEnoughStorage) {
+	} else if errors.Is(err, proto.ErrNotEnoughStorage) {
 		// No sense in retrying if the host does not have enough storage left
-		return err
+		return fmt.Errorf("%w: remaining storage less than sector size", proto.ErrNotEnoughStorage)
 	}
 
 	// clear connection if we got transport error
@@ -224,7 +224,7 @@ func (c *connPool) uploadShard(ctx context.Context, h hosts.Host, migrationToken
 			return fmt.Errorf("failed to fetch host settings: %w", err)
 		}
 		if settings.RemainingStorage < proto.SectorSize {
-			return errNotEnoughStorage
+			return proto.ErrNotEnoughStorage
 		}
 
 		result, err = client.WriteSector(ctx, settings.Prices, migrationToken, shard, proto.SectorSize)
