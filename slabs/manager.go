@@ -224,8 +224,8 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 	m := &SlabManager{
 		healthCheckInterval: 10 * time.Minute,
 
-		integrityCheckInterval:       7 * 24 * time.Hour,
-		failedIntegrityCheckInterval: 6 * time.Hour,
+		integrityCheckInterval:       14 * 24 * time.Hour,
+		failedIntegrityCheckInterval: 12 * time.Hour,
 		maxFailedIntegrityChecks:     5,
 		minHostDistanceKm:            10,
 

@@ -242,5 +242,6 @@ func TestRenewalAllowance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRenewal(allowance, dialer.HostClient(good.PublicKey).renewCalls[0])
+	// allowance is doubled to allow for two account funding cycles before next refresh
+	assertRenewal(allowance.Mul64(2), dialer.HostClient(good.PublicKey).renewCalls[0])
 }

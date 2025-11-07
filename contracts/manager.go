@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	oneTB               = 1 << 40                                   // 1TB
 	minRemainingStorage = (10 * 1 << 30) / uint64(proto.SectorSize) // 10GB
 	maxContractSize     = 10 * 1 << 40                              // 10TB
 
@@ -150,6 +151,14 @@ type (
 		SignV2Inputs(txn *types.V2Transaction, toSign []int)
 
 		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
+		// SplitUTXO splits the largest unspent UTXO into `n` smaller UTXOs with at
+		// least `minAmount` value each. It returns the transaction that performs the
+		// split. Unconfirmed UTXOs will also be considered when counting existing
+		// UTXOs.
+		//
+		// If there are at least `n` UTXOs with at least `minAmount` already, no
+		// transaction is created and an (types.V2Transaction{}, nil) is returned.
+		SplitUTXO(n int, minValue types.Currency) (types.V2Transaction, error)
 	}
 )
 
@@ -208,6 +217,7 @@ type (
 		pruneIntervalFailure              time.Duration
 		syncPollInterval                  time.Duration
 		revisionBroadcastInterval         time.Duration
+		sectorRootsBatchSize              uint64
 	}
 )
 
@@ -232,6 +242,17 @@ func WithMaintenanceFrequency(frequency time.Duration) ContractManagerOpt {
 func WithMinHostDistance(km float64) ContractManagerOpt {
 	return func(cm *ContractManager) {
 		cm.minHostDistanceKm = km
+	}
+}
+
+// WithSectorRootsBatchSize sets the batch size for fetching sector roots.
+// The default is 1TB worth of sectors.
+func WithSectorRootsBatchSize(batchSize uint64) ContractManagerOpt {
+	if batchSize < 1 {
+		panic("sector roots batch size must be at least 1") // developer error
+	}
+	return func(cm *ContractManager) {
+		cm.sectorRootsBatchSize = batchSize
 	}
 }
 
@@ -260,14 +281,16 @@ func (cm *ContractManager) waitUntilSynced(ctx context.Context, log *zap.Logger)
 	isSynced := func() (bool, error) {
 		ci, err := cm.store.LastScannedIndex(ctx)
 		if err != nil {
+			log.Debug("failed to get last scanned index", zap.Error(err))
 			return false, fmt.Errorf("failed to get last scanned index: %w", err)
 		}
 
 		block, ok := cm.chain.Block(ci.ID)
 		if !ok {
+			log.Debug("failed to get block for last scanned index", zap.Stringer("indexID", ci.ID))
 			return false, fmt.Errorf("failed to get block for last scanned index %v", ci.ID)
 		}
-
+		log.Debug("checking if wallet is synced", zap.Uint64("scannedHeight", ci.Height), zap.Uint64("blockHeight", block.V2.Height), zap.Time("blockTime", block.Timestamp))
 		return time.Since(block.Timestamp) < 3*time.Hour, nil
 	}
 
@@ -443,6 +466,7 @@ func newContractManager(renterKey types.PublicKey, accounts AccountManager, chai
 		pruneIntervalFailure:              3 * time.Hour,      // 3 hours
 		revisionBroadcastInterval:         7 * 24 * time.Hour, // 1 week,
 		syncPollInterval:                  time.Minute,
+		sectorRootsBatchSize:              oneTB / proto.SectorSize, // 1TB worth of sectors
 	}
 	for _, opt := range opts {
 		opt(cm)

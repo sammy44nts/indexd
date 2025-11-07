@@ -52,7 +52,8 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 			return fmt.Errorf("failed to get fund target: %w", err)
 		}
 
-		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance, period)
+		// allowance is doubled to allow for two account funding cycles before next refresh
+		allowance, collateral := contractFunding(host.Settings, contract.Size, minAllowance.Mul64(2), period)
 		renewCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
