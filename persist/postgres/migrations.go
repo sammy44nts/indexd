@@ -488,4 +488,12 @@ CREATE INDEX accounts_connect_key_id_idx ON accounts(connect_key_id);
 `)
 		return err
 	},
+	// add pinned_data to app_connect_keys
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		_, err := tx.Exec(ctx, `
+ALTER TABLE app_connect_keys ADD COLUMN pinned_data BIGINT NOT NULL DEFAULT 0 CHECK (pinned_data >= 0);
+UPDATE app_connect_keys SET pinned_data = (SELECT SUM(accounts.pinned_data) FROM accounts WHERE accounts.connect_key = app_connect_keys.app_key);
+`)
+		return err
+	},
 }

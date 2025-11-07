@@ -18,6 +18,9 @@ var (
 	// ErrKeyInUse is returned when deleting an app connect key with accounts
 	// associated to it.
 	ErrKeyInUse = errors.New("key in use")
+	// ErrKeyStorageLimitExceeded is returned when an operation fails due to
+	// the connect key exceeding its storage limit.
+	ErrKeyStorageLimitExceeded = errors.New("connect key storage limit exceeded")
 )
 
 type (

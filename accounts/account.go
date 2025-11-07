@@ -23,7 +23,7 @@ var (
 
 	// ErrStorageLimitExceeded is returned when an operation fails due to the
 	// account exceeding its storage limit.
-	ErrStorageLimitExceeded = errors.New("storage limit exceeded")
+	ErrStorageLimitExceeded = errors.New("account storage limit exceeded")
 )
 
 type (
