@@ -419,17 +419,25 @@ RETURNING a.slab_id;`, accountID, args)
 	}
 
 	// update the account's pinned data
-	_, err = tx.Exec(ctx, `
-			UPDATE accounts
-			SET pinned_data = pinned_data - (
-				SELECT COUNT(*) * $1
-				FROM slab_sectors
-				WHERE slab_id = ANY($2)
-			)
-			WHERE id = $3
-		`, proto.SectorSize, sIDs, accountID)
+	var delta uint64
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) * $1
+	FROM slab_sectors
+	WHERE slab_id = ANY($2)`, proto.SectorSize, sIDs).Scan(&delta); err != nil {
+		return fmt.Errorf("failed to get storage delta: %w", err)
+	}
+
+	var connectKeyID sql.NullInt64
+	err = tx.QueryRow(ctx, `UPDATE accounts
+SET pinned_data = pinned_data - $1
+WHERE id = $2
+RETURNING connect_key_id`, delta, accountID).Scan(&connectKeyID)
 	if err != nil {
 		return fmt.Errorf("failed to update account's pinned data: %w", err)
+	}
+	if connectKeyID.Valid {
+		if _, err := tx.Exec(ctx, `UPDATE app_connect_keys SET pinned_data = pinned_data - $1 WHERE id = $2`, delta, connectKeyID); err != nil {
+			return fmt.Errorf("failed to update connect key pinned data: %w", err)
+		}
 	}
 
 	// ignore the slabs that are pinned by another account
