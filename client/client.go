@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -319,7 +320,12 @@ func (c *HostClient) Settings(ctx context.Context) (proto.HostSettings, error) {
 
 // VerifySector verifies the integrity of a sector on the host.
 func (c *HostClient) VerifySector(ctx context.Context, hostPrices proto.HostPrices, token proto.AccountToken, root types.Hash256) (rhp.RPCVerifySectorResult, error) {
-	return rhp.RPCVerifySector(ctx, c.client, hostPrices, token, root)
+	segment := frand.Uint64n(proto.LeavesPerSector)
+	res, err := rhp.RPCReadSector(ctx, c.client, hostPrices, token, io.Discard, root, segment*proto.LeafSize, proto.LeafSize)
+	if err != nil {
+		return rhp.RPCVerifySectorResult{}, fmt.Errorf("failed to read sector for verification: %w", err)
+	}
+	return rhp.RPCVerifySectorResult(res), nil
 }
 
 // WriteSector writes a sector to the host.
