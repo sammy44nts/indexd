@@ -12,11 +12,12 @@ import (
 	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestMigrations(t *testing.T) {
 	// create cluster
-	logger := zap.NewNop()
+	logger := zaptest.NewLogger(t)
 	cluster := testutils.NewCluster(t, testutils.WithLogger(logger), testutils.WithHosts(11), testutils.WithIndexer(testutils.WithSlabOptions(slabs.WithHealthCheckInterval(500*time.Millisecond))))
 	indexer := cluster.Indexer
 
