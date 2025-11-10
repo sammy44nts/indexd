@@ -39,6 +39,7 @@ type (
 		DateCreated   time.Time `json:"dateCreated"`
 		LastUpdated   time.Time `json:"lastUpdated"`
 		LastUsed      time.Time `json:"lastUsed"`
+		PinnedData    int64     `json:"pinnedData"`
 		MaxPinnedData int64     `json:"maxPinnedData"`
 	}
 
