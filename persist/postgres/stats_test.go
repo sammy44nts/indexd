@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -45,7 +44,7 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 
 	assertStats := func(numSlabs int64) {
 		t.Helper()
-		stats, err := store.SectorStats(context.Background())
+		stats, err := store.SectorStats()
 		if err != nil {
 			t.Fatal(err)
 		} else if stats.Slabs != numSlabs {
@@ -59,7 +58,7 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 	// pin some slabs
 	var pinned []slabs.SlabID
 	for i := range byte(10) {
-		slabIDs, err := store.PinSlabs(context.Background(), account, time.Now(), newSlab(i))
+		slabIDs, err := store.PinSlabs(account, time.Now(), newSlab(i))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +69,7 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 	// unpin them again
 	for len(pinned) > 0 {
 		slabID := pinned[0]
-		if err := store.UnpinSlab(context.Background(), account, slabID); err != nil {
+		if err := store.UnpinSlab(account, slabID); err != nil {
 			t.Fatal(err)
 		}
 		pinned = pinned[1:]
@@ -86,7 +85,7 @@ func TestSectorStats(t *testing.T) {
 
 	assertStats := func(pinned, unpinned, unpinnable, migrated int64) {
 		t.Helper()
-		stats, err := store.SectorStats(t.Context())
+		stats, err := store.SectorStats()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,12 +118,12 @@ func TestSectorStats(t *testing.T) {
 			{HostKey: hk3, Root: roots[2]},
 		},
 	}
-	if _, err := store.PinSlabs(t.Context(), account, time.Time{}, params); err != nil {
+	if _, err := store.PinSlabs(account, time.Time{}, params); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(0, 3, 0, 0)
 
-	if err := store.PinSectors(t.Context(), fcidHK1, []types.Hash256{roots[0]}); err != nil {
+	if err := store.PinSectors(fcidHK1, []types.Hash256{roots[0]}); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(1, 2, 0, 0) // r0 is pinned
@@ -137,26 +136,26 @@ func TestSectorStats(t *testing.T) {
 	`, sqlHash256(roots[0])).Scan(&uploadedAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MarkSectorsUnpinnable(t.Context(), uploadedAt.Add(time.Second)); err != nil {
+	if err := store.MarkSectorsUnpinnable(uploadedAt.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(1, 0, 2, 0) // r0 still pinned, others unpinnable
 
 	// migrate sectors to h2
-	_, err1 := store.MigrateSector(t.Context(), roots[1], hk4)
-	_, err2 := store.MigrateSector(t.Context(), roots[2], hk4)
+	_, err1 := store.MigrateSector(roots[1], hk4)
+	_, err2 := store.MigrateSector(roots[2], hk4)
 	if err := errors.Join(err1, err2); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(1, 2, 0, 2) // r0 still pinned, others unpinned and 2 migrated
 
-	if err := store.PinSectors(t.Context(), fcidHK4, []types.Hash256{roots[1], roots[2]}); err != nil {
+	if err := store.PinSectors(fcidHK4, []types.Hash256{roots[1], roots[2]}); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(3, 0, 0, 2) // all roots pinned
 
 	// h1 lost the sector
-	if err := store.MarkSectorsLost(t.Context(), hk1, []types.Hash256{roots[0]}); err != nil {
+	if err := store.MarkSectorsLost(hk1, []types.Hash256{roots[0]}); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(2, 0, 1, 2) // r0 is unpinnable
@@ -169,19 +168,19 @@ func TestSectorStats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.MarkFailingSectorsLost(t.Context(), hk4, 10); err != nil {
+	if err := store.MarkFailingSectorsLost(hk4, 10); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(1, 0, 2, 2) // r0 and r1 are unpinnable
 
-	_, err1 = store.MigrateSector(t.Context(), roots[0], hk4)
-	_, err2 = store.MigrateSector(t.Context(), roots[1], hk4)
+	_, err1 = store.MigrateSector(roots[0], hk4)
+	_, err2 = store.MigrateSector(roots[1], hk4)
 	if err := errors.Join(err1, err2); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(1, 2, 0, 4) // r2 is still pinned, r0 and r1 migrated and unpinned
 
-	if err := store.PinSectors(t.Context(), fcidHK4, []types.Hash256{roots[0], roots[1]}); err != nil {
+	if err := store.PinSectors(fcidHK4, []types.Hash256{roots[0], roots[1]}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,35 +189,35 @@ func TestSectorStats(t *testing.T) {
 	// the following section verifies MarkSectorsLost properly tracks both
 	// pinned and unpinned sectors, moving them to unpinnable but more
 	// importantly correctly decrementing from pinned/unpinned stats
-	if err := store.MarkSectorsLost(t.Context(), hk4, []types.Hash256{roots[0]}); err != nil {
+	if err := store.MarkSectorsLost(hk4, []types.Hash256{roots[0]}); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(2, 0, 1, 4)
 
-	if _, err := store.MigrateSector(t.Context(), roots[0], hk4); err != nil {
+	if _, err := store.MigrateSector(roots[0], hk4); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(2, 1, 0, 5)
 
-	if err := store.MarkSectorsLost(t.Context(), hk4, roots); err != nil {
+	if err := store.MarkSectorsLost(hk4, roots); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(0, 0, 3, 5)
 
 	// the following section verifies BlockHosts properly unpins the sectors and
 	// updates the stats accordingly
-	if _, err := store.MigrateSector(t.Context(), roots[0], hk1); err != nil {
+	if _, err := store.MigrateSector(roots[0], hk1); err != nil {
 		t.Fatal(err)
 	}
 	assertStats(0, 1, 2, 6)
 
-	err := store.BlockHosts(t.Context(), []types.PublicKey{hk1}, []string{t.Name()})
+	err := store.BlockHosts([]types.PublicKey{hk1}, []string{t.Name()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertStats(0, 0, 3, 6)
 
-	if unpinned, err := store.UnpinnedSectors(t.Context(), hk1, 1); err != nil {
+	if unpinned, err := store.UnpinnedSectors(hk1, 1); err != nil {
 		t.Fatal(err)
 	} else if len(unpinned) != 0 {
 		t.Fatalf("expected 0 unpinned sectors, got %d", len(unpinned))
@@ -230,7 +229,7 @@ func TestAccountStatsRegistered(t *testing.T) {
 
 	var accs []types.PublicKey
 	for i := range 5 {
-		if stats, err := store.AccountStats(t.Context()); err != nil {
+		if stats, err := store.AccountStats(); err != nil {
 			t.Fatal(err)
 		} else if stats.Registered != uint64(i) {
 			t.Fatalf("expected %d accounts, got %d", i, stats.Registered)
@@ -242,11 +241,11 @@ func TestAccountStatsRegistered(t *testing.T) {
 	}
 
 	for i := range accs {
-		if err := store.DeleteAccount(t.Context(), accs[i]); err != nil {
+		if err := store.DeleteAccount(accs[i]); err != nil {
 			t.Fatal(err)
 		}
 
-		if stats, err := store.AccountStats(t.Context()); err != nil {
+		if stats, err := store.AccountStats(); err != nil {
 			t.Fatal(err)
 		} else if expected := uint64(len(accs)) - uint64(i) - 1; stats.Registered != expected {
 			t.Fatalf("expected %d accounts, got %d", expected, stats.Registered)
@@ -259,9 +258,7 @@ func TestHostStats(t *testing.T) {
 
 	updateUsageTotalSpent := func(hk types.PublicKey, spent types.Currency) {
 		t.Helper()
-		if _, err := store.pool.Exec(
-			t.Context(),
-			"UPDATE hosts SET usage_total_spent = $1 WHERE public_key = $2", sqlCurrency(spent), sqlPublicKey(hk)); err != nil {
+		if _, err := store.pool.Exec(t.Context(), "UPDATE hosts SET usage_total_spent = $1 WHERE public_key = $2", sqlCurrency(spent), sqlPublicKey(hk)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -272,7 +269,7 @@ func TestHostStats(t *testing.T) {
 	hk3 := store.addTestHost(t)
 
 	// assert empty stats
-	stats, err := store.HostStats(t.Context(), 0, 10)
+	stats, err := store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 0 {
@@ -285,7 +282,7 @@ func TestHostStats(t *testing.T) {
 	store.addTestContract(t, hk3)
 
 	// assert empty stats - no usage
-	stats, err = store.HostStats(t.Context(), 0, 10)
+	stats, err = store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 0 {
@@ -301,7 +298,7 @@ func TestHostStats(t *testing.T) {
 
 	// assert updated stats
 
-	stats, err = store.HostStats(t.Context(), 0, 10)
+	stats, err = store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 2 {
@@ -320,11 +317,11 @@ func TestHostStats(t *testing.T) {
 	}
 
 	reason := t.Name()
-	if err := store.BlockHosts(t.Context(), []types.PublicKey{hk1}, []string{reason}); err != nil {
+	if err := store.BlockHosts([]types.PublicKey{hk1}, []string{reason}); err != nil {
 		t.Fatal(err)
 	}
 
-	stats, err = store.HostStats(t.Context(), 0, 10)
+	stats, err = store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 2 {
@@ -344,7 +341,7 @@ func TestHostStats(t *testing.T) {
 	}
 
 	// assert updated stats
-	stats, err = store.HostStats(t.Context(), 0, 10)
+	stats, err = store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 2 {
@@ -361,14 +358,14 @@ func TestHostStats(t *testing.T) {
 
 	// set scanned height to the proof height - should exclude it
 	proofHeight := testRevision.ProofHeight
-	if err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error {
-		return tx.UpdateLastScannedIndex(context.Background(), types.ChainIndex{Height: proofHeight})
+	if err := store.UpdateChainState(func(tx subscriber.UpdateTx) error {
+		return tx.UpdateLastScannedIndex(types.ChainIndex{Height: proofHeight})
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// assert updated stats
-	stats, err = store.HostStats(t.Context(), 0, 10)
+	stats, err = store.HostStats(0, 10)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 2 {
@@ -380,13 +377,13 @@ func TestHostStats(t *testing.T) {
 	}
 
 	// assert limit and offset are applied
-	if stats, err := store.HostStats(t.Context(), 1, 1); err != nil {
+	if stats, err := store.HostStats(1, 1); err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 1 {
 		t.Fatalf("expected 1 host, got %d", len(stats))
 	} else if stats[0].PublicKey != hk1 {
 		t.Fatalf("expected host to be hk1, got %s", stats[0].PublicKey.String())
-	} else if stats, err := store.HostStats(t.Context(), 2, 1); err != nil {
+	} else if stats, err := store.HostStats(2, 1); err != nil {
 		t.Fatal(err)
 	} else if len(stats) != 0 {
 		t.Fatalf("expected 0 hosts, got %d", len(stats))

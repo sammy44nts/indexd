@@ -67,8 +67,8 @@ func (s *Store) LastScannedIndex() (ci types.ChainIndex, err error) {
 }
 
 // UpdateLastScannedIndex updates the last scanned index.
-func (u *updateTx) UpdateLastScannedIndex(ctx context.Context, ci types.ChainIndex) error {
-	_, err := u.tx.Exec(ctx, `UPDATE global_settings SET scanned_height = $1, scanned_block_id = $2`, ci.Height, sqlHash256(ci.ID))
+func (u *updateTx) UpdateLastScannedIndex(ci types.ChainIndex) error {
+	_, err := u.tx.Exec(u.ctx, `UPDATE global_settings SET scanned_height = $1, scanned_block_id = $2`, ci.Height, sqlHash256(ci.ID))
 	return err
 }
 

@@ -49,7 +49,7 @@ type (
 		wallet.UpdateTx
 		hosts.UpdateTx
 
-		UpdateLastScannedIndex(context.Context, types.ChainIndex) error
+		UpdateLastScannedIndex(ci types.ChainIndex) error
 	}
 
 	// WalletManager manages the wallet outputs and events as chain updates get
@@ -197,7 +197,7 @@ func (s *Subscriber) Sync(ctx context.Context) error {
 				index = rus[len(rus)-1].State.Index
 			}
 
-			if err := tx.UpdateLastScannedIndex(updateCtx, index); err != nil {
+			if err := tx.UpdateLastScannedIndex(index); err != nil {
 				return fmt.Errorf("failed to update last scanned index: %w", err)
 			}
 			return nil

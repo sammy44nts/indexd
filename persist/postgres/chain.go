@@ -15,7 +15,7 @@ type updateTx struct {
 // ResetChainState resets the chain state in the store, clearing all
 // wallet-related data and resetting the scanned height and block ID in the
 // global settings. This is typically used to force a resync of consensus.
-func (s *Store) ResetChainState(ctx context.Context) error {
+func (s *Store) ResetChainState() error {
 	return s.transaction(s.ctx(), func(ctx context.Context, tx *txn) error {
 		if _, err := tx.Exec(ctx, `TRUNCATE wallet_siacoin_elements`); err != nil {
 			return fmt.Errorf("failed to clear wallet_siacoin_elements: %w", err)

@@ -75,7 +75,7 @@ func TestSingleAddressWalletStoreUnspentSiacoinElements(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	ci := newTestChainIndex()
-	err := store.UpdateChainState(context.Background(), func(tx subscriber.UpdateTx) error { return tx.UpdateLastScannedIndex(context.Background(), ci) })
+	err := store.UpdateChainState(func(tx subscriber.UpdateTx) error { return tx.UpdateLastScannedIndex(ci) })
 	if err != nil {
 		t.Fatal(err)
 	}
