@@ -230,7 +230,7 @@ func NewManager(syncer Syncer, locator Locator, store Store, opts ...Option) (*H
 		for {
 			select {
 			case <-pruneTicker.C:
-				m.pruneHosts(ctx)
+				m.pruneHosts()
 			case <-m.triggerHostScanningChan:
 				// reset ticker
 				scanTicker.Stop()
@@ -425,7 +425,7 @@ func (m *HostManager) hostsForScanning(force bool) []types.PublicKey {
 	return hks
 }
 
-func (m *HostManager) pruneHosts(ctx context.Context) {
+func (m *HostManager) pruneHosts() {
 	cutoff := time.Now().Add(-pruneMinDowntime)
 	n, err := m.store.PruneHosts(time.Now().Add(-pruneMinDowntime), pruneMinConsecutiveScanFailures)
 	if err != nil {
