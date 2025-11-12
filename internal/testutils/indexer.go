@@ -88,7 +88,7 @@ func defaultIndexerCfg(log *zap.Logger) *indexerCfg {
 		slabOpts: []slabs.Option{
 			slabs.WithLogger(log.Named("slabs")),
 			slabs.WithHealthCheckInterval(500 * time.Millisecond),
-			slabs.WithMinHostDistance(0), // disable distance checks in tests
+			slabs.WithMinHostDistance(0), // disable location checks in tests
 		},
 	}
 }
