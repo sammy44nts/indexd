@@ -507,7 +507,7 @@ func fetchSettings(ctx context.Context, scanner Scanner, hk types.PublicKey, add
 		default:
 			continue // ignore
 		}
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return proto4.HostSettings{}, err
 		} else if err != nil {
 			log.Debug("failed to get host settings",
