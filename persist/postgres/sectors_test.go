@@ -1582,7 +1582,9 @@ func BenchmarkSlabs(b *testing.B) {
 	// 30 hosts to simulate default redundancy
 	var hks []types.PublicKey
 	for i := byte(0); i < 30; i++ {
-		hks = append(hks, store.addTestHost(b, types.PublicKey{i}))
+		hk := store.addTestHost(b, types.PublicKey{i})
+		hks = append(hks, hk)
+		store.addTestContract(b, hk)
 	}
 	// add 500 other hosts to reflect mainnet
 	for range 500 {
@@ -1647,6 +1649,20 @@ func BenchmarkSlabs(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
+	})
+
+	// insert in parallel
+	b.Run("PinSlab_parallel", func(b *testing.B) {
+		b.SetBytes(slabSize)
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				_, err := store.PinSlabs(context.Background(), proto.Account{1}, time.Time{}, newSlab())
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	})
 
 	b.Run("Slab", func(b *testing.B) {
