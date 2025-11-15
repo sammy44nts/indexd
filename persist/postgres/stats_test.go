@@ -9,6 +9,8 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/geoip"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap/zaptest"
@@ -487,4 +489,55 @@ func TestHostStats(t *testing.T) {
 	} else if len(stats) != 0 {
 		t.Fatalf("expected 0 hosts, got %d", len(stats))
 	}
+}
+
+func TestHostScanStats(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add three hosts
+	hk1 := store.addTestHost(t)
+	hk2 := store.addTestHost(t)
+	hs := newTestHostSettings(hk1)
+
+	assertStats := func(expectedScans, expectedFailed int64) {
+		t.Helper()
+
+		stats, err := store.HostScanStats()
+		if err != nil {
+			t.Fatal(err)
+		} else if expectedScans != stats.Scans {
+			t.Fatalf("expected %d scans, got %d", expectedScans, stats.Scans)
+		} else if expectedFailed != stats.ScansFailed {
+			t.Fatalf("expected %d scans, got %d", expectedFailed, stats.ScansFailed)
+		}
+	}
+	assertStats(0, 0)
+
+	// add successful scan
+	if err := store.UpdateHost(hk1, hs, geoip.Location{}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(1, 0)
+
+	// add failed scan
+	if err := store.UpdateHost(hk1, hs, geoip.Location{}, false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(2, 1)
+
+	// add another successful scan
+	if err := store.UpdateHost(hk2, hs, geoip.Location{}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(3, 1)
+
+	// scans where host don't exist shouldn't affect stats
+	if err := store.UpdateHost(types.GeneratePrivateKey().PublicKey(), hs, geoip.Location{}, true, time.Now()); !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatalf("expected error %v, got %v", hosts.ErrNotFound, err)
+	}
+	assertStats(3, 1)
+	if err := store.UpdateHost(types.GeneratePrivateKey().PublicKey(), hs, geoip.Location{}, false, time.Now()); !errors.Is(err, hosts.ErrNotFound) {
+		t.Fatalf("expected error %v, got %v", hosts.ErrNotFound, err)
+	}
+	assertStats(3, 1)
 }

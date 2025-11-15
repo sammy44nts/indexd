@@ -60,7 +60,7 @@ func incrementNumScans(ctx context.Context, tx *txn, delta uint64) error {
 }
 
 func incrementNumFailedScans(ctx context.Context, tx *txn, delta uint64) error {
-	_, err := tx.Exec(ctx, "UPDATE stats SET num_scans = num_scans + $1", delta)
+	_, err := tx.Exec(ctx, "UPDATE stats SET num_scans_failed = num_scans_failed + $1", delta)
 	return err
 }
 

@@ -428,10 +428,6 @@ func (s *Store) PruneHosts(minLastSuccessfulScan time.Time, minConsecutiveFailed
 // UpdateHost updates a host in the database, the given parameters are the result of scanning the host.
 func (s *Store) UpdateHost(hk types.PublicKey, hs proto4.HostSettings, loc geoip.Location, scanSucceeded bool, nextScan time.Time) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {
-		if err := incrementNumScans(ctx, tx, 1); err != nil {
-			return fmt.Errorf("failed to update failed scans: %w", err)
-		}
-
 		if !scanSucceeded {
 			if res, err := tx.Exec(ctx, `
 WITH computed AS (
@@ -463,7 +459,9 @@ WHERE hosts.id = computed.id`, sqlPublicKey(hk), uptimeHalfLife, nextScan); err 
 				return fmt.Errorf("host %q: %w", hk, hosts.ErrNotFound)
 			}
 
-			if err := incrementNumFailedScans(ctx, tx, 1); err != nil {
+			if err := incrementNumScans(ctx, tx, 1); err != nil {
+				return fmt.Errorf("failed to update total scans: %w", err)
+			} else if err := incrementNumFailedScans(ctx, tx, 1); err != nil {
 				return fmt.Errorf("failed to update failed scans: %w", err)
 			}
 			return nil
@@ -551,6 +549,8 @@ WHERE hosts.id = computed.id RETURNING hosts.id`,
 			return fmt.Errorf("failed to update host with scan: %w", err)
 		} else if hostID == 0 {
 			return errors.New("failed to return host id after successful update") // sanity check
+		} else if err := incrementNumScans(ctx, tx, 1); err != nil {
+			return fmt.Errorf("failed to update total scans: %w", err)
 		}
 		return nil
 	})
