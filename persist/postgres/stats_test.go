@@ -494,7 +494,7 @@ func TestHostStats(t *testing.T) {
 func TestHostScanStats(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	// add three hosts
+	// add two hosts
 	hk1 := store.addTestHost(t)
 	hk2 := store.addTestHost(t)
 	hs := newTestHostSettings(hk1)
