@@ -531,7 +531,7 @@ func TestHostScanStats(t *testing.T) {
 	}
 	assertStats(3, 1)
 
-	// scans where host don't exist shouldn't affect stats
+	// scans where host doesn't exist shouldn't affect stats
 	if err := store.UpdateHost(types.GeneratePrivateKey().PublicKey(), hs, geoip.Location{}, true, time.Now()); !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatalf("expected error %v, got %v", hosts.ErrNotFound, err)
 	}
