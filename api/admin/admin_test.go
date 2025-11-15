@@ -922,7 +922,7 @@ func TestHostsStatsAPI(t *testing.T) {
 	// create cluster with two hosts
 	cluster := testutils.NewCluster(t, testutils.WithHosts(2))
 	admin := cluster.Indexer.Admin
-	time.Sleep(time.Second)
+	cluster.WaitForContracts(t)
 
 	res, err := admin.StatsHosts(t.Context(), 0, 10)
 	if err != nil {
@@ -938,14 +938,23 @@ func TestHostsStatsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res.Hosts) != 1 {
-		t.Fatal("expected 1 host", len(res.Hosts))
+		t.Fatalf("expected 1 host, got %d", len(res.Hosts))
 	}
 
 	res, err = admin.StatsHosts(t.Context(), 2, 1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(res.Hosts) != 0 {
-		t.Fatal("expected 0 hosts", len(res.Hosts))
+		t.Fatalf("expected 0 hosts, got %d", len(res.Hosts))
+	}
+
+	stats, err := admin.StatsHostsScans(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	} else if stats.Scans != 4 {
+		t.Fatalf("expected 4 scans, got %d", stats.Scans)
+	} else if stats.ScansFailed != 0 {
+		t.Fatalf("expected 0 failed scans, got %d", stats.ScansFailed)
 	}
 }
 
