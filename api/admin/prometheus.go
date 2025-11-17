@@ -60,11 +60,11 @@ func (h HostStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 func (s HostScanStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 	return []prometheus.Metric{
 		{
-			Name:  "indexd_host_scans",
+			Name:  "indexd_total_host_scans",
 			Value: float64(s.Scans),
 		},
 		{
-			Name:  "indexd_host_scans_failed",
+			Name:  "indexd_total_host_scans_failed",
 			Value: float64(s.ScansFailed),
 		},
 	}
