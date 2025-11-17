@@ -176,7 +176,10 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 		return Object{}, err
 	}
 
-	obj := Object{masterKey: frand.Bytes(32)}
+	obj := Object{
+		masterKey: frand.Bytes(32),
+		metadata:  uo.metadata,
+	}
 	r = encrypt((*[32]byte)(obj.masterKey), r, 0)
 
 	// create erasure coder
@@ -248,6 +251,9 @@ top:
 				Length: slab.length,
 			})
 		}
+	}
+	if uo.skipSave {
+		return obj, nil
 	}
 	// pin the object
 	return obj, s.client.SaveObject(ctx, s.appKey, obj.Seal(s.appKey))
@@ -389,6 +395,24 @@ func (s *SDK) Close() error {
 }
 
 type slabIterFn func() (slabs.PinnedSlabSlice, error)
+
+// PinObject pins the given object to the indexer. This usually only needs to be
+// caleld if the upload was done with the WithSkipSave option.
+func (s *SDK) PinObject(ctx context.Context, obj Object) error {
+	return s.client.SaveObject(ctx, obj.Seal(s.appKey))
+}
+
+// SealObject seals the object for storage in the indexer. A sealed object can
+// be safely stored and shared without granting access to the underlying
+// metadata or object data.
+func (s *SDK) SealObject(obj Object) (slabs.SealedObject, error) {
+	return obj.Seal(s.appKey), nil
+}
+
+// OpenSealedObject opens a sealed object from the indexer.
+func (s *SDK) OpenSealedObject(so slabs.SealedObject) (Object, error) {
+	return objectFromSealedObject(so, s.appKey)
+}
 
 func (s *SDK) downloadSlabs(ctx context.Context, w io.Writer, maxInflight int, hostTimeout time.Duration, next slabIterFn) error {
 	type work struct {
@@ -568,6 +592,13 @@ func readAtMost(r io.Reader, buf []byte) (int, error) {
 	return n, nil
 }
 
+// WithMetadata sets custom metadata to be associated with the uploaded object.
+func WithMetadata(metadata []byte) UploadOption {
+	return func(uo *uploadOption) {
+		uo.metadata = metadata
+	}
+}
+
 // WithRedundancy sets the number of data and parity shards for the upload.
 // The number of shards must be at least 2x redundancy:
 // `(dataShards + parityShards) / dataShards >= 2`.
@@ -575,6 +606,16 @@ func WithRedundancy(dataShards, parityShards uint8) UploadOption {
 	return func(uo *uploadOption) {
 		uo.dataShards = dataShards
 		uo.parityShards = parityShards
+	}
+}
+
+// WithSkipPinObject skips saving the object metadata to the indexer. This is
+// useful for when some processing needs to be done before finalizing the
+// upload. The caller must manually call PinObject to save the object if this
+// option is used.
+func WithSkipPinObject() UploadOption {
+	return func(uo *uploadOption) {
+		uo.skipSave = true
 	}
 }
 
