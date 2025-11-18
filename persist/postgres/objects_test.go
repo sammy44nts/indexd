@@ -344,7 +344,7 @@ func TestSharedObjects(t *testing.T) {
 		store.addTestContract(t, hostKeys[i])
 	}
 
-	pinRandomSlab := func(t *testing.T) slabs.SharedSlab {
+	pinRandomSlab := func(t *testing.T) slabs.PinnedSlabSlice {
 		t.Helper()
 
 		s := slabs.SlabPinParams{
@@ -366,7 +366,7 @@ func TestSharedObjects(t *testing.T) {
 			t.Fatalf("expected slab ID %v, got %v", id, slabIDs[0])
 		}
 
-		so := slabs.SharedSlab{
+		so := slabs.PinnedSlabSlice{
 			PinnedSlab: slabs.PinnedSlab{
 				ID:            slabIDs[0],
 				EncryptionKey: s.EncryptionKey,
@@ -387,7 +387,7 @@ func TestSharedObjects(t *testing.T) {
 
 	// add an object with multiple slabs
 	expectedSharedObj := slabs.SharedObject{
-		Slabs:             []slabs.SharedSlab{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
+		Slabs:             []slabs.PinnedSlabSlice{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
 		EncryptedMetadata: []byte("hello world"),
 	}
 	obj := slabs.SealedObject{
