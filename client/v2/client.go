@@ -148,8 +148,17 @@ type Client struct {
 	transports   map[types.PublicKey]*transport
 }
 
+func (c *Client) resetTransport(hostKey types.PublicKey) {
+	c.mu.Lock()
+	t := c.transports[hostKey]
+	if t != nil {
+		t.reset()
+	}
+	c.mu.Unlock()
+}
+
 // hostTransport opens a transport connection to the specified host.
-func (c *Client) hostTransport(ctx context.Context, hostKey types.PublicKey, reset bool) (rhp.TransportClient, error) {
+func (c *Client) hostTransport(ctx context.Context, hostKey types.PublicKey) (rhp.TransportClient, error) {
 	addresses, err := c.hosts.Addresses(hostKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get host addresses: %w", err)
@@ -162,31 +171,23 @@ func (c *Client) hostTransport(ctx context.Context, hostKey types.PublicKey, res
 	if t == nil {
 		t = &transport{}
 		c.transports[hostKey] = t
-	} else if reset {
-		t.reset()
 	}
 	c.mu.Unlock()
 	return t.dial(ctx, hostKey, addresses)
 }
 
 func (c *Client) rpcFn(ctx context.Context, hostKey types.PublicKey, fn func(ctx context.Context, transport rhp.TransportClient) error) error {
-	transport, err := c.hostTransport(ctx, hostKey, false)
+	transport, err := c.hostTransport(ctx, hostKey)
 	if err != nil {
 		return fmt.Errorf("failed to get transport: %w", err)
 	}
 
 	if err := fn(ctx, transport); err == nil {
 		return nil
-	} else if !shouldResetTransport(err) {
-		return err
+	} else if shouldResetTransport(err) {
+		c.resetTransport(hostKey)
 	}
-
-	// reset the transport and try again.
-	transport, err = c.hostTransport(ctx, hostKey, true)
-	if err != nil {
-		return err
-	}
-	return fn(ctx, transport)
+	return err
 }
 
 // Prices fetches the host prices from the specified host.
