@@ -212,6 +212,30 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, setting
 		}
 	}
 
+	// helper to determine if the candidate contract is better
+	// than the current best candidate for this host.
+	// The priority is to have a contract that is as good as possible
+	// for both uploading and funding. A contract that can be refreshed
+	// is preferred over one that cannot to prevent forming unnecessary
+	// extra contracts.
+	shouldReplaceContract := func(current, candidate candidateContract) bool {
+		switch {
+		case current.goodForAppend == nil && current.goodForFunding == nil:
+			// current contract is already good for both uploading and funding
+			return false
+		case current.goodForRefresh == nil && candidate.goodForRefresh != nil:
+			// current contract can be refreshed to become good, but candidate cannot
+			return false
+		case current.goodForAppend == nil && candidate.goodForAppend != nil:
+			// current contract is good for uploading, but candidate is not
+			return false
+		case current.goodForFunding == nil && candidate.goodForFunding != nil:
+			// current contract is good for funding, but candidate is not
+			return false
+		}
+		return true
+	}
+
 	// evaluate all existing contracts to see which hosts do not
 	// currently have a contract that is both good for uploading and
 	// funding and determine the best candidate for refreshing.
@@ -234,25 +258,19 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, setting
 			}
 
 			// evaluate contract
-			current := candidateContract{
+			candidate := candidateContract{
 				host:           host,
 				contract:       contract,
 				goodForRefresh: contract.GoodForRefresh(host.Settings, accountFundTarget, settings.Period),
 				goodForFunding: contract.GoodForAccountFunding(accountFundTarget),
 				goodForAppend:  contract.GoodForAppend(host.Settings.Prices, height),
 			}
-			goodForAppendAndFunding := current.goodForAppend == nil && current.goodForFunding == nil
+
 			// determine which contract to use for maintenance with this host.
-			existing, ok := usableHostContracts[contract.HostKey]
-			if ok && existing.goodForAppend == nil && existing.goodForFunding == nil {
-				// host already has a contract good for both uploading and funding
-				continue
-			} else if !ok || goodForAppendAndFunding || contract.Size < existing.contract.Size {
-				// replace the existing contract if any, with the current one if:
-				// 1. this is the first contract for the host
-				// 2. this contract is good for both uploading and funding
-				// 3. this contract is smaller than the existing one since it is cheaper to refresh
-				usableHostContracts[contract.HostKey] = current
+			current, ok := usableHostContracts[contract.HostKey]
+			if !ok || shouldReplaceContract(current, candidate) {
+				// set as the best candidate
+				usableHostContracts[contract.HostKey] = candidate
 			}
 		}
 		if len(batch) < batchSize {
