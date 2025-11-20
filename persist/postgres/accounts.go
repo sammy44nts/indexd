@@ -47,7 +47,8 @@ func (s *Store) Accounts(offset, limit int, opts ...accounts.QueryAccountsOpt) (
 			SELECT a.public_key, ak.app_key, a.service_account, a.max_pinned_data, a.pinned_data, a.description, a.logo_url, a.service_url, a.last_used
 			FROM accounts a
 			LEFT JOIN app_connect_keys ak ON ak.id = a.connect_key_id
-			WHERE ($1::boolean IS NULL OR service_account = $1::boolean) AND
+			WHERE a.deleted IS FALSE AND
+			($1::boolean IS NULL OR service_account = $1::boolean) AND
 			($2::integer IS NULL OR connect_key_id = $2::integer)
 			LIMIT $3 OFFSET $4
 		`, queryOpts.ServiceAccount, connectKeyID, limit, offset)
@@ -106,7 +107,7 @@ func (s *Store) HasAccount(ak types.PublicKey) (bool, error) {
 }
 
 func activeAccounts(ctx context.Context, tx *txn, threshold time.Time) (count uint64, err error) {
-	err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE last_used >= $1;`, threshold).Scan(&count)
+	err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE deleted IS FALSE AND last_used >= $1;`, threshold).Scan(&count)
 	return
 }
 
@@ -124,7 +125,7 @@ func (s *Store) ActiveAccounts(threshold time.Time) (count uint64, err error) {
 func (s *Store) DeleteAccount(ak types.PublicKey) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {
 		var serviceAccount bool
-		err := tx.QueryRow(ctx, `DELETE FROM accounts WHERE public_key = $1 RETURNING service_account`, sqlPublicKey(ak)).Scan(&serviceAccount)
+		err := tx.QueryRow(ctx, `UPDATE accounts set deleted = TRUE, connect_key_id = NULL WHERE public_key = $1 RETURNING service_account`, sqlPublicKey(ak)).Scan(&serviceAccount)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
@@ -357,7 +358,7 @@ func newHostAccountsForFunding(ctx context.Context, tx *txn, hk types.PublicKey,
 SELECT a.public_key
 FROM accounts a
 LEFT JOIN account_hosts ah ON a.id = ah.account_id AND ah.host_id = $1
-WHERE ah.account_id IS NULL AND (a.last_used >= $2 OR a.service_account = TRUE)
+WHERE ah.account_id IS NULL AND a.deleted IS FALSE AND (a.last_used >= $2 OR a.service_account = TRUE)
 LIMIT $3;`, hostID, threshold, limit)
 	if err != nil {
 		return nil, err
@@ -385,7 +386,7 @@ func existingHostAccountsForFunding(ctx context.Context, tx *txn, hk types.Publi
 SELECT public_key, consecutive_failed_funds, next_fund
 FROM account_hosts ha
 INNER JOIN accounts a ON a.id = ha.account_id
-WHERE ha.host_id = $1 AND ha.next_fund <= NOW() AND (a.last_used >= $2 OR a.service_account = TRUE)
+WHERE ha.host_id = $1 AND ha.next_fund <= NOW() AND a.deleted IS FALSE AND (a.last_used >= $2 OR a.service_account = TRUE)
 ORDER BY next_fund ASC
 LIMIT $3`, hostID, threshold, limit)
 	if err != nil {
