@@ -179,11 +179,11 @@ func (c Contract) GoodForAppend(prices proto.HostPrices, height uint64) error {
 	// check if there is enough allowance and collateral to append at least one sector
 	appendUsage := prices.RPCAppendSectorsCost(1, c.ExpirationHeight-height)
 	renterCost, hostCollateral := appendUsage.RenterCost(), appendUsage.HostRiskedCollateral()
-	usedCollateral := c.UsedCollateral.Add(hostCollateral)
+	remainingCollateral := c.TotalCollateral.Sub(c.UsedCollateral)
 	if c.RemainingAllowance.Cmp(renterCost) < 0 {
 		return fmt.Errorf("not enough remaining allowance to append a sector, need %s, have %s", renterCost, c.RemainingAllowance)
-	} else if c.TotalCollateral.Cmp(usedCollateral) < 0 {
-		return fmt.Errorf("not enough remaining collateral to append a sector, need %s, have %s", usedCollateral, c.TotalCollateral)
+	} else if remainingCollateral.Cmp(hostCollateral) < 0 {
+		return fmt.Errorf("not enough remaining collateral to append a sector, need %s, have %s", hostCollateral, remainingCollateral)
 	}
 	return nil
 }
