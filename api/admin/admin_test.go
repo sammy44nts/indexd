@@ -200,7 +200,7 @@ func TestAccountsAPI(t *testing.T) {
 	}
 
 	for _, acc := range accs {
-		err = admin.DeleteAccount(context.Background(), acc, false)
+		err = admin.DeleteAccount(context.Background(), acc)
 		if err != nil {
 			t.Fatal(err)
 		}
