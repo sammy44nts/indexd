@@ -185,7 +185,7 @@ func (s *Store) AccountsForPruning(limit int) ([]proto.Account, error) {
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `SELECT public_key FROM accounts WHERE deleted IS TRUE LIMIT $1`, limit)
 		if err != nil {
-			return fmt.Errorf("falied to query deleted accounts: %w", err)
+			return fmt.Errorf("failed to query deleted accounts: %w", err)
 		}
 		defer rows.Close()
 
