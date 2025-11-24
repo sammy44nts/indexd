@@ -152,7 +152,7 @@ func (s *Store) PruneSlabs(account proto.Account) error {
 	var id int64
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		var err error
-		id, err = accountID(ctx, tx, account, true)
+		id, _, err = accountID(ctx, tx, account)
 		if err != nil {
 			return fmt.Errorf("failed to get account ID: %w", err)
 		}
