@@ -10,10 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	proto "go.sia.tech/core/rhp/v4"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -794,64 +796,155 @@ func TestServiceAccounts(t *testing.T) {
 	assertBalance(types.ZeroCurrency)
 }
 
-// func TestAccountsForPruning(t *testing.T) {
-// 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+func TestPruneAccount(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-// 	// setup
-// 	acc1 := types.GeneratePrivateKey().PublicKey()
-// 	acc2 := types.GeneratePrivateKey().PublicKey()
-// 	acc3 := types.GeneratePrivateKey().PublicKey()
-// 	store.addTestAccount(t, acc1)
-// 	store.addTestAccount(t, acc2)
-// 	store.addTestAccount(t, acc3)
+	// setup
+	acc1 := proto.Account(types.GeneratePrivateKey().PublicKey())
+	acc2 := proto.Account(types.GeneratePrivateKey().PublicKey())
+	store.addTestAccount(t, types.PublicKey(acc1))
+	store.addTestAccount(t, types.PublicKey(acc2))
 
-// 	assertAccounts := func(limit int, expected ...types.PublicKey) {
-// 		t.Helper()
+	hk := store.addTestHost(t)
+	store.addTestContract(t, hk)
 
-// 		accs, err := store.AccountsForPruning(limit)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 		if len(accs) != len(expected) {
-// 			t.Fatalf("expected %d accs, got %d", len(expected), len(accs))
-// 		}
-// 		for i := range expected {
-// 			if expected[i] != types.PublicKey(accs[i]) {
-// 				t.Fatal("acc mismatch")
-// 			}
-// 		}
-// 	}
+	// add objects for both accounts
+	randomSlabs := func(n int) []slabs.SlabPinParams {
+		s := make([]slabs.SlabPinParams, n)
+		for i := range s {
+			s[i] = slabs.SlabPinParams{
+				EncryptionKey: frand.Entropy256(),
+				MinShards:     1,
+				Sectors: []slabs.PinnedSector{
+					{
+						Root:    frand.Entropy256(),
+						HostKey: hk,
+					},
+				},
+			}
+		}
+		return s
+	}
 
-// 	assertAccounts(0)
-// 	assertAccounts(1)
+	pinSlabs := func(acc proto4.Account, params []slabs.SlabPinParams) []slabs.SlabSlice {
+		t.Helper()
 
-// 	if err := store.DeleteAccount(acc1, true); err != nil {
-// 		t.Fatal(err)
-// 	}
+		var ss []slabs.SlabSlice
+		for _, p := range params {
+			ids, err := store.PinSlabs(acc, time.Time{}, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ss = append(ss, slabs.SlabSlice{
+				SlabID: ids[0],
+				Offset: 10,
+				Length: 120,
+			})
+		}
+		return ss
+	}
 
-// 	assertAccounts(0)
-// 	assertAccounts(1, acc1)
-// 	assertAccounts(2, acc1)
+	randomObject := func(s []slabs.SlabSlice) slabs.SealedObject {
+		return slabs.SealedObject{
+			EncryptedMasterKey: frand.Bytes(72),
+			Slabs:              s,
+			EncryptedMetadata:  []byte("hello world"),
+			Signature:          (types.Signature)(frand.Bytes(64)),
+		}
+	}
 
-// 	if err := store.DeleteAccount(acc2, true); err != nil {
-// 		t.Fatal(err)
-// 	}
+	// pin two objects to each account
+	obj1Slabs := randomSlabs(3)
+	pinSlabs(acc1, obj1Slabs)
+	pinSlabs(acc2, obj1Slabs)
+	obj1Acc1 := randomObject(pinSlabs(acc1, obj1Slabs))
+	if err := store.SaveObject(acc1, obj1Acc1); err != nil {
+		t.Fatal(err)
+	}
 
-// 	assertAccounts(1, acc1)
-// 	assertAccounts(2, acc1, acc2)
+	obj1Acc2 := obj1Acc1
+	obj1Acc2.EncryptedMasterKey = frand.Bytes(72)
+	obj1Acc2.Signature = (types.Signature)(frand.Bytes(64))
+	if err := store.SaveObject(acc2, obj1Acc2); err != nil {
+		t.Fatal(err)
+	}
 
-// 	if err := store.DeleteAccount(acc1, false); err != nil {
-// 		t.Fatal(err)
-// 	}
+	obj2Slabs := randomSlabs(3)
+	pinSlabs(acc1, obj2Slabs)
+	pinSlabs(acc2, obj2Slabs)
+	obj2Acc1 := randomObject(pinSlabs(acc1, obj2Slabs))
+	if err := store.SaveObject(acc1, obj2Acc1); err != nil {
+		t.Fatal(err)
+	}
 
-// 	assertAccounts(2, acc2)
+	obj2Acc2 := obj2Acc1
+	obj2Acc2.EncryptedMasterKey = frand.Bytes(72)
+	obj2Acc2.Signature = (types.Signature)(frand.Bytes(64))
+	if err := store.SaveObject(acc2, obj2Acc2); err != nil {
+		t.Fatal(err)
+	}
 
-// 	if err := store.DeleteAccount(acc2, false); err != nil {
-// 		t.Fatal(err)
-// 	}
+	assertObjects := func(acc proto.Account, expected int) {
+		t.Helper()
 
-// 	assertAccounts(1)
-// }
+		objs, err := store.ListObjects(acc, slabs.Cursor{}, math.MaxInt64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got int
+		for _, obj := range objs {
+			if !obj.Deleted {
+				got++
+			}
+		}
+		if expected != got {
+			t.Fatalf("expected %d objects, got %d", expected, got)
+		}
+	}
+
+	assertObjects(acc1, 2)
+	assertObjects(acc2, 2)
+
+	if err := store.DeleteAccount(types.PublicKey(acc1)); err != nil {
+		t.Fatal(err)
+	}
+
+	assertObjects(acc1, 2)
+	assertObjects(acc2, 2)
+
+	// should delete 1 object on acc1
+	if err := store.PruneAccount(1); err != nil {
+		t.Fatal(err)
+	}
+
+	assertObjects(acc1, 1)
+	assertObjects(acc2, 2)
+
+	// should delete last object on acc1 and thus delete acc1
+	if err := store.PruneAccount(1); err != nil {
+		t.Fatal(err)
+	}
+
+	// acc1 should be deleted now so calling again will result in error
+	if err := store.PruneAccount(1); !errors.Is(err, accounts.ErrNotFound) {
+		t.Fatalf("expected %v, got %v", accounts.ErrNotFound, err)
+	}
+	assertObjects(acc2, 2)
+
+	if err := store.DeleteAccount(types.PublicKey(acc2)); err != nil {
+		t.Fatal(err)
+	}
+
+	// this should delete all 2 of acc2's objects and acc2 at once
+	if err := store.PruneAccount(2); err != nil {
+		t.Fatal(err)
+	}
+
+	// acc2 should be deleted now so calling again will result in error
+	if err := store.PruneAccount(1); !errors.Is(err, accounts.ErrNotFound) {
+		t.Fatalf("expected %v, got %v", accounts.ErrNotFound, err)
+	}
+}
 
 func TestActiveAccounts(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))

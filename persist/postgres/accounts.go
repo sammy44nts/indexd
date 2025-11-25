@@ -163,8 +163,6 @@ func (s *Store) UpdateAccount(oldAK, newAK types.PublicKey) error {
 func (s *Store) PruneAccount(limit int) error {
 	if limit < 0 {
 		return errors.New("limit can not be negative")
-	} else if limit == 0 {
-		return nil
 	}
 
 	return s.transaction(func(ctx context.Context, tx *txn) error {
@@ -176,7 +174,8 @@ func (s *Store) PruneAccount(limit int) error {
 			return fmt.Errorf("failed to find a delete account: %w", err)
 		}
 
-		rows, err := tx.Query(ctx, `SELECT id FROM objects WHERE account_id = $1 LIMIT $2`, accountID, limit)
+		// get limit + 1 so we can tell if we've exceeded limit
+		rows, err := tx.Query(ctx, `SELECT object_key FROM objects WHERE account_id = $1 LIMIT $2`, accountID, limit+1)
 		if err != nil {
 			return fmt.Errorf("failed to get objects for account: %w", err)
 		}
@@ -196,7 +195,8 @@ func (s *Store) PruneAccount(limit int) error {
 
 		// prune slabs and delete the user if we have no objects left
 		if len(objKeys) > 0 {
-			err := deleteObjects(ctx, tx, accountID, objKeys)
+			// only delete up to the limit objects
+			err := deleteObjects(ctx, tx, accountID, objKeys[:min(len(objKeys), limit)])
 			if err != nil {
 				return fmt.Errorf("failed to delete objects: %w", err)
 			}
@@ -211,7 +211,7 @@ func (s *Store) PruneAccount(limit int) error {
 			}
 		}
 
-		if len(objKeys) < limit {
+		if len(objKeys) <= limit {
 			_, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to delete account: %w", err)

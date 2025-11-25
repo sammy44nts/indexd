@@ -117,7 +117,6 @@ type (
 		Slabs(account proto.Account, slabIDs []SlabID) ([]Slab, error)
 		SlabIDs(account proto.Account, offset, limit int) ([]SlabID, error)
 		UnhealthySlabs(limit int) ([]SlabID, error)
-		DeleteAccount(ak types.PublicKey, soft bool) error
 		PruneSlabs(account proto.Account) error
 
 		// Object methods

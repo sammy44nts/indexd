@@ -254,18 +254,6 @@ func deleteObjects(ctx context.Context, tx *txn, accountID int64, objectKeys []t
 	return nil
 }
 
-// DeleteObjects deletes the objects with the given keys for the account.
-func (s *Store) DeleteObjects(account proto.Account, objectKeys []types.Hash256) error {
-	return s.transaction(func(ctx context.Context, tx *txn) error {
-		accountID, _, err := accountID(ctx, tx, account)
-		if err != nil {
-			return err
-		}
-
-		return deleteObjects(ctx, tx, accountID, objectKeys)
-	})
-}
-
 // DeleteObject deletes the object with the given key for the given account.
 func (s *Store) DeleteObject(account proto.Account, objectKey types.Hash256) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -48,7 +47,6 @@ func newMockChainManager() *mockChainManager {
 
 type mockStore struct {
 	accounts        map[proto.Account]struct{}
-	deletedAccounts map[proto.Account]struct{}
 	contracts       map[types.PublicKey]contracts.Contract
 	failedChecks    map[types.PublicKey]map[types.Hash256]int
 	hosts           map[types.PublicKey]hosts.Host
@@ -62,7 +60,6 @@ type mockStore struct {
 func newMockStore() *mockStore {
 	return &mockStore{
 		accounts:        make(map[proto.Account]struct{}),
-		deletedAccounts: make(map[proto.Account]struct{}),
 		contracts:       make(map[types.PublicKey]contracts.Contract),
 		failedChecks:    make(map[types.PublicKey]map[types.Hash256]int),
 		hosts:           make(map[types.PublicKey]hosts.Host),
@@ -85,24 +82,6 @@ func (s *mockStore) AddAccount(account types.PublicKey, meta accounts.AccountMet
 func (s *mockStore) AddServiceAccount(account types.PublicKey, meta accounts.AccountMeta, opts ...accounts.AddAccountOption) error {
 	s.accounts[proto.Account(account)] = struct{}{}
 	return nil
-}
-
-func (s *mockStore) DeleteAccount(ak types.PublicKey, soft bool) error {
-	if soft {
-		s.deletedAccounts[proto.Account(ak)] = struct{}{}
-	} else {
-		delete(s.deletedAccounts, proto.Account(ak))
-		delete(s.accounts, proto.Account(ak))
-	}
-	return nil
-}
-
-func (s *mockStore) AccountsForPruning(limit int) ([]proto.Account, error) {
-	accounts := slices.Collect(maps.Keys(s.deletedAccounts))
-	if len(accounts) > limit {
-		accounts = accounts[:limit]
-	}
-	return accounts, nil
 }
 
 func (s *mockStore) Contracts(offset, limit int, opts ...contracts.ContractQueryOpt) ([]contracts.Contract, error) {
