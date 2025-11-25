@@ -385,34 +385,6 @@ func (s *Store) PinSlabs(account proto.Account, nextIntegrityCheck time.Time, to
 	return digests, err
 }
 
-func slabIDs(ctx context.Context, tx *txn, accountID int64, slabIDs []slabs.SlabID) ([]int64, error) {
-	var args []sqlHash256
-	for _, slabID := range slabIDs {
-		args = append(args, sqlHash256(slabID))
-	}
-
-	rows, err := tx.Query(ctx, `SELECT id FROM slabs WHERE digest = ANY($1)`, args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query slab IDs: %w", err)
-	}
-	defer rows.Close()
-
-	var sIDs []int64
-	for rows.Next() {
-		var sID int64
-		if err := rows.Scan(&sID); err != nil {
-			return nil, fmt.Errorf("failed to scan slab ID: %w", err)
-		}
-
-		sIDs = append(sIDs, sID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to get slab IDs: %w", err)
-	}
-
-	return sIDs, nil
-}
-
 func (s *Store) unpinSlabs(ctx context.Context, tx *txn, accountID int64, sIDs []int64) error {
 	// delete the association between the account and the slab
 	_, err := tx.Exec(ctx, `DELETE FROM account_slabs a
