@@ -248,7 +248,7 @@ func TestDeleteAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.PruneAccount(math.MaxInt64); err != nil {
+	if err := store.PruneAccount(1); err != nil {
 		t.Fatal(err)
 	}
 

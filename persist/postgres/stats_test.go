@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"errors"
-	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -345,7 +344,7 @@ func TestAccountStatsRegistered(t *testing.T) {
 	for i := range accs {
 		if err := store.DeleteAccount(accs[i]); err != nil {
 			t.Fatal(err)
-		} else if err := store.PruneAccount(math.MaxInt64); err != nil {
+		} else if err := store.PruneAccount(1); err != nil {
 			t.Fatal(err)
 		}
 

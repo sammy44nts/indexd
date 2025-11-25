@@ -174,7 +174,7 @@ func (s *Store) PruneAccount(limit int) error {
 			return fmt.Errorf("failed to find a delete account: %w", err)
 		}
 
-		// get limit + 1 so we can tell if we've exceeded limit
+		// get limit + 1 so we can tell if we've run out of objects to delete
 		rows, err := tx.Query(ctx, `SELECT object_key FROM objects WHERE account_id = $1 LIMIT $2`, accountID, limit+1)
 		if err != nil {
 			return fmt.Errorf("failed to get objects for account: %w", err)
