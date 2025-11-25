@@ -155,36 +155,59 @@ func (s *Store) UpdateAccount(oldAK, newAK types.PublicKey) error {
 	})
 }
 
-// PruneAccount deletes up to `limit` objects from an account that has been
-// marked as soft deleted.  It will then prune the deleted objects' associated
-// slabs and sectors.  If there are no objects left on the account to delete,
-// it will be hard deleted.  If there are no pending soft deleted accounts,
-// accounts.ErrNotFound is returned.
-func (s *Store) PruneAccount(limit int) error {
+// PruneAccounts deletes up to `limit` combined slabs and objects from an
+// account that has been soft deleted.  If there are no objects left on the
+// account to delete, it will prune the associated slabs and sectors.  If there
+// are no slabs left it will hard delete the account.  If there are no pending
+// soft deleted accounts, accounts.ErrNotFound is returned
+func (s *Store) PruneAccounts(limit int) error {
 	if limit < 0 {
 		return errors.New("limit can not be negative")
 	}
 
 	return s.transaction(func(ctx context.Context, tx *txn) error {
+		getAccountSlabs := func(accountID int64, limit int) ([]int64, error) {
+			rows, err := tx.Query(ctx, `SELECT slab_id FROM account_slabs WHERE account_id = $1 LIMIT $2`, accountID, limit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get account slabs: %w", err)
+			}
+			defer rows.Close()
+
+			var slabIDs []int64
+			for rows.Next() {
+				var slabID int64
+				if err := rows.Scan(&slabID); err != nil {
+					return nil, fmt.Errorf("failed to get slab ID: %w", err)
+				}
+				slabIDs = append(slabIDs, slabID)
+			}
+			return slabIDs, rows.Err()
+		}
+
 		var accountID int64
 		err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE deleted_at IS NOT NULL`).Scan(&accountID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
-			return fmt.Errorf("failed to find a delete account: %w", err)
+			return fmt.Errorf("failed to find an account to delete: %w", err)
 		}
 
-		// get limit + 1 so we can tell if we've run out of objects to delete
-		rows, err := tx.Query(ctx, `SELECT object_key FROM objects WHERE account_id = $1 LIMIT $2`, accountID, limit+1)
+		rows, err := tx.Query(ctx, `DELETE FROM objects
+WHERE ctid IN (
+	SELECT ctid
+	FROM objects
+	WHERE account_id = $1
+	LIMIT $2
+)
+RETURNING object_key`, accountID, limit)
 		if err != nil {
-			return fmt.Errorf("failed to get objects for account: %w", err)
+			return fmt.Errorf("failed to delete objects: %w", err)
 		}
-		defer rows.Close()
 
-		var objKeys []types.Hash256
+		var objKeys []sqlHash256
 		for rows.Next() {
-			var objKey types.Hash256
-			if err := rows.Scan((*sqlHash256)(&objKey)); err != nil {
+			var objKey sqlHash256
+			if err := rows.Scan(&objKey); err != nil {
 				return fmt.Errorf("failed to scan object ID: %w", err)
 			}
 			objKeys = append(objKeys, objKey)
@@ -193,29 +216,31 @@ func (s *Store) PruneAccount(limit int) error {
 			return fmt.Errorf("failed to get rows: %w", err)
 		}
 
-		// prune slabs and delete the user if we have no objects left
-		if len(objKeys) > 0 {
-			// only delete up to limit objects
-			err := deleteObjects(ctx, tx, accountID, objKeys[:min(len(objKeys), limit)])
-			if err != nil {
-				return fmt.Errorf("failed to delete objects: %w", err)
-			}
-
-			slabIDs, err := getPrunableSlabs(ctx, tx, accountID, math.MaxInt64)
-			if err != nil {
-				return fmt.Errorf("failed to get slabs to unpin: %w", err)
-			}
-
-			if err := s.unpinSlabs(ctx, tx, accountID, slabIDs); err != nil {
-				return fmt.Errorf("failed to unpin slabs: %w", err)
-			}
+		_, err = tx.Exec(ctx, `DELETE FROM object_events WHERE account_id = $1 AND object_key = ANY($2)`, accountID, objKeys)
+		if err != nil {
+			return fmt.Errorf("failed to delete object events: %w", err)
 		}
 
-		if len(objKeys) <= limit {
-			_, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+		limit -= len(objKeys)
+		if limit == 0 {
+			return nil
+		}
+
+		slabIDs, err := getAccountSlabs(accountID, limit)
+		if err != nil {
+			return fmt.Errorf("failed to get slabs to unpin: %w", err)
+		}
+		if err := s.unpinSlabs(ctx, tx, accountID, slabIDs); err != nil {
+			return fmt.Errorf("failed to unpin slabs: %w", err)
+		}
+
+		if len(slabIDs) < limit {
+			// no slabs left, we can delete the account
+			_, err = tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to delete account: %w", err)
 			}
+
 			err = incrementNumAccounts(ctx, tx, -1)
 			if err != nil {
 				return fmt.Errorf("failed to decrement account count: %w", err)

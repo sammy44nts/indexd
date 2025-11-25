@@ -207,7 +207,7 @@ func (m *AccountManager) Accounts(ctx context.Context, offset, limit int, opts .
 
 // DeleteAccount soft deletes the account with the given public key.
 // Objects/slabs/sectors associated with the account will be cleaned up by the
-// slabs manager.
+// account manager.
 func (m *AccountManager) DeleteAccount(ctx context.Context, ak types.PublicKey) error {
 	return m.store.DeleteAccount(ak)
 }

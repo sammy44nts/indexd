@@ -248,7 +248,7 @@ func TestDeleteAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.PruneAccount(1); err != nil {
+	if err := store.PruneAccounts(1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -912,20 +912,25 @@ func TestPruneAccount(t *testing.T) {
 	assertObjects(acc2, 2)
 
 	// should delete 1 object on acc1
-	if err := store.PruneAccount(1); err != nil {
+	if err := store.PruneAccounts(1); err != nil {
 		t.Fatal(err)
 	}
 
 	assertObjects(acc1, 1)
 	assertObjects(acc2, 2)
 
-	// should delete last object on acc1 and thus delete acc1
-	if err := store.PruneAccount(1); err != nil {
+	// should delete last object on acc1
+	if err := store.PruneAccounts(1); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete all the slabs (6) and and thus delete acc1
+	if err := store.PruneAccounts(10); err != nil {
 		t.Fatal(err)
 	}
 
 	// acc1 should be deleted now so calling again will result in error
-	if err := store.PruneAccount(1); !errors.Is(err, accounts.ErrNotFound) {
+	if err := store.PruneAccounts(1); !errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("expected %v, got %v", accounts.ErrNotFound, err)
 	}
 	assertObjects(acc2, 2)
@@ -935,12 +940,12 @@ func TestPruneAccount(t *testing.T) {
 	}
 
 	// this should delete all 2 of acc2's objects and acc2 at once
-	if err := store.PruneAccount(2); err != nil {
+	if err := store.PruneAccounts(10); err != nil {
 		t.Fatal(err)
 	}
 
 	// acc2 should be deleted now so calling again will result in error
-	if err := store.PruneAccount(1); !errors.Is(err, accounts.ErrNotFound) {
+	if err := store.PruneAccounts(1); !errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("expected %v, got %v", accounts.ErrNotFound, err)
 	}
 }

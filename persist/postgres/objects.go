@@ -207,53 +207,6 @@ func (s *Store) ListObjects(account proto.Account, cursor slabs.Cursor, limit in
 	return events, err
 }
 
-func deleteObjects(ctx context.Context, tx *txn, accountID int64, objectKeys []types.Hash256) error {
-	if len(objectKeys) == 0 {
-		return nil
-	}
-
-	keys := make([]sqlHash256, 0, len(objectKeys))
-	for _, objectKey := range objectKeys {
-		keys = append(keys, sqlHash256(objectKey))
-	}
-
-	rows, err := tx.Query(ctx, `SELECT id FROM objects WHERE object_key = ANY($1) AND account_id = $2`, keys, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to get object keys: %w", err)
-	}
-	defer rows.Close()
-
-	objectIDs := make([]int64, 0, len(objectKeys))
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("failed to scan object ID: %w", err)
-		}
-		objectIDs = append(objectIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to get object key rows: %w", err)
-	}
-
-	_, err = tx.Exec(ctx, `DELETE FROM object_slabs WHERE object_id = ANY($1)`, objectIDs)
-	if err != nil {
-		return fmt.Errorf("failed to delete object slabs: %w", err)
-	}
-	_, err = tx.Exec(ctx, `DELETE FROM objects WHERE id = ANY($1)`, objectIDs)
-	if err != nil {
-		return fmt.Errorf("failed to delete object: %w", err)
-	}
-
-	_, err = tx.Exec(ctx, `
-            UPDATE object_events SET was_deleted = TRUE, updated_at = NOW()
-            WHERE account_id = $1 AND object_key = ANY($2)`,
-		accountID, keys)
-	if err != nil {
-		return fmt.Errorf("failed to update object event: %w", err)
-	}
-	return nil
-}
-
 // DeleteObject deletes the object with the given key for the given account.
 func (s *Store) DeleteObject(account proto.Account, objectKey types.Hash256) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {
@@ -262,16 +215,30 @@ func (s *Store) DeleteObject(account proto.Account, objectKey types.Hash256) err
 			return err
 		}
 
-		var exists bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT id FROM objects WHERE object_key = $1 AND account_id = $2)`, sqlHash256(objectKey), accountID).
-			Scan(&exists)
-		if err != nil {
-			return fmt.Errorf("failed to get object id: %w", err)
-		} else if !exists {
+		var objectID int64
+		err = tx.QueryRow(ctx, `SELECT id FROM objects WHERE object_key = $1 AND account_id = $2`, sqlHash256(objectKey), accountID).Scan(&objectID)
+		if errors.Is(err, sql.ErrNoRows) {
 			return slabs.ErrObjectNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to get object id: %w", err)
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM object_slabs WHERE object_id = $1`, objectID)
+		if err != nil {
+			return fmt.Errorf("failed to delete object slabs: %w", err)
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM objects WHERE id = $1`, objectID)
+		if err != nil {
+			return fmt.Errorf("failed to delete object: %w", err)
+		}
+		_, err = tx.Exec(ctx, `
+                       UPDATE object_events SET was_deleted = TRUE, updated_at = NOW()
+                       WHERE account_id = $1 AND object_key = $2`,
+			accountID, sqlHash256(objectKey))
+		if err != nil {
+			return fmt.Errorf("failed to update object events: %w", err)
 		}
 
-		return deleteObjects(ctx, tx, accountID, []types.Hash256{objectKey})
+		return nil
 	})
 }
 

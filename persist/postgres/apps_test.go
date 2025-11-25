@@ -124,7 +124,7 @@ func TestAppConnectKeys(t *testing.T) {
 	// delete account
 	if err := store.DeleteAccount(acc); err != nil {
 		t.Fatal(err)
-	} else if err := store.PruneAccount(1); err != nil {
+	} else if err := store.PruneAccounts(1); err != nil {
 		t.Fatal(err)
 	}
 

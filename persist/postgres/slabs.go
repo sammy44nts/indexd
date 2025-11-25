@@ -146,41 +146,6 @@ ORDER BY ss.slab_index ASC`, dbID)
 	return
 }
 
-func getPrunableSlabs(ctx context.Context, tx *txn, accountID, limit int64) ([]slabs.SlabID, error) {
-	rows, err := tx.Query(ctx, `SELECT s.digest
-FROM slabs s
-JOIN account_slabs a ON s.id = a.slab_id
-WHERE a.account_id = $1
-	AND NOT EXISTS (
-		SELECT 1
-		FROM objects o
-		JOIN object_slabs os ON o.id = os.object_id
-		WHERE o.account_id = a.account_id
-		AND os.slab_digest = s.digest
-	)
-LIMIT $2
-`, accountID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get unused slabs: %w", err)
-	}
-	defer rows.Close()
-
-	var slabIDs []slabs.SlabID
-	for rows.Next() {
-		var slabID slabs.SlabID
-		if err := rows.Scan((*sqlHash256)(&slabID)); err != nil {
-			return nil, fmt.Errorf("failed to scan slab ID: %w", err)
-		}
-		slabIDs = append(slabIDs, slabID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to get slab IDs: %w", err)
-	} else if len(slabIDs) == 0 {
-		return nil, nil
-	}
-	return slabIDs, nil
-}
-
 // PruneSlabs prunes all pinned slabs of a user not currently connected to an
 // object.
 func (s *Store) PruneSlabs(account proto.Account) error {
@@ -197,11 +162,46 @@ func (s *Store) PruneSlabs(account proto.Account) error {
 		return err
 	}
 
+	getSlabs := func(ctx context.Context, tx *txn, limit int64) ([]int64, error) {
+		rows, err := tx.Query(ctx, `SELECT s.id
+FROM slabs s
+JOIN account_slabs a ON s.id = a.slab_id
+WHERE a.account_id = $1
+	AND NOT EXISTS (
+		SELECT 1
+		FROM objects o
+		JOIN object_slabs os ON o.id = os.object_id
+		WHERE o.account_id = a.account_id
+		AND os.slab_digest = s.digest
+	)
+LIMIT $2
+`, id, limit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get unused slabs: %w", err)
+		}
+		defer rows.Close()
+
+		var slabIDs []int64
+		for rows.Next() {
+			var slabID int64
+			if err := rows.Scan(&slabID); err != nil {
+				return nil, fmt.Errorf("failed to scan slab ID: %w", err)
+			}
+			slabIDs = append(slabIDs, slabID)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to get slab IDs: %w", err)
+		} else if len(slabIDs) == 0 {
+			return nil, nil
+		}
+		return slabIDs, nil
+	}
+
 	var exhausted bool
 	const batchSize = 100
 	for !exhausted {
 		err := s.transaction(func(ctx context.Context, tx *txn) error {
-			slabIDs, err := getPrunableSlabs(ctx, tx, id, batchSize)
+			slabIDs, err := getSlabs(ctx, tx, batchSize)
 			if err != nil {
 				return fmt.Errorf("failed to get slabs to unpin: %w", err)
 			} else if len(slabIDs) < batchSize {
