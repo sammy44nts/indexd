@@ -63,15 +63,6 @@ top:
 						return
 					}
 
-					usable, err := m.hm.Usable(ctx, hostKey)
-					if err != nil {
-						log.Debug("failed to check if host is usable", zap.Stringer("hostKey", hostKey), zap.Error(err))
-						return
-					} else if !usable {
-						log.Debug("host is no longer usable, skipping", zap.Stringer("hostKey", hostKey))
-						continue
-					}
-
 					log := log.With(zap.Stringer("hostKey", hostKey))
 					// upload the shard
 					start := time.Now()
@@ -117,5 +108,11 @@ func (m *SlabManager) uploadShard(ctx context.Context, hostKey types.PublicKey, 
 	ctx, cancel := context.WithTimeout(ctx, m.shardTimeout)
 	defer cancel()
 
+	usable, err := m.hm.Usable(ctx, hostKey)
+	if err != nil {
+		return rhp.RPCWriteSectorResult{}, fmt.Errorf("failed to check if host is usable: %w", err)
+	} else if !usable {
+		return rhp.RPCWriteSectorResult{}, fmt.Errorf("host is no longer usable")
+	}
 	return m.hosts.WriteSector(ctx, m.migrationAccountKey, hostKey, shard)
 }
