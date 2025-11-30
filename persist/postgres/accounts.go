@@ -167,6 +167,7 @@ func (s *Store) PruneAccounts(limit int) error {
 
 	return s.transaction(func(ctx context.Context, tx *txn) error {
 		var accountID int64
+
 		err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE deleted_at IS NOT NULL ORDER by deleted_at LIMIT 1`).Scan(&accountID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
@@ -174,14 +175,16 @@ func (s *Store) PruneAccounts(limit int) error {
 			return fmt.Errorf("failed to find an account to delete: %w", err)
 		}
 
-		rows, err := tx.Query(ctx, `DELETE FROM objects
-WHERE ctid IN (
-	SELECT ctid
+		rows, err := tx.Query(ctx, `DELETE FROM objects o
+USING (
+	SELECT id
 	FROM objects
 	WHERE account_id = $1
+	ORDER BY id
 	LIMIT $2
-)
-RETURNING object_key`, accountID, limit)
+) d
+WHERE o.id = d.id
+RETURNING o.object_key;`, accountID, limit)
 		if err != nil {
 			return fmt.Errorf("failed to delete objects: %w", err)
 		}

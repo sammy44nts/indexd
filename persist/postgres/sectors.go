@@ -388,9 +388,7 @@ func (s *Store) PinSlabs(account proto.Account, nextIntegrityCheck time.Time, to
 func (s *Store) unpinSlabs(ctx context.Context, tx *txn, accountID int64, sIDs []int64) error {
 	// delete the association between the account and the slab
 	_, err := tx.Exec(ctx, `DELETE FROM account_slabs a
-USING slabs s
-WHERE a.account_id = $1
-	AND a.slab_id = ANY($2);`, accountID, sIDs)
+WHERE a.account_id = $1 AND a.slab_id = ANY($2);`, accountID, sIDs)
 	if err != nil {
 		return fmt.Errorf("failed to delete account slabs: %w", err)
 	}

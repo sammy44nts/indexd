@@ -1088,76 +1088,73 @@ func BenchmarkActiveAccounts(b *testing.B) {
 }
 
 func BenchmarkPruneAccounts(b *testing.B) {
+	const (
+		numAccounts       = 1000
+		objectsPerAccount = 500
+		slabsPerObject    = 5
+	)
+
 	store := initPostgres(b, zap.NewNop())
-
-	hostKeys := make([]types.PublicKey, 30)
-	for i := range hostKeys {
-		hostKeys[i] = store.addTestHost(b)
-		store.addTestContract(b, hostKeys[i])
-	}
-
-	pinObject := func(acc proto.Account) {
-		b.Helper()
-
-		obj := slabs.SealedObject{
-			EncryptedMasterKey: frand.Bytes(72),
-			EncryptedMetadata:  []byte("hello world"),
-			Signature:          (types.Signature)(frand.Bytes(64)),
-		}
-		for range frand.Intn(5) {
-			s := slabs.SlabPinParams{
-				MinShards:     3,
-				EncryptionKey: frand.Entropy256(),
-				Sectors:       make([]slabs.PinnedSector, 30),
-			}
-			for i := range s.Sectors {
-				s.Sectors[i].HostKey = hostKeys[i%len(hostKeys)]
-				s.Sectors[i].Root = frand.Entropy256()
-			}
-
-			slabIDs, err := store.PinSlabs(acc, time.Time{}, s)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			for _, slabID := range slabIDs {
-				obj.Slabs = append(obj.Slabs, slabs.SlabSlice{
-					SlabID: slabID,
-					Offset: 0,
-					Length: 256,
-				})
-			}
-			frand.Read(obj.Signature[:])
-		}
-
-		return
-	}
-
 	reset := func() {
-		for i := range 1000 {
-			if i%10 == 0 {
-				b.Log(i)
-			}
-			pk := types.GeneratePrivateKey().PublicKey()
-			store.addTestAccount(b, pk)
+		_, err := store.pool.Exec(b.Context(), `
+DELETE FROM objects;
+DELETE FROM object_slabs;
+DELETE FROM account_slabs;
+DELETE FROM slabs;
+DELETE FROM accounts;
 
-			for range frand.Intn(10) {
-				pinObject(proto.Account(pk))
+ALTER SEQUENCE objects_id_seq RESTART WITH 1;
+ALTER SEQUENCE slabs_id_seq RESTART WITH 1;
+ALTER SEQUENCE accounts_id_seq RESTART WITH 1;
+`)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		batch := &pgx.Batch{}
+		var slabID, objectID int64
+		for i := range numAccounts {
+			ak := types.GeneratePrivateKey().PublicKey()
+			batch.Queue(`INSERT INTO accounts(public_key, max_pinned_data) VALUES ($1, 1000000);`, sqlPublicKey(ak))
+			for j := range objectsPerAccount {
+				accountID := i + 1
+
+				var encryptionKey [32]byte
+				frand.Read(encryptionKey[:])
+
+				objectKey := sqlHash256(frand.Entropy256())
+				if j%2 == 0 {
+					objectID++
+					batch.Queue(`INSERT INTO objects(object_key, account_id, encrypted_master_key, signature) VALUES ($1, $2, $3, $4)`, objectKey, accountID, frand.Bytes(72), frand.Bytes(64))
+				}
+				for k := range slabsPerObject {
+					slabID++
+					slabDigest := sqlHash256(frand.Entropy256())
+
+					batch.Queue(`INSERT INTO slabs(digest, encryption_key, min_shards) VALUES ($1, $2, 1);`, slabDigest, sqlHash256(encryptionKey))
+					batch.Queue(`INSERT INTO account_slabs(account_id, slab_id) VALUES ($1, $2)`, accountID, slabID)
+					if j%2 == 0 {
+						batch.Queue(`INSERT INTO object_slabs(object_id, slab_digest, slab_index, slab_offset, slab_length) VALUES ($1, $2, $3, 0, 0)`, objectID, slabDigest, k)
+					}
+				}
 			}
 
 			// delete 1/10 accounts
 			if i%10 == 0 {
-				if err := store.DeleteAccount(proto.Account(pk)); err != nil {
-					b.Fatal(err)
-				}
+				b.Log("Deleting:", i)
+				batch.Queue("UPDATE accounts SET deleted_at = NOW() WHERE public_key = $1", sqlPublicKey(ak))
 			}
+		}
+		batch.Queue(`UPDATE stats SET num_slabs = $1`, slabID)
+		batch.Queue(`UPDATE stats SET num_accounts_registered = $1`, numAccounts)
+		if err := store.pool.SendBatch(b.Context(), batch).Close(); err != nil {
+			b.Fatal(err)
 		}
 	}
 
-	for _, limit := range []int{10, 50, 100, 1000} {
+	for _, limit := range []int{100, 250, 500} {
 		b.Run(fmt.Sprint(limit), func(b *testing.B) {
 			reset()
-
 			for b.Loop() {
 				if err := store.PruneAccounts(limit); errors.Is(err, accounts.ErrNotFound) {
 					b.Logf("pruning error: %v", err)
