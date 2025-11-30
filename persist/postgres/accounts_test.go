@@ -1089,8 +1089,8 @@ func BenchmarkActiveAccounts(b *testing.B) {
 
 func BenchmarkPruneAccounts(b *testing.B) {
 	const (
-		numAccounts       = 1000
-		objectsPerAccount = 500
+		numAccounts       = 100
+		objectsPerAccount = 1000
 		slabsPerObject    = 5
 	)
 
@@ -1142,7 +1142,7 @@ ALTER SEQUENCE accounts_id_seq RESTART WITH 1;
 				batch.Queue("UPDATE accounts SET deleted_at = NOW() WHERE public_key = $1", sqlPublicKey(ak))
 			}
 		}
-		batch.Queue(`UPDATE stats SET num_slabs = $1`, objectsPerAccount*slabsPerObject)
+		batch.Queue(`UPDATE stats SET num_slabs = $1`, numAccounts*objectsPerAccount*slabsPerObject)
 		batch.Queue(`UPDATE stats SET num_accounts_registered = $1`, numAccounts)
 		if err := store.pool.SendBatch(b.Context(), batch).Close(); err != nil {
 			b.Fatal(err)

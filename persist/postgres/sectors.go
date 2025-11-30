@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -387,11 +388,13 @@ func (s *Store) PinSlabs(account proto.Account, nextIntegrityCheck time.Time, to
 
 func (s *Store) unpinSlabs(ctx context.Context, tx *txn, accountID int64, sIDs []int64) error {
 	// delete the association between the account and the slab
+	t1 := time.Now()
 	_, err := tx.Exec(ctx, `DELETE FROM account_slabs a
 WHERE a.account_id = $1 AND a.slab_id = ANY($2);`, accountID, sIDs)
 	if err != nil {
 		return fmt.Errorf("failed to delete account slabs: %w", err)
 	}
+	log.Println("a:", time.Now().Sub(t1))
 
 	// update the account's pinned data
 	var delta uint64
@@ -400,6 +403,7 @@ WHERE a.account_id = $1 AND a.slab_id = ANY($2);`, accountID, sIDs)
 	WHERE slab_id = ANY($2)`, proto.SectorSize, sIDs).Scan(&delta); err != nil {
 		return fmt.Errorf("failed to get storage delta: %w", err)
 	}
+	log.Println("b:", time.Now().Sub(t1))
 
 	var connectKeyID sql.NullInt64
 	err = tx.QueryRow(ctx, `UPDATE accounts
@@ -414,6 +418,7 @@ RETURNING connect_key_id`, delta, accountID).Scan(&connectKeyID)
 			return fmt.Errorf("failed to update connect key pinned data: %w", err)
 		}
 	}
+	log.Println("c:", time.Now().Sub(t1))
 
 	// ignore the slabs that are pinned by another account
 	rows, err := tx.Query(ctx, `SELECT slab_id FROM account_slabs WHERE slab_id = ANY($1)`, sIDs)
@@ -433,6 +438,7 @@ RETURNING connect_key_id`, delta, accountID).Scan(&connectKeyID)
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to get pinned slabs: %w", err)
 	}
+	log.Println("d:", time.Now().Sub(t1))
 
 	// get all of the slabs that are not pinned by another account
 	var toDelete []int64
@@ -460,6 +466,7 @@ RETURNING connect_key_id`, delta, accountID).Scan(&connectKeyID)
 	if err := tx.Tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("failed to prune slab: %w", err)
 	}
+	log.Println("e:", time.Now().Sub(t1))
 
 	// update slab stats
 	if err := incrementNumSlabs(ctx, tx, -int64(len(toDelete))); err != nil {
