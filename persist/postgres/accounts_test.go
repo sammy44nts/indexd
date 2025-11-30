@@ -1097,8 +1097,8 @@ func BenchmarkPruneAccounts(b *testing.B) {
 	store := initPostgres(b, zap.NewNop())
 	reset := func() {
 		_, err := store.pool.Exec(b.Context(), `
-DELETE FROM objects;
 DELETE FROM object_slabs;
+DELETE FROM objects;
 DELETE FROM account_slabs;
 DELETE FROM slabs;
 DELETE FROM accounts;
@@ -1146,6 +1146,13 @@ ALTER SEQUENCE accounts_id_seq RESTART WITH 1;
 		batch.Queue(`UPDATE stats SET num_accounts_registered = $1`, numAccounts)
 		if err := store.pool.SendBatch(b.Context(), batch).Close(); err != nil {
 			b.Fatal(err)
+		}
+
+		for _, table := range []string{"object_slabs", "account_slabs", "objects", "slabs", "accounts"} {
+			_, err := store.pool.Exec(b.Context(), fmt.Sprintf(`VACUUM (ANALYZE) %s`, table))
+			if err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 
