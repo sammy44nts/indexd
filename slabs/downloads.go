@@ -94,12 +94,14 @@ func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, log *zap.Lo
 		return nil
 	}
 
+	if len(candidates) < int(slab.MinShards) {
+		return nil, fmt.Errorf("only %d available sectors, minimum required: %d: %w", len(candidates), slab.MinShards, errNotEnoughShards)
+	}
+
 	// start initial shards
 	failedCh := make(chan struct{}, slab.MinShards)
-	initial := min(len(candidates), int(slab.MinShards))
-	log.Debug("starting initial shard downloads", zap.Int("count", initial), zap.Int("required", int(slab.MinShards)), zap.Int("totalCandidates", len(candidates)))
 initialLoop:
-	for _, hostKey := range candidates[:initial] {
+	for _, hostKey := range candidates[:int(slab.MinShards)] {
 		select {
 		case <-ctx.Done():
 			break initialLoop
@@ -120,10 +122,10 @@ initialLoop:
 		})
 	}
 
-	t := time.NewTicker(m.shardTimeout / 2)
+	t := time.NewTicker(m.shardTimeout / 4)
 	defer t.Stop()
 raceLoop:
-	for i := initial; downloaded.Load() < uint32(slab.MinShards) && i < len(candidates); i++ {
+	for i := int(slab.MinShards); downloaded.Load() < uint32(slab.MinShards) && i < len(candidates); i++ {
 		hostKey := candidates[i]
 		select {
 		case <-ctx.Done():
