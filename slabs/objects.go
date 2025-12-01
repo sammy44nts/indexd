@@ -26,19 +26,29 @@ type (
 		UpdatedAt time.Time `json:"updatedAt"`
 	}
 
-	// A SharedSlab represents a slab of a shared object.
-	// It contains all the metadata needed to retrieve a slab.
-	SharedSlab struct {
-		PinnedSlab
+	// SlabSlice represents a slice of a slab that is part of an object.
+	SlabSlice struct {
+		SlabID SlabID `json:"slabID"`
 		Offset uint32 `json:"offset"`
 		Length uint32 `json:"length"`
 	}
 
-	// SharedObject provides all the metadata necessary to retrieve
-	// and decrypt an object.
+	// SharedObject provides all the metadata necessary to retrieve and decrypt
+	// an object.
 	SharedObject struct {
-		Slabs             []SharedSlab `json:"slabs"`
-		EncryptedMetadata []byte       `json:"encryptedMetadata"`
+		Slabs             []PinnedSlabSlice `json:"slabs"`
+		EncryptedMetadata []byte            `json:"encryptedMetadata"`
+	}
+
+	// A PinnedSlabSlice represents a slice of a slab that is part of an object.
+	// It contains all the metadata needed to retrieve a slab.
+	PinnedSlabSlice struct {
+		ID            SlabID         `json:"id"`
+		EncryptionKey [32]byte       `json:"encryptionKey"`
+		MinShards     uint           `json:"minShards"`
+		Sectors       []PinnedSector `json:"sectors"`
+		Offset        uint32         `json:"offset"`
+		Length        uint32         `json:"length"`
 	}
 
 	// ObjectEvent represents an event on an object, such as it being created,
@@ -66,14 +76,16 @@ type (
 		After time.Time
 		Key   types.Hash256
 	}
-
-	// SlabSlice represents a slice of a slab that is part of an object.
-	SlabSlice struct {
-		SlabID SlabID `json:"slabID"`
-		Offset uint32 `json:"offset"`
-		Length uint32 `json:"length"`
-	}
 )
+
+// Size returns the total size of the object in bytes.
+func (o *SharedObject) Size() uint64 {
+	var size uint64
+	for _, ss := range o.Slabs {
+		size += uint64(ss.Length)
+	}
+	return size
+}
 
 // metadataLimit represents the maximum size of an objects metadata we will
 // store.

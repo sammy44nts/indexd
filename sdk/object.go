@@ -69,6 +69,15 @@ func (o *Object) Seal(appKey types.PrivateKey) slabs.SealedObject {
 	return so
 }
 
+// Size returns the total size of the object in bytes.
+func (o *Object) Size() uint64 {
+	var size uint64
+	for _, ss := range o.slabs {
+		size += uint64(ss.Length)
+	}
+	return size
+}
+
 // Slabs returns a copy of the object's slabs.
 func (o *Object) Slabs() []slabs.SlabSlice {
 	return slices.Clone(o.slabs)

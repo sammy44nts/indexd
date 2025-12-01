@@ -11,10 +11,7 @@ import (
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/indexd/slabs"
-	"go.sia.tech/indexd/subscriber"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -343,7 +340,7 @@ func TestSharedObjects(t *testing.T) {
 		store.addTestContract(t, hostKeys[i])
 	}
 
-	pinRandomSlab := func(t *testing.T) slabs.SharedSlab {
+	pinRandomSlab := func(t *testing.T) slabs.PinnedSlabSlice {
 		t.Helper()
 
 		s := slabs.SlabPinParams{
@@ -365,15 +362,13 @@ func TestSharedObjects(t *testing.T) {
 			t.Fatalf("expected slab ID %v, got %v", id, slabIDs[0])
 		}
 
-		so := slabs.SharedSlab{
-			PinnedSlab: slabs.PinnedSlab{
-				ID:            slabIDs[0],
-				EncryptionKey: s.EncryptionKey,
-				MinShards:     s.MinShards,
-				Sectors:       make([]slabs.PinnedSector, len(s.Sectors)),
-			},
-			Offset: uint32(frand.Uint64n(math.MaxInt32)),
-			Length: uint32(frand.Uint64n(math.MaxInt32)),
+		so := slabs.PinnedSlabSlice{
+			ID:            slabIDs[0],
+			EncryptionKey: s.EncryptionKey,
+			MinShards:     s.MinShards,
+			Sectors:       make([]slabs.PinnedSector, len(s.Sectors)),
+			Offset:        uint32(frand.Uint64n(math.MaxInt32)),
+			Length:        uint32(frand.Uint64n(math.MaxInt32)),
 		}
 		for i := range s.Sectors {
 			so.Sectors[i] = slabs.PinnedSector{
@@ -386,7 +381,7 @@ func TestSharedObjects(t *testing.T) {
 
 	// add an object with multiple slabs
 	expectedSharedObj := slabs.SharedObject{
-		Slabs:             []slabs.SharedSlab{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
+		Slabs:             []slabs.PinnedSlabSlice{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
 		EncryptedMetadata: []byte("hello world"),
 	}
 	obj := slabs.SealedObject{
@@ -445,12 +440,8 @@ func BenchmarkSaveObject(b *testing.B) {
 
 	hostKeys := make([]types.PublicKey, 30)
 	for i := range hostKeys {
-		hostKeys[i] = types.GeneratePrivateKey().PublicKey()
-		if err := store.UpdateChainState(func(tx subscriber.UpdateTx) error {
-			return tx.AddHostAnnouncement(hostKeys[i], chain.V2HostAnnouncement{{Protocol: quic.Protocol, Address: "[::]:4848"}}, time.Now())
-		}); err != nil {
-			b.Fatal(err)
-		}
+		hostKeys[i] = store.addTestHost(b)
+		store.addTestContract(b, hostKeys[i])
 	}
 
 	var objs []slabs.SealedObject
@@ -458,7 +449,7 @@ func BenchmarkSaveObject(b *testing.B) {
 		b.Helper()
 
 		s := slabs.SlabPinParams{
-			MinShards:     uint(frand.Intn(255)) + 1,
+			MinShards:     uint(frand.Intn(10)) + 1,
 			EncryptionKey: frand.Entropy256(),
 			Sectors:       make([]slabs.PinnedSector, 30),
 		}
@@ -493,11 +484,13 @@ func BenchmarkSaveObject(b *testing.B) {
 			})
 		}
 		obj.EncryptedMetadata = frand.Bytes(1024)
+		obj.EncryptedMasterKey = frand.Bytes(72)
+		obj.Signature = types.Signature(frand.Bytes(64))
 
 		return
 	}
 
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		obj := pinObject(b)
 		if err := store.SaveObject(acc1, obj); err != nil {
 			b.Fatal(err)

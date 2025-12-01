@@ -17,7 +17,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/mux/v2"
@@ -112,8 +111,9 @@ top:
 			switch addr.Protocol {
 			case siamux.Protocol:
 				transport, err = siamux.Dial(dialCtx, addr.Address, hostKey)
-			case quic.Protocol:
-				transport, err = quic.Dial(dialCtx, addr.Address, hostKey)
+			// TODO: re-enable QUIC once we have increased the max streams on the host side
+			/*case quic.Protocol:
+			transport, err = quic.Dial(dialCtx, addr.Address, hostKey)*/
 			default:
 				return
 			}
@@ -197,7 +197,7 @@ func (c *Client) rpcFn(ctx context.Context, hostKey types.PublicKey, fn func(ctx
 func (c *Client) Prices(ctx context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
 	c.mu.Lock()
 	prices := c.cachedPrices[hostKey]
-	if prices.Validate(hostKey) == nil {
+	if prices.Validate(hostKey) == nil && time.Until(prices.ValidUntil) > 30*time.Second {
 		c.mu.Unlock()
 		return prices, nil
 	}

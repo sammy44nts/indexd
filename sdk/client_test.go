@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/internal/testutils"
 	"go.uber.org/zap/zaptest"
@@ -93,16 +94,86 @@ func TestDownload(t *testing.T) {
 	s := initSDK(appKey, newMockAppClient(), dialer)
 	defer s.Close()
 
-	data := frand.Bytes(4096)
+	slabSize := uint64(proto.SectorSize) * 10
+	dataSize := slabSize * 3 // 3 slabs
+	data := frand.Bytes(int(dataSize))
+
 	obj, err := s.Upload(context.Background(), bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
 	}
 
-	buf := bytes.NewBuffer(nil)
-	if err = s.Download(context.Background(), buf, obj); err != nil {
-		t.Fatalf("failed to download: %v", err)
+	err = s.client.SaveObject(t.Context(), obj.Seal(appKey))
+	if err != nil {
+		t.Fatalf("failed to save object to mock client: %v", err)
 	}
+
+	sharedURL, err := s.CreateSharedObjectURL(t.Context(), obj.ID(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("failed to create shared object URL: %v", err)
+	}
+
+	t.Run("full", func(t *testing.T) {
+		buf := bytes.NewBuffer(nil)
+		if err = s.Download(context.Background(), buf, obj); err != nil {
+			t.Fatalf("failed to download: %v", err)
+		} else if !bytes.Equal(buf.Bytes(), data) {
+			t.Fatal("data mismatch")
+		}
+
+		buf.Reset()
+		if err := s.DownloadSharedObject(t.Context(), buf, sharedURL); err != nil {
+			t.Fatalf("failed to download shared object: %v", err)
+		} else if !bytes.Equal(buf.Bytes(), data) {
+			t.Fatal("data mismatch")
+		}
+	})
+
+	t.Run("ranges", func(t *testing.T) {
+		randomOffsetLength := func() [2]uint64 {
+			offset := frand.Uint64n(dataSize - 1)
+			length := frand.Uint64n(dataSize - offset + 1)
+			return [2]uint64{offset, length}
+		}
+
+		cases := [][2]uint64{
+			{0, proto.SectorSize},
+			{proto.SectorSize, proto.SectorSize},
+			{proto.LeafSize, proto.LeafSize},
+			{proto.LeafSize + 1, proto.LeafSize / 2},            // within a leaf
+			{proto.LeafSize + proto.LeafSize/2, proto.LeafSize}, // across leaves
+			{slabSize / 2, 2 * slabSize},                        // across slabs
+			{dataSize - proto.SectorSize, proto.SectorSize},
+			{dataSize - proto.LeafSize, proto.LeafSize},
+			{dataSize, 0},
+		}
+		for range 10 {
+			cases = append(cases, randomOffsetLength())
+		}
+
+		for _, c := range cases {
+			buf := bytes.NewBuffer(nil)
+			if err = s.Download(context.Background(), buf, obj, WithDownloadRange(c[0], c[1])); err != nil {
+				t.Fatalf("failed to download: %v", err)
+			} else if !bytes.Equal(buf.Bytes(), data[c[0]:c[0]+c[1]]) {
+				t.Fatal("data mismatch")
+			}
+
+			buf.Reset()
+			if err := s.DownloadSharedObject(t.Context(), buf, sharedURL, WithDownloadRange(c[0], c[1])); err != nil {
+				t.Fatalf("failed to download shared object: %v", err)
+			} else if !bytes.Equal(buf.Bytes(), data[c[0]:c[0]+c[1]]) {
+				t.Fatal("data mismatch")
+			}
+		}
+
+		// assert that out-of-bounds ranges fail
+		if err := s.Download(context.Background(), nil, obj, WithDownloadRange(dataSize, 1)); err == nil {
+			t.Fatal("expected error for out-of-bounds range, got nil")
+		} else if err := s.DownloadSharedObject(t.Context(), nil, sharedURL, WithDownloadRange(dataSize, 1)); err == nil {
+			t.Fatal("expected error for out-of-bounds range, got nil")
+		}
+	})
 
 	t.Run("timeout", func(t *testing.T) {
 		dialer.ResetSlowHosts()

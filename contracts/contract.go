@@ -164,8 +164,12 @@ func (c Contract) GoodForAccountFunding(target types.Currency) error {
 	}
 }
 
+func (c Contract) inRenewWindow(renewWindow, height uint64) bool {
+	return c.ProofHeight <= height+renewWindow
+}
+
 // GoodForAppend indicates whether a contract can be used to append sectors
-func (c Contract) GoodForAppend(prices proto.HostPrices, height uint64) error {
+func (c Contract) GoodForAppend(prices proto.HostPrices, renewWindow, height uint64) error {
 	switch {
 	case !c.Good:
 		return fmt.Errorf("contract is not good")
@@ -173,23 +177,25 @@ func (c Contract) GoodForAppend(prices proto.HostPrices, height uint64) error {
 		return fmt.Errorf("contract has reached maximum size")
 	case c.ProofHeight <= height:
 		return fmt.Errorf("contract is not revisable")
+	case c.inRenewWindow(renewWindow, height):
+		return fmt.Errorf("contract is in renew window")
 	case c.Size < c.Capacity:
 		return nil
 	}
 	// check if there is enough allowance and collateral to append at least one sector
 	appendUsage := prices.RPCAppendSectorsCost(1, c.ExpirationHeight-height)
 	renterCost, hostCollateral := appendUsage.RenterCost(), appendUsage.HostRiskedCollateral()
-	usedCollateral := c.UsedCollateral.Add(hostCollateral)
+	remainingCollateral := c.TotalCollateral.Sub(c.UsedCollateral)
 	if c.RemainingAllowance.Cmp(renterCost) < 0 {
 		return fmt.Errorf("not enough remaining allowance to append a sector, need %s, have %s", renterCost, c.RemainingAllowance)
-	} else if c.TotalCollateral.Cmp(usedCollateral) < 0 {
-		return fmt.Errorf("not enough remaining collateral to append a sector, need %s, have %s", usedCollateral, c.TotalCollateral)
+	} else if remainingCollateral.Cmp(hostCollateral) < 0 {
+		return fmt.Errorf("not enough remaining collateral to append a sector, need %s, have %s", hostCollateral, remainingCollateral)
 	}
 	return nil
 }
 
 // GoodForRefresh indicates whether a contract is likely to succeed refreshing.
-func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.Currency, period uint64) error {
+func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.Currency, renewWindow, height, period uint64) error {
 	_, collateral := contractFunding(settings, c.Size, fundTarget, period)
 	var totalCollateral types.Currency
 	if settings.ProtocolVersion.Cmp(rhp.ProtocolVersion502) >= 0 {
@@ -202,6 +208,10 @@ func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.C
 		return fmt.Errorf("contract is not good")
 	case c.Size >= maxContractSize:
 		return fmt.Errorf("contract has reached maximum size")
+	case c.ProofHeight <= height:
+		return fmt.Errorf("contract is not revisable")
+	case c.inRenewWindow(renewWindow, height):
+		return fmt.Errorf("contract is in renew window")
 	case totalCollateral.Cmp(settings.MaxCollateral) > 0:
 		return fmt.Errorf("host's max collateral %s is less than estimated collateral %s for refresh", settings.MaxCollateral, totalCollateral)
 	default:
