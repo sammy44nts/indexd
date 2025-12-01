@@ -843,20 +843,11 @@ func TestPruneAccount(t *testing.T) {
 		return ss
 	}
 
-	randomObject := func(s []slabs.SlabSlice) slabs.SealedObject {
-		return slabs.SealedObject{
-			EncryptedMasterKey: frand.Bytes(72),
-			Slabs:              s,
-			EncryptedMetadata:  []byte("hello world"),
-			Signature:          (types.Signature)(frand.Bytes(64)),
-		}
-	}
-
 	// pin two objects to each account
 	obj1Slabs := randomSlabs(3)
 	pinSlabs(acc1, obj1Slabs)
 	pinSlabs(acc2, obj1Slabs)
-	obj1Acc1 := randomObject(pinSlabs(acc1, obj1Slabs))
+	obj1Acc1 := store.testRandomObject(pinSlabs(acc1, obj1Slabs))
 	if err := store.SaveObject(acc1, obj1Acc1); err != nil {
 		t.Fatal(err)
 	}
@@ -871,7 +862,7 @@ func TestPruneAccount(t *testing.T) {
 	obj2Slabs := randomSlabs(3)
 	pinSlabs(acc1, obj2Slabs)
 	pinSlabs(acc2, obj2Slabs)
-	obj2Acc1 := randomObject(pinSlabs(acc1, obj2Slabs))
+	obj2Acc1 := store.testRandomObject(pinSlabs(acc1, obj2Slabs))
 	if err := store.SaveObject(acc1, obj2Acc1); err != nil {
 		t.Fatal(err)
 	}

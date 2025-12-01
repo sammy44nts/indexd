@@ -19,6 +19,15 @@ import (
 	"lukechampine.com/frand"
 )
 
+func (s *Store) testRandomObject(ss []slabs.SlabSlice) slabs.SealedObject {
+	return slabs.SealedObject{
+		EncryptedMasterKey: frand.Bytes(72),
+		Slabs:              ss,
+		EncryptedMetadata:  []byte("hello world"),
+		Signature:          (types.Signature)(frand.Bytes(64)),
+	}
+}
+
 func TestObjects(t *testing.T) {
 	store := initPostgres(t, zap.NewNop())
 
@@ -111,18 +120,10 @@ func TestObjects(t *testing.T) {
 		return ss
 	}
 
-	randomObject := func(s []slabs.SlabSlice) slabs.SealedObject {
-		return slabs.SealedObject{
-			EncryptedMasterKey: frand.Bytes(72),
-			Slabs:              s,
-			EncryptedMetadata:  []byte("hello world"),
-			Signature:          (types.Signature)(frand.Bytes(64)),
-		}
-	}
 	obj1Slabs := randomSlabs(3)
 	pinSlabs(acc1, obj1Slabs)
 	pinSlabs(acc2, obj1Slabs)
-	obj1Acc1 := randomObject(pinSlabs(acc1, obj1Slabs))
+	obj1Acc1 := store.testRandomObject(pinSlabs(acc1, obj1Slabs))
 
 	if err := store.SaveObject(acc1, obj1Acc1); err != nil {
 		t.Fatal(err)
@@ -175,7 +176,7 @@ func TestObjects(t *testing.T) {
 	assertObj(obj1Acc2, objs[0])
 
 	// add another object to acc2
-	obj2 := randomObject(pinSlabs(acc2, randomSlabs(2)))
+	obj2 := store.testRandomObject(pinSlabs(acc2, randomSlabs(2)))
 	if err := store.SaveObject(acc2, obj2); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,7 @@ func TestObjects(t *testing.T) {
 	}
 
 	// assert listing objects for accounts that include a deleted object works
-	obj2Acc1 := randomObject(pinSlabs(acc1, randomSlabs(3)))
+	obj2Acc1 := store.testRandomObject(pinSlabs(acc1, randomSlabs(3)))
 	if err := store.SaveObject(acc1, obj2Acc1); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +260,7 @@ func TestListObjectsRegression(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	randomObject := func() slabs.SealedObject {
+	randomSlabs := func() []slabs.SlabSlice {
 		slab := slabs.SlabPinParams{
 			EncryptionKey: frand.Entropy256(),
 			MinShards:     1,
@@ -276,29 +277,24 @@ func TestListObjectsRegression(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return slabs.SealedObject{
-			EncryptedMasterKey: frand.Bytes(72),
-			Slabs: []slabs.SlabSlice{
-				{
-					SlabID: slabID,
-					Offset: 10,
-					Length: 100,
-				},
-				{
-					SlabID: slabID,
-					Offset: 110,
-					Length: 200,
-				},
+		return []slabs.SlabSlice{
+			{
+				SlabID: slabID,
+				Offset: 10,
+				Length: 100,
 			},
-			EncryptedMetadata: []byte("hello world"),
-			Signature:         (types.Signature)(frand.Bytes(64)),
+			{
+				SlabID: slabID,
+				Offset: 110,
+				Length: 200,
+			},
 		}
 	}
 
 	// add multiple objects
 	var objectIDs []types.Hash256
 	for range 3 {
-		obj := randomObject()
+		obj := store.testRandomObject(randomSlabs())
 		objectIDs = append(objectIDs, obj.ID())
 		if err := store.SaveObject(acc, obj); err != nil {
 			t.Fatal(err)
