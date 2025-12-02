@@ -53,8 +53,6 @@ type (
 		parityShards uint8
 		hostTimeout  time.Duration
 		maxInflight  int
-		metadata     []byte
-		skipSave     bool
 	}
 )
 

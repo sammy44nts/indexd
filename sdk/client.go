@@ -21,7 +21,6 @@ import (
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/chacha20"
-	"lukechampine.com/frand"
 )
 
 type (
@@ -156,8 +155,10 @@ top:
 
 // Upload uploads the data to hosts and pins it to the indexer.
 //
-// Returns the metadata of the slabs that were pinned
-func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Object, error) {
+// Appends the metadata of the slabs that were uploaded to the given object.
+// After uploading the object, the caller must call SaveObject to save the
+// object metadata to the indexer.
+func (s *SDK) Upload(ctx context.Context, obj *Object, r io.Reader, opts ...UploadOption) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -173,19 +174,15 @@ func (s *SDK) Upload(ctx context.Context, r io.Reader, opts ...UploadOption) (Ob
 
 	totalShards := int(uo.dataShards) + int(uo.parityShards)
 	if err := slabs.ValidateECParams(int(uo.dataShards), totalShards); err != nil {
-		return Object{}, err
+		return err
 	}
 
-	obj := Object{
-		masterKey: frand.Bytes(32),
-		metadata:  uo.metadata,
-	}
 	r = encrypt((*[32]byte)(obj.masterKey), r, 0)
 
 	// create erasure coder
 	enc, err := reedsolomon.New(int(uo.dataShards), int(uo.parityShards))
 	if err != nil {
-		return Object{}, fmt.Errorf("failed to create erasure coder: %w", err)
+		return fmt.Errorf("failed to create erasure coder: %w", err)
 	}
 
 	// start uploading slabs
@@ -197,14 +194,14 @@ top:
 	for {
 		select {
 		case <-ctx.Done():
-			return Object{}, ctx.Err()
+			return ctx.Err()
 		case slab := <-slabsCh:
 			err := slab.err
 			if errors.Is(err, io.EOF) {
 				// all slabs complete
 				break top
 			} else if slab.err != nil {
-				return Object{}, slab.err
+				return slab.err
 			}
 
 			slabIndex := len(obj.slabs)
@@ -219,10 +216,10 @@ top:
 			for n := totalShards; n > 0; n-- {
 				select {
 				case <-ctx.Done():
-					return Object{}, ctx.Err()
+					return ctx.Err()
 				case shard := <-slab.uploadsCh:
 					if shard.err != nil {
-						return Object{}, fmt.Errorf("failed to upload slab: shard upload failed: %w", shard.err)
+						return fmt.Errorf("failed to upload slab: shard upload failed: %w", shard.err)
 					}
 					params.Sectors[shard.index] = slabs.PinnedSector{
 						HostKey: shard.host,
@@ -233,17 +230,17 @@ top:
 
 			expectedSlabID, err := params.Digest()
 			if err != nil {
-				return Object{}, fmt.Errorf("failed to compute slab id for slab %d: %w", slabIndex, err)
+				return fmt.Errorf("failed to compute slab id for slab %d: %w", slabIndex, err)
 			}
 
 			slabIDs, err := s.client.PinSlabs(ctx, s.appKey, params)
 			if err != nil {
-				return Object{}, fmt.Errorf("failed to pin slab %d: %w", slabIndex, err)
+				return fmt.Errorf("failed to pin slab %d: %w", slabIndex, err)
 			}
 			slabID := slabIDs[0]
 
 			if slabID != expectedSlabID {
-				return Object{}, fmt.Errorf("pinned slab %d id %s does not match expected id %s", slabIndex, slabID.String(), expectedSlabID.String())
+				return fmt.Errorf("pinned slab %d id %s does not match expected id %s", slabIndex, slabID.String(), expectedSlabID.String())
 			}
 			obj.slabs = append(obj.slabs, slabs.SlabSlice{
 				SlabID: slabID,
@@ -252,11 +249,7 @@ top:
 			})
 		}
 	}
-	if uo.skipSave {
-		return obj, nil
-	}
-	// pin the object
-	return obj, s.client.SaveObject(ctx, s.appKey, obj.Seal(s.appKey))
+	return nil
 }
 
 // Download downloads object metadata
@@ -395,6 +388,12 @@ func (s *SDK) Close() error {
 }
 
 type slabIterFn func() (slabs.PinnedSlabSlice, error)
+
+// SaveObject saves the given object to the indexer. This usually only needs to
+// be caleld if the upload was done with the WithSkipSave option.
+func (s *SDK) SaveObject(ctx context.Context, obj *Object) error {
+	return s.client.SaveObject(ctx, s.appKey, obj.Seal(s.appKey))
+}
 
 // SealObject seals the object for storage in the indexer. A sealed object can
 // be safely stored and shared without granting access to the underlying
@@ -586,13 +585,6 @@ func readAtMost(r io.Reader, buf []byte) (int, error) {
 	return n, nil
 }
 
-// WithMetadata sets custom metadata to be associated with the uploaded object.
-func WithMetadata(metadata []byte) UploadOption {
-	return func(uo *uploadOption) {
-		uo.metadata = metadata
-	}
-}
-
 // WithRedundancy sets the number of data and parity shards for the upload.
 // The number of shards must be at least 2x redundancy:
 // `(dataShards + parityShards) / dataShards >= 2`.
@@ -600,16 +592,6 @@ func WithRedundancy(dataShards, parityShards uint8) UploadOption {
 	return func(uo *uploadOption) {
 		uo.dataShards = dataShards
 		uo.parityShards = parityShards
-	}
-}
-
-// WithSkipPinObject skips saving the object metadata to the indexer. This is
-// useful for when some processing needs to be done before finalizing the
-// upload. The caller must manually call PinObject to save the object if this
-// option is used.
-func WithSkipPinObject() UploadOption {
-	return func(uo *uploadOption) {
-		uo.skipSave = true
 	}
 }
 

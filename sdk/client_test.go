@@ -36,7 +36,8 @@ func TestRoundtripCount(t *testing.T) {
 
 	// 1 MB
 	data := frand.Bytes(1 << 20)
-	obj, err := s.Upload(context.Background(), bytes.NewReader(data))
+	obj := NewEmptyObject()
+	err := s.Upload(context.Background(), &obj, bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
 	} else if len(obj.Slabs()) != 1 {
@@ -68,7 +69,8 @@ func TestUpload(t *testing.T) {
 		dialer.ResetSlowHosts()
 		// make enough hosts timeout to fail
 		dialer.SetSlowHosts(30, time.Second)
-		_, err := s.Upload(context.Background(), bytes.NewReader(data), WithUploadHostTimeout(100*time.Millisecond))
+		obj := NewEmptyObject()
+		err := s.Upload(context.Background(), &obj, bytes.NewReader(data), WithUploadHostTimeout(100*time.Millisecond))
 		if !errors.Is(err, ErrNoMoreHosts) {
 			t.Fatalf("expected ErrNoMoreHosts, got %v", err)
 		}
@@ -79,7 +81,8 @@ func TestUpload(t *testing.T) {
 		// make most of the hosts slow,
 		// but not enough to fail to upload
 		dialer.SetSlowHosts(20, time.Second)
-		obj, err := s.Upload(context.Background(), bytes.NewReader(data), WithUploadHostTimeout(100*time.Millisecond))
+		obj := NewEmptyObject()
+		err := s.Upload(context.Background(), &obj, bytes.NewReader(data), WithUploadHostTimeout(100*time.Millisecond))
 		if err != nil {
 			t.Fatal(err)
 		} else if len(obj.Slabs()) != 1 {
@@ -98,7 +101,8 @@ func TestDownload(t *testing.T) {
 	dataSize := slabSize * 3 // 3 slabs
 	data := frand.Bytes(int(dataSize))
 
-	obj, err := s.Upload(context.Background(), bytes.NewReader(data))
+	obj := NewEmptyObject()
+	err := s.Upload(context.Background(), &obj, bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
 	}
@@ -217,7 +221,8 @@ func TestE2E(t *testing.T) {
 	}
 
 	data := frand.Bytes(4096)
-	obj, err := client.Upload(context.Background(), bytes.NewReader(data), WithRedundancy(2, 8))
+	obj := NewEmptyObject()
+	err = client.Upload(t.Context(), &obj, bytes.NewReader(data), WithRedundancy(2, 8))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
 	}
@@ -253,7 +258,8 @@ func BenchmarkUpload(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				r.Reset(data)
-				if _, err := s.Upload(context.Background(), r, WithUploadInflight(inflight)); err != nil {
+				obj := NewEmptyObject()
+				if err := s.Upload(context.Background(), &obj, r, WithUploadInflight(inflight)); err != nil {
 					b.Fatalf("failed to upload: %v", err)
 				}
 			}
@@ -282,7 +288,8 @@ func BenchmarkDownload(b *testing.B) {
 	defer s.Close()
 
 	data := frand.Bytes(benchmarkSize)
-	obj, err := s.Upload(context.Background(), bytes.NewReader(data))
+	obj := NewEmptyObject()
+	err := s.Upload(b.Context(), &obj, bytes.NewReader(data))
 	if err != nil {
 		b.Fatalf("failed to upload: %v", err)
 	}

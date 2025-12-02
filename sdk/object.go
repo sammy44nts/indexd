@@ -93,14 +93,11 @@ func (o *Object) UpdateMetadata(meta json.RawMessage) {
 	o.metadata = slices.Clone(meta)
 }
 
-// NewObject creates a new Object with the given master key, slabs, and
-// metadata.
-func NewObject(slabs []slabs.SlabSlice, meta json.RawMessage) Object {
+// NewEmptyObject creates a new Object to use in [Upload].
+func NewEmptyObject() Object {
 	now := time.Now()
 	return Object{
-		masterKey: types.GeneratePrivateKey(),
-		slabs:     slabs,
-		metadata:  meta,
+		masterKey: frand.Bytes(32),
 		createdAt: now,
 		updatedAt: now,
 	}
