@@ -20,8 +20,8 @@ import (
 // lookup a hostname with the `main` resolver first.  If that fails for a
 // non context related reason, then it will try the `fallback` resolver.
 type resolver struct {
-	main     *net.Resolver
-	fallback *net.Resolver
+	main     Resolver
+	fallback Resolver
 }
 
 // LookupIPAddr implements [Resolver].
