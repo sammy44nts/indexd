@@ -200,13 +200,23 @@ func (hm *HostManager) UnblockHost(ctx context.Context, hk types.PublicKey) erro
 
 // NewManager creates a new host manager.
 func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, opts ...Option) (*HostManager, error) {
+	// uses Cloudflare 1.1.1.1 for when OS resolver fails
+	fallbackResolver := &net.Resolver{
+		// PreferGo allows us to use our own dialer
+		// https://github.com/golang/go/issues/35561
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, "1.1.1.1:53")
+		},
+	}
+
 	m := &HostManager{
 		announcementMaxAge: time.Hour * 24 * 365,
 		scanFrequency:      time.Hour,
 		scanInterval:       time.Hour * 24,
 
 		onlineChecker: &onlineChecker{addresses: fallbackSites, syncer: syncer},
-		resolver:      &net.Resolver{},
+		resolver:      &resolver{main: &net.Resolver{}, fallback: fallbackResolver},
 		scanner:       &scanner{},
 		locator:       locator,
 		store:         store,
