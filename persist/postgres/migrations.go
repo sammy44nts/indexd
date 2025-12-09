@@ -586,7 +586,7 @@ DROP TABLE service_accounts;`)
 	func(ctx context.Context, tx *txn, l *zap.Logger) error {
 		// rename encrypted_master_key column to encrypted_data_key
 		_, err := tx.Exec(ctx, `
--- rename constraints of existing colums
+-- rename constraints of existing columns
 ALTER TABLE objects RENAME CONSTRAINT objects_encrypted_master_key_key TO objects_encrypted_data_key_key;
 ALTER TABLE objects RENAME CONSTRAINT objects_signature_key TO objects_data_signature_key;
 ALTER TABLE objects RENAME CONSTRAINT objects_encrypted_master_key_check TO objects_encrypted_data_key_check;
