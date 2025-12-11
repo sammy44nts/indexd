@@ -354,18 +354,11 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	obj := slabs.SealedObject{
-		EncryptedMasterKey: frand.Bytes(72),
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
 		Slabs: []slabs.SlabSlice{
-			{
-				SlabID: slab1.ID,
-				Offset: 0,
-				Length: 256,
-			},
-			{
-				SlabID: slab2.ID,
-				Offset: 0,
-				Length: 256,
-			},
+			slab1.Slice(0, 256),
+			slab2.Slice(0, 256),
 		},
 		EncryptedMetadata: nil,
 	}
@@ -376,7 +369,7 @@ func TestApplicationAPI(t *testing.T) {
 	}
 
 	// sign and save the object
-	obj.Signature = sk.SignHash(obj.SigHash())
+	obj.Sign(sk)
 	if err := client.SaveObject(context.Background(), sk, obj); err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +426,8 @@ func TestApplicationAPI(t *testing.T) {
 	sk2, _ := newAccount(t, cluster)
 	client2 := indexer.App(sk2)
 
-	slabIDs, err = client2.PinSlabs(context.Background(), sk2, params())
+	p2 := params()
+	slabIDs, err = client2.PinSlabs(context.Background(), sk2, p2)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
@@ -441,14 +435,11 @@ func TestApplicationAPI(t *testing.T) {
 
 	// Try to save an object referencing that slab on first account
 	badObj := slabs.SealedObject{
-		EncryptedMasterKey: frand.Bytes(72),
-		Slabs: []slabs.SlabSlice{{
-			SlabID: slabID,
-			Offset: 0,
-			Length: 256,
-		}},
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
+		Slabs:                []slabs.SlabSlice{p2.Slice(0, 256)},
 	}
-	badObj.Signature = sk.SignHash(badObj.SigHash())
+	badObj.Sign(sk)
 	if err := client.SaveObject(context.Background(), sk, badObj); err == nil || err.Error() != slabs.ErrObjectUnpinnedSlab.Error() {
 		t.Fatalf("expected %v, got %v", slabs.ErrObjectUnpinnedSlab, err)
 	}
@@ -658,76 +649,34 @@ func TestSharedObjects(t *testing.T) {
 	}
 	// generate and pin a slab
 	slab1Params := randomSlab()
-	slab1sID, err := client1.PinSlabs(ctx, sk1, slab1Params)
+	_, err = client1.PinSlabs(ctx, sk1, slab1Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
-	slab1ID := slab1sID[0]
 
 	slab2Params := randomSlab()
-	slab2sID, err := client1.PinSlabs(ctx, sk1, slab2Params)
+	_, err = client1.PinSlabs(ctx, sk1, slab2Params)
 	if err != nil {
 		t.Fatal("failed to pin slab:", err)
 	}
-	slab2ID := slab2sID[0]
 
 	expectedSharedObj := slabs.SharedObject{
-		Slabs: []slabs.PinnedSlabSlice{
-			{
-				ID:            slab1ID,
-				EncryptionKey: slab1Params.EncryptionKey,
-				MinShards:     slab1Params.MinShards,
-				Sectors: func() []slabs.PinnedSector {
-					so := make([]slabs.PinnedSector, len(slab1Params.Sectors))
-					for i := range slab1Params.Sectors {
-						so[i] = slabs.PinnedSector{
-							Root:    slab1Params.Sectors[i].Root,
-							HostKey: slab1Params.Sectors[i].HostKey,
-						}
-					}
-					return so
-				}(),
-				Offset: 0,
-				Length: 256,
-			},
-			{
-				ID:            slab2ID,
-				EncryptionKey: slab2Params.EncryptionKey,
-				MinShards:     slab2Params.MinShards,
-				Sectors: func() []slabs.PinnedSector {
-					so := make([]slabs.PinnedSector, len(slab2Params.Sectors))
-					for i := range slab2Params.Sectors {
-						so[i] = slabs.PinnedSector{
-							Root:    slab2Params.Sectors[i].Root,
-							HostKey: slab2Params.Sectors[i].HostKey,
-						}
-					}
-					return so
-				}(),
-				Offset: 0,
-				Length: 256,
-			},
+		Slabs: []slabs.SlabSlice{
+			slab1Params.Slice(0, 256),
+			slab2Params.Slice(0, 256),
 		},
-		EncryptedMetadata: nil,
 	}
 
 	// add the object to the db
 	obj := slabs.SealedObject{
-		EncryptedMasterKey: frand.Bytes(72),
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
 		Slabs: []slabs.SlabSlice{
-			{
-				SlabID: slab1ID,
-				Offset: 0,
-				Length: 256,
-			},
-			{
-				SlabID: slab2ID,
-				Offset: 0,
-				Length: 256,
-			},
+			slab1Params.Slice(0, 256),
+			slab2Params.Slice(0, 256),
 		},
 	}
-	obj.Signature = sk1.SignHash(obj.SigHash())
+	obj.Sign(sk1)
 	if err := client1.SaveObject(ctx, sk1, obj); err != nil {
 		t.Fatal(err)
 	}

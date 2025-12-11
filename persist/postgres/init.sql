@@ -294,12 +294,14 @@ CREATE INDEX slabs_id_next_repair_attempt_idx ON slabs(next_repair_attempt ASC);
 CREATE TABLE objects (
     id BIGSERIAL PRIMARY KEY,
     object_key BYTEA NOT NULL CHECK(LENGTH(object_key) = 32),
-    encrypted_master_key BYTEA UNIQUE NOT NULL CHECK(LENGTH(encrypted_master_key) = 72), -- user provided, master encryption key (xchacha20 nonce + key + tag)
+    encrypted_data_key BYTEA UNIQUE NOT NULL CHECK(LENGTH(encrypted_data_key) = 72), -- user provided, data encryption key (xchacha20 nonce + key + tag)
+    encrypted_meta_key BYTEA UNIQUE CHECK(LENGTH(encrypted_meta_key) = 72), -- user provided, metadata encryption key (xchacha20 nonce + key + tag)
     account_id INTEGER REFERENCES accounts(id) NOT NULL, -- account that owns object
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- allow sorting by update time
     encrypted_metadata BYTEA, -- user provided, encrypted metadata
-    signature BYTEA UNIQUE NOT NULL CHECK(LENGTH(signature) = 64) -- signature of blake2b(object_key || encrypted_master_key || encrypted_metadata)
+    data_signature BYTEA UNIQUE NOT NULL CHECK(LENGTH(data_signature) = 64), -- signature of blake2b(object_key || encrypted_data_key)
+    meta_signature BYTEA UNIQUE NOT NULL CHECK(LENGTH(meta_signature) = 64) -- signature of blake2b(object ID || metadata key || encrypted_metadata)
 );
 
 -- object_key is unique per account
@@ -308,7 +310,7 @@ CREATE UNIQUE INDEX objects_account_id_object_key_idx ON objects(account_id, obj
 CREATE TABLE object_slabs (
     object_id BIGINT REFERENCES objects(id) ON DELETE CASCADE,
     slab_digest BYTEA REFERENCES slabs(digest) ON DELETE CASCADE,
-    slab_index INTEGER NOT NULL, -- index within corresponding slab to retrieve slabs in right order
+    slab_index INTEGER NOT NULL, -- index within corresponding object to retrieve slabs in right order
     slab_offset INTEGER NOT NULL, -- offset within slab
     slab_length INTEGER NOT NULL, -- length of object data within slab
     PRIMARY KEY (object_id, slab_digest, slab_index)

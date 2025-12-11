@@ -189,19 +189,28 @@ components:
           allOf:
             - $ref: "#/components/schemas/Hash256"
             - description: The object's unique ID
-        encryptedMasterKey:
+        encryptedDataKey:
           type: string
           format: byte
-          description: The encrypted master key used to encrypt and decrypt the object's data and metadata
+          description: The encrypted data key used to encrypt and decrypt the object's data
         slabs:
           type: array
           items:
             $ref: "#/components/schemas/SlabSlice"
           description: The list of slabs that make up the object
+        dataSignature:
+          $ref: "#/components/schemas/Signature"
+          description: The signature of the object's data
+        encryptedMetadataKey:
+          type: string
+          format: byte
+          description: The encrypted metadata key used to encrypt and decrypt the object's metadata
         encryptedMetadata:
           type: string
           format: byte
           description: Optional metadata stored on the object
+        metadataSignature:
+          $ref: "#/components/schemas/Signature"
         createdAt:
           type: string
           format: date-time
@@ -224,47 +233,7 @@ components:
           type: array
           description: The list of slabs that make up the shared object
           items:
-            $ref: "#/components/schemas/SharedSlab"
-        encryptedMetadata:
-          type: string
-          format: byte
-          description: Optional metadata stored on the object
-
-    # A slab of a shared object including decryption info and slice bounds.
-    SharedSlab:
-      type: object
-      properties:
-        id:
-          allOf:
-            - $ref: "#/components/schemas/SlabID"
-            - description: The slab's ID
-        encryptionKey:
-          type: array
-          description: 32-byte key used to decrypt the slab
-          minItems: 32
-          maxItems: 32
-          items:
-            type: integer
-            format: uint8
-            minimum: 0
-            maximum: 255
-        minShards:
-          type: integer
-          format: uint64
-          description: Minimum number of shards required to reconstruct the slab
-        sectors:
-          type: array
-          description: The list of pinned sectors composing the slab
-          items:
-            $ref: "#/components/schemas/PinnedSector"
-        offset:
-          type: integer
-          format: uint32
-          description: The offset within the slab where the slice starts
-        length:
-          type: integer
-          format: uint32
-          description: The length of the slice
+            $ref: "#/components/schemas/SlabSlice"
 
     # A sector pinned to a host.
     PinnedSector:
@@ -324,8 +293,19 @@ components:
     SlabSlice:
       type: object
       properties:
-        slabID:
+        id:
           $ref: "#/components/schemas/SlabID"
+        encryptionKey:
+          $ref: "#/components/schemas/EncryptionKey"
+        minShards:
+          type: integer
+          format: uint64
+          description: Minimum number of shards required to reconstruct the slab
+        sectors:
+          type: array
+          description: The list of sectors composing the slab
+          items:
+            $ref: "#/components/schemas/PinnedSector"
         offset:
           type: integer
           format: uint32

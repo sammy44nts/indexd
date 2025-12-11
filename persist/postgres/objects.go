@@ -17,15 +17,15 @@ import (
 func (s *Store) SharedObject(key types.Hash256) (obj slabs.SharedObject, _ error) {
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		var objID int64
-		err := tx.QueryRow(ctx, `SELECT id, encrypted_metadata FROM objects WHERE object_key = $1
-		`, sqlHash256(key)).Scan(&objID, &obj.EncryptedMetadata)
+		err := tx.QueryRow(ctx, `SELECT id FROM objects WHERE object_key = $1
+		`, sqlHash256(key)).Scan(&objID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return slabs.ErrObjectNotFound
 		} else if err != nil {
 			return fmt.Errorf("failed to query shared object: %w", err)
 		}
 
-		rows, err := tx.Query(ctx, `SELECT s.id, os.slab_digest, s.encryption_key, s.min_shards, os.slab_offset, os.slab_length
+		rows, err := tx.Query(ctx, `SELECT s.id, s.encryption_key, s.min_shards, os.slab_offset, os.slab_length
 		FROM object_slabs os
 		INNER JOIN slabs s ON (os.slab_digest = s.digest)
 		WHERE os.object_id = $1
@@ -35,11 +35,11 @@ func (s *Store) SharedObject(key types.Hash256) (obj slabs.SharedObject, _ error
 			return fmt.Errorf("failed to query slabs: %w", err)
 		}
 		batch := &pgx.Batch{}
-		var objectSlabs []slabs.PinnedSlabSlice
+		var objectSlabs []slabs.SlabSlice
 		for rows.Next() {
-			var slab slabs.PinnedSlabSlice
+			var slab slabs.SlabSlice
 			var slabDBID int64
-			err := rows.Scan(&slabDBID, (*sqlHash256)(&slab.ID), (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards, &slab.Offset, &slab.Length)
+			err := rows.Scan(&slabDBID, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards, &slab.Offset, &slab.Length)
 			if err != nil {
 				return fmt.Errorf("failed to scan slab: %w", err)
 			}
@@ -48,15 +48,19 @@ func (s *Store) SharedObject(key types.Hash256) (obj slabs.SharedObject, _ error
 
 			batch.Queue(`SELECT s.sector_root, h.public_key FROM sectors s
 INNER JOIN slab_sectors ss ON (ss.sector_id = s.id)
-INNER JOIN hosts h ON (h.id = s.host_id)
+LEFT JOIN hosts h ON (h.id = s.host_id)
 WHERE ss.slab_id = $1
 ORDER BY ss.slab_index ASC`, slabDBID).Query(func(rows pgx.Rows) error {
 				defer rows.Close()
 				for rows.Next() {
 					var sector slabs.PinnedSector
-					err := rows.Scan((*sqlHash256)(&sector.Root), (*sqlHash256)(&sector.HostKey))
+					var hostKey sql.Null[sqlPublicKey]
+					err := rows.Scan((*sqlHash256)(&sector.Root), &hostKey)
 					if err != nil {
 						return fmt.Errorf("failed to scan sector: %w", err)
+					}
+					if hostKey.Valid {
+						sector.HostKey = (types.PublicKey)(hostKey.V)
 					}
 					objectSlabs[i].Sectors = append(objectSlabs[i].Sectors, sector)
 				}
@@ -87,17 +91,22 @@ func (s *Store) Object(account proto.Account, key types.Hash256) (obj slabs.Seal
 		}
 
 		var objID int64
-		err = tx.QueryRow(ctx, `SELECT id, encrypted_master_key, encrypted_metadata, signature, created_at, updated_at FROM objects WHERE account_id = $1 AND object_key = $2
-		`, accountID, sqlHash256(key)).Scan(&objID, &obj.EncryptedMasterKey, &obj.EncryptedMetadata, (*sqlSignature)(&obj.Signature), &obj.CreatedAt, &obj.UpdatedAt)
+		var metaKey sql.Null[[]byte]
+		err = tx.QueryRow(ctx, `SELECT id, encrypted_data_key, encrypted_meta_key, encrypted_metadata, data_signature, meta_signature, created_at, updated_at FROM objects WHERE account_id = $1 AND object_key = $2
+		`, accountID, sqlHash256(key)).Scan(&objID, &obj.EncryptedDataKey, &metaKey, &obj.EncryptedMetadata, (*sqlSignature)(&obj.DataSignature), (*sqlSignature)(&obj.MetadataSignature), &obj.CreatedAt, &obj.UpdatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return slabs.ErrObjectNotFound
 		} else if err != nil {
 			return fmt.Errorf("failed to query object: %w", err)
 		}
+		if metaKey.Valid {
+			obj.EncryptedMetadataKey = metaKey.V
+		}
 
 		rows, err := tx.Query(ctx, `
-			SELECT slab_digest, slab_offset, slab_length
+			SELECT slabs.id, slab_offset, slab_length, slabs.encryption_key, slabs.min_shards
 			FROM object_slabs
+			JOIN slabs ON slabs.digest = object_slabs.slab_digest
 			WHERE object_id = $1
 			ORDER BY slab_index ASC
 		`, objID)
@@ -106,15 +115,25 @@ func (s *Store) Object(account proto.Account, key types.Hash256) (obj slabs.Seal
 		}
 		defer rows.Close()
 
+		var slabIDs []int64
 		for rows.Next() {
 			var slab slabs.SlabSlice
-			err := rows.Scan((*sqlHash256)(&slab.SlabID), &slab.Offset, &slab.Length)
+			var slabID int64
+			err := rows.Scan(&slabID, &slab.Offset, &slab.Length, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
 			if err != nil {
 				return fmt.Errorf("failed to scan slab: %w", err)
 			}
 			obj.Slabs = append(obj.Slabs, slab)
+			slabIDs = append(slabIDs, slabID)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		if err := decorateSectors(ctx, tx, &obj, slabIDs); err != nil {
+			return fmt.Errorf("failed to decorate sectors of slab: %w", err)
+		}
+		return nil
 	})
 	return obj, err
 }
@@ -159,14 +178,18 @@ func (s *Store) ListObjects(account proto.Account, cursor slabs.Cursor, limit in
 
 			var obj slabs.SealedObject
 			var objID int64
-			err := tx.QueryRow(ctx, `SELECT id, encrypted_master_key, encrypted_metadata, signature, created_at, updated_at
+			var metaKey sql.Null[[]byte]
+			err := tx.QueryRow(ctx, `SELECT id, encrypted_data_key, encrypted_meta_key, encrypted_metadata, data_signature, meta_signature, created_at, updated_at
 				FROM objects
 				WHERE account_id = $1 AND object_key = $2`,
 				accountID,
 				sqlHash256(events[i].Key),
-			).Scan(&objID, &obj.EncryptedMasterKey, &obj.EncryptedMetadata, (*sqlSignature)(&obj.Signature), &obj.CreatedAt, &obj.UpdatedAt)
+			).Scan(&objID, &obj.EncryptedDataKey, &metaKey, &obj.EncryptedMetadata, (*sqlSignature)(&obj.DataSignature), (*sqlSignature)(&obj.MetadataSignature), &obj.CreatedAt, &obj.UpdatedAt)
 			if err != nil {
 				return fmt.Errorf("failed to query objects: %w", err)
+			}
+			if metaKey.Valid {
+				obj.EncryptedMetadataKey = metaKey.V
 			}
 			events[i].Object = &obj
 			objectIDs[events[i].Key] = objID
@@ -182,24 +205,35 @@ func (s *Store) ListObjects(account proto.Account, cursor slabs.Cursor, limit in
 			}
 
 			rows, err = tx.Query(ctx, `
-				SELECT slab_digest, slab_offset, slab_length
+				SELECT slabs.id, slab_offset, slab_length, slabs.encryption_key, slabs.min_shards
 				FROM object_slabs
+				JOIN slabs ON slabs.digest = object_slabs.slab_digest
 				WHERE object_id = $1
 				ORDER BY slab_index ASC
 			`, objectIDs[events[i].Key])
 			if err != nil {
 				return fmt.Errorf("failed to query slabs: %w", err)
 			}
+
+			var slabIDs []int64
 			for rows.Next() {
 				var slab slabs.SlabSlice
-				err := rows.Scan((*sqlHash256)(&slab.SlabID), &slab.Offset, &slab.Length)
+				var slabID int64
+				err := rows.Scan(&slabID, &slab.Offset, &slab.Length, (*sqlHash256)(&slab.EncryptionKey), &slab.MinShards)
 				if err != nil {
+					rows.Close()
 					return fmt.Errorf("failed to scan slab: %w", err)
 				}
 				events[i].Object.Slabs = append(events[i].Object.Slabs, slab)
+				slabIDs = append(slabIDs, slabID)
 			}
 			if err := rows.Err(); err != nil {
 				return err
+			}
+			rows.Close()
+
+			if err := decorateSectors(ctx, tx, events[i].Object, slabIDs); err != nil {
+				return fmt.Errorf("failed to decorate sectors of slab: %w", err)
 			}
 		}
 		return nil
@@ -255,10 +289,10 @@ func (s *Store) SaveObject(account proto.Account, obj slabs.SealedObject) error 
 
 		var objectID int64
 		err = tx.QueryRow(ctx, `
-			INSERT INTO objects (object_key, account_id, encrypted_master_key, encrypted_metadata, signature) VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (account_id, object_key) DO UPDATE SET (encrypted_master_key, encrypted_metadata, signature, updated_at) = (EXCLUDED.encrypted_master_key, EXCLUDED.encrypted_metadata, EXCLUDED.signature, NOW())
+			INSERT INTO objects (object_key, account_id, encrypted_data_key, encrypted_meta_key, encrypted_metadata, data_signature, meta_signature) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (account_id, object_key) DO UPDATE SET (encrypted_data_key, encrypted_meta_key, encrypted_metadata, data_signature, meta_signature, updated_at) = (EXCLUDED.encrypted_data_key, EXCLUDED.encrypted_meta_key, EXCLUDED.encrypted_metadata, EXCLUDED.data_signature, EXCLUDED.meta_signature, NOW())
 			RETURNING id`,
-			sqlHash256(obj.ID()), accountID, obj.EncryptedMasterKey, obj.EncryptedMetadata, sqlSignature(obj.Signature)).Scan(&objectID)
+			sqlHash256(obj.ID()), accountID, obj.EncryptedDataKey, obj.EncryptedMetadataKey, obj.EncryptedMetadata, sqlSignature(obj.DataSignature), sqlSignature(obj.MetadataSignature)).Scan(&objectID)
 		if err != nil {
 			return fmt.Errorf("failed to insert object: %w", err)
 		}
@@ -271,15 +305,17 @@ func (s *Store) SaveObject(account proto.Account, obj slabs.SealedObject) error 
 			return fmt.Errorf("failed to insert object event: %w", err)
 		}
 
+		slabIDs := make([]slabs.SlabID, 0, len(obj.Slabs))
+		for _, slab := range obj.Slabs {
+			slabIDs = append(slabIDs, slab.Digest())
+		}
+
 		// check that this account has pinned these slabs
 		args := make([]any, 0, len(obj.Slabs))
 		seen := make(map[slabs.SlabID]struct{})
-		for _, slab := range obj.Slabs {
-			if _, ok := seen[slab.SlabID]; ok {
-				continue
-			}
-			seen[slab.SlabID] = struct{}{}
-			args = append(args, sqlHash256(slab.SlabID))
+		for i := range obj.Slabs {
+			seen[slabIDs[i]] = struct{}{}
+			args = append(args, sqlHash256(slabIDs[i]))
 		}
 
 		var count int
@@ -301,7 +337,7 @@ AND slabs.digest = ANY($2)`, accountID, args).Scan(&count); err != nil {
 			batch.Queue(`
 				INSERT INTO object_slabs (object_id, slab_digest, slab_index, slab_offset, slab_length) VALUES ($1, $2, $3, $4, $5)
 			`,
-				objectID, sqlHash256(slab.SlabID), i, slab.Offset, slab.Length)
+				objectID, sqlHash256(slabIDs[i]), i, slab.Offset, slab.Length)
 		}
 		res := tx.SendBatch(ctx, batch)
 		if err := res.Close(); err != nil {
@@ -321,4 +357,43 @@ func accountID(ctx context.Context, tx *txn, account proto.Account) (int64, bool
 		return 0, false, fmt.Errorf("failed to get account id: %w", err)
 	}
 	return accountID, deleted, nil
+}
+
+func decorateSectors(ctx context.Context, tx *txn, so *slabs.SealedObject, slabIDs []int64) error {
+	if len(so.Slabs) != len(slabIDs) {
+		return fmt.Errorf("mismatched slab count (developer error): have %d, want %d", len(so.Slabs), len(slabIDs))
+	}
+	batch := &pgx.Batch{}
+	for i := range so.Slabs {
+		batch.Queue(`
+			SELECT s.sector_root, h.public_key
+			FROM slabs
+			JOIN slab_sectors ss ON ss.slab_id = slabs.id
+			JOIN sectors s ON s.id = ss.sector_id
+			LEFT JOIN hosts h ON h.id = s.host_id
+			WHERE slabs.id = $1
+			ORDER BY ss.slab_index ASC
+		`, slabIDs[i]).Query(func(rows pgx.Rows) error {
+			defer rows.Close()
+
+			for rows.Next() {
+				var sector slabs.PinnedSector
+				var hostKey sql.Null[sqlPublicKey]
+				err := rows.Scan((*sqlHash256)(&sector.Root), &hostKey)
+				if err != nil {
+					rows.Close()
+					return fmt.Errorf("failed to scan slab sector: %w", err)
+				}
+				if hostKey.Valid {
+					sector.HostKey = (types.PublicKey)(hostKey.V)
+				}
+				so.Slabs[i].Sectors = append(so.Slabs[i].Sectors, sector)
+			}
+			return rows.Err()
+		})
+	}
+	if err := tx.Tx.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("failed to query slab sectors: %w", err)
+	}
+	return nil
 }

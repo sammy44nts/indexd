@@ -59,11 +59,11 @@ type (
 	// Slab is a group of sectors that is encrypted, erasure-coded and uploaded
 	// to hosts.
 	Slab struct {
-		ID            SlabID    `json:"id"`
-		EncryptionKey [32]byte  `json:"encryptionKey"`
-		MinShards     uint      `json:"minShards"`
-		Sectors       []Sector  `json:"sectors"`
-		PinnedAt      time.Time `json:"pinnedAt"`
+		ID            SlabID        `json:"id"`
+		EncryptionKey EncryptionKey `json:"encryptionKey"`
+		MinShards     uint          `json:"minShards"`
+		Sectors       []Sector      `json:"sectors"`
+		PinnedAt      time.Time     `json:"pinnedAt"`
 	}
 
 	// A PinnedSector is a sector that has been pinned to a host.
@@ -74,7 +74,7 @@ type (
 
 	// SlabPinParams is the input to PinSlabs
 	SlabPinParams struct {
-		EncryptionKey [32]byte       `json:"encryptionKey"`
+		EncryptionKey EncryptionKey  `json:"encryptionKey"`
 		MinShards     uint           `json:"minShards"`
 		Sectors       []PinnedSector `json:"sectors"`
 	}
@@ -82,7 +82,7 @@ type (
 	// A PinnedSlab is a slab that has been pinned to hosts.
 	PinnedSlab struct {
 		ID            SlabID         `json:"id"`
-		EncryptionKey [32]byte       `json:"encryptionKey"`
+		EncryptionKey EncryptionKey  `json:"encryptionKey"`
 		MinShards     uint           `json:"minShards"`
 		Sectors       []PinnedSector `json:"sectors"`
 	}
@@ -103,21 +103,29 @@ func (s *SlabID) UnmarshalText(b []byte) error {
 	return (*types.Hash256)(s).UnmarshalText(b)
 }
 
-// Digest creates a unique digest for the slab to be pinned by SlabPinParams. It
-// is important, that the same params always result in the same hash since we
-// deduplicate slabs using it. So if one user makes the mistake of pinning a
-// slab with a different encryption key, this shouldn't prevent other users from
-// pinning the same slab with the correct key.
-func (s SlabPinParams) Digest() (SlabID, error) {
+// Digest computes the digest for the slab pin params.
+func (s SlabPinParams) Digest() SlabID {
+	return slabDigest(s.MinShards, s.EncryptionKey, s.Sectors)
+}
+
+// Digest computes the digest for the slab slice.
+func (s SlabSlice) Digest() SlabID {
+	return slabDigest(s.MinShards, s.EncryptionKey, s.Sectors)
+}
+
+// slabDigest creates a unique digest for a slab. It is important, that the same
+// params always result in the same hash since we deduplicate slabs using it. So
+// if one user makes the mistake of pinning a slab with a different encryption
+// key, this shouldn't prevent other users from pinning the same slab with the
+// correct key.
+func slabDigest(minShards uint, ec [32]byte, sectors []PinnedSector) SlabID {
 	hasher := types.NewHasher()
-	hasher.E.WriteUint64(uint64(s.MinShards))
-	hasher.E.Write(s.EncryptionKey[:])
-	for _, sector := range s.Sectors {
-		if _, err := hasher.E.Write(sector.Root[:]); err != nil {
-			return SlabID{}, fmt.Errorf("failed to write sector root to hasher: %w", err)
-		}
+	hasher.E.WriteUint64(uint64(minShards))
+	hasher.E.Write(ec[:])
+	for _, sector := range sectors {
+		hasher.E.Write(sector.Root[:])
 	}
-	return SlabID(hasher.Sum()), nil
+	return SlabID(hasher.Sum())
 }
 
 // Size returns the size of the slab in bytes including redundancy.

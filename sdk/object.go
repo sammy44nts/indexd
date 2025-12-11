@@ -21,7 +21,7 @@ import (
 //
 // It has no public fields to prevent accidental leakage of unencrypted data.
 type Object struct {
-	masterKey []byte
+	dataKey   []byte
 	slabs     []slabs.SlabSlice
 	metadata  json.RawMessage
 	createdAt time.Time
@@ -30,11 +30,7 @@ type Object struct {
 
 // ID returns the object's ID, which is a hash of its slabs.
 func (o *Object) ID() types.Hash256 {
-	h := types.NewHasher()
-	for _, slab := range o.slabs {
-		slab.EncodeTo(h.E)
-	}
-	return h.Sum()
+	return slabs.ObjectID(o.slabs)
 }
 
 // CreatedAt returns the time the object was created.
@@ -50,22 +46,29 @@ func (o *Object) UpdatedAt() time.Time {
 // Seal returns a SealedObject that can be safely serialized and shared.
 func (o *Object) Seal(appKey types.PrivateKey) slabs.SealedObject {
 	objectID := o.ID()
-	keyCipher := masterKeyCipher(appKey, objectID)
-	nonce := frand.Bytes(keyCipher.NonceSize())
-	encryptedMasterKey := keyCipher.Seal(nonce, nonce, o.masterKey, nil)
 
-	metaCipher := metadataCipher(o.masterKey, objectID)
-	nonce = frand.Bytes(metaCipher.NonceSize())
-	encryptedMeta := metaCipher.Seal(nonce, nonce, o.metadata, nil)
+	seal := func(keyCipher cipher.AEAD, plaintext []byte) []byte {
+		nonce := frand.Bytes(keyCipher.NonceSize())
+		return keyCipher.Seal(nonce, nonce, plaintext, nil)
+	}
+	encryptedDataKey := seal(dataKeyCipher(appKey, objectID), o.dataKey)
+
+	var encryptedMetaKey, encryptedMetadata []byte
+	if len(o.metadata) > 0 {
+		metaDataKey := frand.Bytes(32)
+		encryptedMetaKey = seal(metadataKeyCipher(appKey, objectID), metaDataKey)
+		encryptedMetadata = seal(metadataCipher(metaDataKey), o.metadata)
+	}
 
 	so := slabs.SealedObject{
-		EncryptedMasterKey: encryptedMasterKey,
-		Slabs:              o.slabs,
-		EncryptedMetadata:  encryptedMeta,
-		CreatedAt:          o.createdAt,
-		UpdatedAt:          o.updatedAt,
+		EncryptedDataKey:     encryptedDataKey,
+		Slabs:                o.slabs,
+		EncryptedMetadataKey: encryptedMetaKey,
+		EncryptedMetadata:    encryptedMetadata,
+		CreatedAt:            o.createdAt,
+		UpdatedAt:            o.updatedAt,
 	}
-	so.Signature = appKey.SignHash(so.SigHash())
+	so.Sign(appKey)
 	return so
 }
 
@@ -134,26 +137,34 @@ func (s *SDK) CreateSharedObjectURL(ctx context.Context, objectKey types.Hash256
 	if err != nil {
 		return "", fmt.Errorf("failed to get object: %w", err)
 	}
-	return s.client.CreateSharedObjectURL(ctx, s.appKey, obj.ID(), obj.masterKey, validUntil)
+	return s.client.CreateSharedObjectURL(ctx, s.appKey, obj.ID(), obj.dataKey, validUntil)
 }
 
-func masterKeyCipher(appKey types.PrivateKey, objectID types.Hash256) cipher.AEAD {
-	key := keys.Derive(appKey, objectID[:], []byte("master"), 32)
+// dataKeyCipher derives the data key cipher from the app key and object ID.
+func dataKeyCipher(appKey types.PrivateKey, objectID types.Hash256) cipher.AEAD {
+	key := keys.Derive(appKey, objectID[:], []byte("dataKey"), 32)
 	cipher, _ := chacha20poly1305.NewX(key)
 	return cipher
 }
 
-func metadataCipher(masterKey []byte, objectID types.Hash256) cipher.AEAD {
-	key := keys.Derive(masterKey, objectID[:], []byte("metadata"), 32)
+// metadataKeyCipher derives the metadata key cipher from the app key and object ID.
+func metadataKeyCipher(appKey types.PrivateKey, objectID types.Hash256) cipher.AEAD {
+	key := keys.Derive(appKey, objectID[:], []byte("metadataKey"), 32)
 	cipher, _ := chacha20poly1305.NewX(key)
 	return cipher
 }
 
-func unlockEncryptedMetadata(objectID types.Hash256, masterKey []byte, encryptedMeta []byte) (json.RawMessage, error) {
+// metadataCipher returns the cipher used to encrypt/decrypt metadata.
+func metadataCipher(metadataKey []byte) cipher.AEAD {
+	cipher, _ := chacha20poly1305.NewX(metadataKey)
+	return cipher
+}
+
+func unlockEncryptedMetadata(metadataKey, encryptedMeta []byte) (json.RawMessage, error) {
 	if len(encryptedMeta) == 0 {
 		return nil, nil
 	}
-	metadataCipher := metadataCipher(masterKey, objectID)
+	metadataCipher := metadataCipher(metadataKey)
 	if len(encryptedMeta) < metadataCipher.NonceSize() {
 		return nil, fmt.Errorf("encrypted metadata too short")
 	}
@@ -174,23 +185,36 @@ func objectFromSealedObject(so slabs.SealedObject, appKey types.PrivateKey) (Obj
 	objectID := obj.ID()
 	if so.ID() != objectID {
 		return Object{}, fmt.Errorf("object ID mismatch")
-	} else if !appKey.PublicKey().VerifyHash(so.SigHash(), so.Signature) {
-		return Object{}, fmt.Errorf("invalid object signature")
+	} else if err := so.VerifySignatures(appKey.PublicKey()); err != nil {
+		return Object{}, err
 	}
 
-	keyCipher := masterKeyCipher(appKey, objectID)
-	if len(so.EncryptedMasterKey) < keyCipher.NonceSize() {
-		return Object{}, fmt.Errorf("encrypted master key too short")
+	decryptKey := func(keyCipher cipher.AEAD, encryptedKey []byte) ([]byte, error) {
+		if len(encryptedKey) < keyCipher.NonceSize() {
+			return nil, fmt.Errorf("encrypted key is too short")
+		}
+		nonce := encryptedKey[:keyCipher.NonceSize()]
+		var err error
+		key, err := keyCipher.Open(nil, nonce, encryptedKey[keyCipher.NonceSize():], nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unlock key: %w", err)
+		}
+		return key, nil
 	}
-	nonce := so.EncryptedMasterKey[:keyCipher.NonceSize()]
 	var err error
-	obj.masterKey, err = keyCipher.Open(nil, nonce, so.EncryptedMasterKey[keyCipher.NonceSize():], nil)
+	obj.dataKey, err = decryptKey(dataKeyCipher(appKey, objectID), so.EncryptedDataKey)
 	if err != nil {
-		return Object{}, fmt.Errorf("failed to unlock master key: %w", err)
+		return Object{}, fmt.Errorf("failed to unlock data key: %w", err)
 	}
-	obj.metadata, err = unlockEncryptedMetadata(objectID, obj.masterKey, so.EncryptedMetadata)
-	if err != nil {
-		return Object{}, fmt.Errorf("failed to unlock metadata: %w", err)
+	if len(so.EncryptedMetadata) > 0 {
+		metaDataKey, err := decryptKey(metadataKeyCipher(appKey, objectID), so.EncryptedMetadataKey)
+		if err != nil {
+			return Object{}, fmt.Errorf("failed to unlock metadata key: %w", err)
+		}
+		obj.metadata, err = unlockEncryptedMetadata(metaDataKey, so.EncryptedMetadata)
+		if err != nil {
+			return Object{}, fmt.Errorf("failed to unlock metadata: %w", err)
+		}
 	}
 	return obj, nil
 }

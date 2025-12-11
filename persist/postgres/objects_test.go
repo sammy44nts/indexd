@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -18,15 +19,101 @@ import (
 
 func (s *Store) pinRandomObject(t testing.TB, acc proto.Account, ss []slabs.SlabSlice) slabs.SealedObject {
 	obj := slabs.SealedObject{
-		EncryptedMasterKey: frand.Bytes(72),
-		Slabs:              ss,
-		EncryptedMetadata:  []byte("hello world"),
-		Signature:          (types.Signature)(frand.Bytes(64)),
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
+		Slabs:                ss,
+		EncryptedMetadata:    []byte("hello world"),
+		DataSignature:        (types.Signature)(frand.Bytes(64)),
+		MetadataSignature:    (types.Signature)(frand.Bytes(64)),
 	}
 	if err := s.SaveObject(acc, obj); err != nil {
 		t.Fatal(err)
 	}
 	return obj
+}
+
+func TestObject(t *testing.T) {
+	store := initPostgres(t, zap.NewNop())
+	acc := proto.Account{1}
+	store.addTestAccount(t, types.PublicKey(acc))
+	hk := store.addTestHost(t)
+	fcid := store.addTestContract(t, hk)
+
+	params := slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors: []slabs.PinnedSector{
+			{
+				Root:    frand.Entropy256(),
+				HostKey: hk,
+			},
+			{
+				Root:    frand.Entropy256(),
+				HostKey: hk,
+			},
+			{
+				Root:    frand.Entropy256(),
+				HostKey: hk,
+			},
+		},
+	}
+
+	_, err := store.PinSlabs(acc, time.Time{}, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// pin sector 1, keep sector 2 the way it is and mark sector 3 as lost
+	if err := store.PinSectors(fcid, []types.Hash256{params.Sectors[0].Root}); err != nil {
+		t.Fatal(err)
+	} else if err := store.MarkSectorsLost(hk, []types.Hash256{params.Sectors[2].Root}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Round(time.Second)
+	expected := slabs.SealedObject{
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
+		EncryptedMetadata:    frand.Bytes(50),
+		DataSignature:        types.Signature(frand.Bytes(64)),
+		MetadataSignature:    types.Signature(frand.Bytes(64)),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		Slabs: []slabs.SlabSlice{
+			params.Slice(0, 100),
+		},
+	}
+	err = store.SaveObject(acc, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected.CreatedAt = time.Time{}
+	expected.UpdatedAt = time.Time{}
+	expected.Slabs[0].Sectors[2].HostKey = types.PublicKey{}
+
+	got, err := store.Object(acc, expected.ID())
+	if err != nil {
+		t.Fatal(err)
+	} else if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("expected non-zero timestamps, got %v and %v", got.CreatedAt, got.UpdatedAt)
+	}
+
+	got.CreatedAt = time.Time{}
+	got.UpdatedAt = time.Time{}
+	if !reflect.DeepEqual(expected, got) {
+		t.Fatal("objects not equal", expected, got)
+	}
+
+	expectedShared := slabs.SharedObject{
+		Slabs: expected.Slabs,
+	}
+	gotShared, err := store.SharedObject(expected.ID())
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(expectedShared, gotShared) {
+		t.Fatal("shared objects not equal", expectedShared, gotShared)
+	}
 }
 
 func TestObjects(t *testing.T) {
@@ -92,12 +179,12 @@ func TestObjects(t *testing.T) {
 			s[i] = slabs.SlabPinParams{
 				EncryptionKey: frand.Entropy256(),
 				MinShards:     1,
-				Sectors: []slabs.PinnedSector{
-					{
-						Root:    frand.Entropy256(),
-						HostKey: hk,
-					},
-				},
+			}
+			for range 10 {
+				s[i].Sectors = append(s[i].Sectors, slabs.PinnedSector{
+					Root:    types.Hash256(frand.Entropy256()),
+					HostKey: hk,
+				})
 			}
 		}
 		return s
@@ -108,15 +195,11 @@ func TestObjects(t *testing.T) {
 
 		var ss []slabs.SlabSlice
 		for _, p := range params {
-			ids, err := store.PinSlabs(acc, time.Time{}, p)
+			_, err := store.PinSlabs(acc, time.Time{}, p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ss = append(ss, slabs.SlabSlice{
-				SlabID: ids[0],
-				Offset: 10,
-				Length: 120,
-			})
+			ss = append(ss, p.Slice(10, 120))
 		}
 		return ss
 	}
@@ -128,8 +211,10 @@ func TestObjects(t *testing.T) {
 
 	// pin the same object for acc2 with different master key and sig to satisfy unique constraint
 	obj1Acc2 := obj1Acc1
-	obj1Acc2.EncryptedMasterKey = frand.Bytes(72)
-	obj1Acc2.Signature = (types.Signature)(frand.Bytes(64))
+	obj1Acc2.EncryptedDataKey = frand.Bytes(72)
+	obj1Acc2.DataSignature = (types.Signature)(frand.Bytes(64))
+	obj1Acc2.EncryptedMetadataKey = frand.Bytes(72)
+	obj1Acc2.MetadataSignature = (types.Signature)(frand.Bytes(64))
 	if err := store.SaveObject(acc2, obj1Acc2); err != nil {
 		t.Fatal(err)
 	}
@@ -265,21 +350,9 @@ func TestListObjectsRegression(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		slabID, err := slab.Digest()
-		if err != nil {
-			t.Fatal(err)
-		}
 		return []slabs.SlabSlice{
-			{
-				SlabID: slabID,
-				Offset: 10,
-				Length: 100,
-			},
-			{
-				SlabID: slabID,
-				Offset: 110,
-				Length: 200,
-			},
+			slab.Slice(10, 100),
+			slab.Slice(110, 200),
 		}
 	}
 
@@ -332,7 +405,7 @@ func TestSharedObjects(t *testing.T) {
 		store.addTestContract(t, hostKeys[i])
 	}
 
-	pinRandomSlab := func(t *testing.T) slabs.PinnedSlabSlice {
+	pinRandomSlab := func(t *testing.T) slabs.SlabSlice {
 		t.Helper()
 
 		s := slabs.SlabPinParams{
@@ -348,46 +421,24 @@ func TestSharedObjects(t *testing.T) {
 		slabIDs, err := store.PinSlabs(acc1, time.Time{}, s)
 		if err != nil {
 			t.Fatal(err)
-		} else if id, err := s.Digest(); err != nil {
-			t.Fatal(err)
-		} else if id != slabIDs[0] {
+		} else if id := s.Digest(); id != slabIDs[0] {
 			t.Fatalf("expected slab ID %v, got %v", id, slabIDs[0])
 		}
 
-		so := slabs.PinnedSlabSlice{
-			ID:            slabIDs[0],
-			EncryptionKey: s.EncryptionKey,
-			MinShards:     s.MinShards,
-			Sectors:       make([]slabs.PinnedSector, len(s.Sectors)),
-			Offset:        uint32(frand.Uint64n(math.MaxInt32)),
-			Length:        uint32(frand.Uint64n(math.MaxInt32)),
-		}
-		for i := range s.Sectors {
-			so.Sectors[i] = slabs.PinnedSector{
-				Root:    s.Sectors[i].Root,
-				HostKey: s.Sectors[i].HostKey,
-			}
-		}
-		return so
+		return s.Slice(uint32(frand.Uint64n(math.MaxInt32)), uint32(frand.Uint64n(math.MaxInt32)))
 	}
 
 	// add an object with multiple slabs
 	expectedSharedObj := slabs.SharedObject{
-		Slabs:             []slabs.PinnedSlabSlice{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
-		EncryptedMetadata: []byte("hello world"),
+		Slabs: []slabs.SlabSlice{pinRandomSlab(t), pinRandomSlab(t), pinRandomSlab(t)},
 	}
 	obj := slabs.SealedObject{
-		EncryptedMasterKey: frand.Bytes(72),
-		Slabs:              make([]slabs.SlabSlice, len(expectedSharedObj.Slabs)),
-		EncryptedMetadata:  expectedSharedObj.EncryptedMetadata,
+		EncryptedDataKey:     frand.Bytes(72),
+		EncryptedMetadataKey: frand.Bytes(72),
+		Slabs:                make([]slabs.SlabSlice, len(expectedSharedObj.Slabs)),
+		EncryptedMetadata:    []byte("hello world"),
 	}
-	for i, slab := range expectedSharedObj.Slabs {
-		obj.Slabs[i] = slabs.SlabSlice{
-			SlabID: slab.ID,
-			Offset: slab.Offset,
-			Length: slab.Length,
-		}
-	}
+	obj.Slabs = slices.Clone(expectedSharedObj.Slabs)
 	if err := store.SaveObject(acc1, obj); err != nil {
 		t.Fatal(err)
 	}
@@ -402,17 +453,8 @@ func TestSharedObjects(t *testing.T) {
 	// pin the slabs to the second account
 	for _, slab := range expectedSharedObj.Slabs {
 		_, err := store.PinSlabs(acc2, time.Time{}, slabs.SlabPinParams{
-			MinShards: slab.MinShards,
-			Sectors: func() []slabs.PinnedSector {
-				sps := make([]slabs.PinnedSector, len(slab.Sectors))
-				for i := range slab.Sectors {
-					sps[i] = slabs.PinnedSector{
-						Root:    slab.Sectors[i].Root,
-						HostKey: slab.Sectors[i].HostKey,
-					}
-				}
-				return sps
-			}(),
+			MinShards:     slab.MinShards,
+			Sectors:       slab.Sectors,
 			EncryptionKey: slab.EncryptionKey,
 		})
 		if err != nil {
@@ -456,28 +498,21 @@ func BenchmarkSaveObject(b *testing.B) {
 		}
 		slabID := slabIDs[0]
 
-		id, err := s.Digest()
-		if err != nil {
-			b.Fatal(err)
-		} else if id != slabID {
+		if id := s.Digest(); id != slabID {
 			b.Fatalf("expected slab ID %v, got %v", id, slabID)
 		}
 
-		obj.Slabs = append(obj.Slabs, slabs.SlabSlice{
-			SlabID: id,
-			Offset: 0,
-			Length: 256,
-		})
+		obj.Slabs = append(obj.Slabs, s.Slice(0, 256))
 		for i := 0; i < 20 && i < len(objs); i++ {
-			obj.Slabs = append(obj.Slabs, slabs.SlabSlice{
-				SlabID: objs[i].Slabs[0].SlabID,
-				Offset: 0,
-				Length: 256,
-			})
+			slab := objs[i].Slabs[0]
+			slab.Offset, slab.Length = 0, 256
+			obj.Slabs = append(obj.Slabs, slab)
 		}
 		obj.EncryptedMetadata = frand.Bytes(1024)
-		obj.EncryptedMasterKey = frand.Bytes(72)
-		obj.Signature = types.Signature(frand.Bytes(64))
+		obj.EncryptedDataKey = frand.Bytes(72)
+		obj.DataSignature = types.Signature(frand.Bytes(64))
+		obj.EncryptedMetadataKey = frand.Bytes(72)
+		obj.MetadataSignature = types.Signature(frand.Bytes(64))
 
 		return
 	}

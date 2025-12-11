@@ -656,15 +656,11 @@ func TestPruneAccount(t *testing.T) {
 
 		var ss []slabs.SlabSlice
 		for _, p := range params {
-			ids, err := store.PinSlabs(acc, time.Time{}, p)
+			_, err := store.PinSlabs(acc, time.Time{}, p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ss = append(ss, slabs.SlabSlice{
-				SlabID: ids[0],
-				Offset: 10,
-				Length: 120,
-			})
+			ss = append(ss, p.Slice(10, 120))
 		}
 		return ss
 	}
@@ -676,8 +672,10 @@ func TestPruneAccount(t *testing.T) {
 	obj1Acc1 := store.pinRandomObject(t, acc1, pinSlabs(acc1, obj1Slabs))
 
 	obj1Acc2 := obj1Acc1
-	obj1Acc2.EncryptedMasterKey = frand.Bytes(72)
-	obj1Acc2.Signature = (types.Signature)(frand.Bytes(64))
+	obj1Acc2.EncryptedDataKey = frand.Bytes(72)
+	obj1Acc2.DataSignature = (types.Signature)(frand.Bytes(64))
+	obj1Acc2.EncryptedMetadataKey = frand.Bytes(72)
+	obj1Acc2.MetadataSignature = (types.Signature)(frand.Bytes(64))
 	if err := store.SaveObject(acc2, obj1Acc2); err != nil {
 		t.Fatal(err)
 	}
@@ -688,8 +686,10 @@ func TestPruneAccount(t *testing.T) {
 	obj2Acc1 := store.pinRandomObject(t, acc1, pinSlabs(acc1, obj2Slabs))
 
 	obj2Acc2 := obj2Acc1
-	obj2Acc2.EncryptedMasterKey = frand.Bytes(72)
-	obj2Acc2.Signature = (types.Signature)(frand.Bytes(64))
+	obj2Acc2.EncryptedDataKey = frand.Bytes(72)
+	obj2Acc2.DataSignature = (types.Signature)(frand.Bytes(64))
+	obj2Acc2.EncryptedMetadataKey = frand.Bytes(72)
+	obj2Acc2.MetadataSignature = (types.Signature)(frand.Bytes(64))
 	if err := store.SaveObject(acc2, obj2Acc2); err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +850,7 @@ func BenchmarkPruneAccounts(b *testing.B) {
 			var encryptionKey [32]byte
 			frand.Read(encryptionKey[:])
 
-			batch.Queue(`INSERT INTO objects(object_key, account_id, encrypted_master_key, signature) VALUES ($1, $2, $3, $4)`, sqlHash256(frand.Entropy256()), accountID, frand.Bytes(72), frand.Bytes(64))
+			batch.Queue(`INSERT INTO objects(object_key, account_id, encrypted_data_key, encrypted_meta_key, data_signature, meta_signature) VALUES ($1, $2, $3, $4, $5, $6)`, sqlHash256(frand.Entropy256()), accountID, frand.Bytes(72), frand.Bytes(72), frand.Bytes(64), frand.Bytes(64))
 			objectID++
 			for k := range slabsPerObject {
 				slabDigest := sqlHash256(frand.Entropy256())
