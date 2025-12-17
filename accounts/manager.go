@@ -43,16 +43,6 @@ const (
 	fundTargetBytes = uint64(16 << 30) // 16 GiB
 )
 
-var (
-
-	// accountActivityThreshold is the threshold for determining whether an
-	// account has been active recently for the purposes of contract funding.
-	// An account is considered active if it has been used within the threshold
-	// period.  We multiply the funding per contract by the number of active
-	// accounts.
-	accountActivityThreshold = 24 * 7 * time.Hour
-)
-
 type (
 	// Store defines an interface to fetch accounts that need to be funded and
 	// update them after funding.

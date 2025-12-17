@@ -36,35 +36,6 @@ type testStore struct {
 	testutils.TestStore
 }
 
-func (s testStore) resetNextFund(t testing.TB) {
-	t.Helper()
-	if _, err := s.Exec(t.Context(), `UPDATE account_hosts SET next_fund = NOW()`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func (s testStore) hostAccounts(t testing.TB) (result []accounts.HostAccount) {
-	t.Helper()
-
-	rows, err := s.Query(t.Context(), `SELECT next_fund FROM account_hosts`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var account accounts.HostAccount
-		if err := rows.Scan(&account.NextFund); err != nil {
-			t.Fatal(err)
-		}
-		result = append(result, account)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return
-}
-
 func newTestStore(t testing.TB) testStore {
 	s := testutils.NewDB(t, contracts.DefaultMaintenanceSettings, zaptest.NewLogger(t))
 	t.Cleanup(func() {

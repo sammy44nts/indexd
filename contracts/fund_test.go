@@ -22,7 +22,6 @@ type fundAccountsCall struct {
 type accountsManagerMock struct {
 	mu             sync.Mutex
 	activeAccounts uint64
-	calls          []fundAccountsCall
 	accountsToFund []accounts.HostAccount
 }
 
