@@ -34,6 +34,8 @@ func (am *accountsManagerMock) AccountsForFunding(hk types.PublicKey, threshold 
 }
 
 func (am *accountsManagerMock) ActiveAccounts(threshold time.Time) (uint64, error) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 	return am.activeAccounts, nil
 }
 
