@@ -322,7 +322,7 @@ func (s *SDK) Close() error {
 }
 
 // SaveObject saves the given object to the indexer.
-func (s *SDK) SaveObject(ctx context.Context, obj *Object) error {
+func (s *SDK) SaveObject(ctx context.Context, obj Object) error {
 	return s.client.SaveObject(ctx, s.appKey, obj.Seal(s.appKey))
 }
 

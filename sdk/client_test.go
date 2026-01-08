@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/internal/testutils"
+	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -225,10 +227,16 @@ func TestE2E(t *testing.T) {
 	err = client.Upload(t.Context(), &obj, bytes.NewReader(data), WithRedundancy(2, 8))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
+	} else if _, err := client.Object(t.Context(), obj.ID()); err == nil || !strings.Contains(err.Error(), slabs.ErrObjectNotFound.Error()) {
+		t.Fatal("object should not be pinned yet")
+	} else if err := client.SaveObject(t.Context(), obj); err != nil {
+		t.Fatal(err)
+	} else if _, err := client.Object(t.Context(), obj.ID()); err != nil {
+		t.Fatal(err)
 	}
 
 	buf := bytes.NewBuffer(nil)
-	if err := client.Download(context.Background(), buf, obj); err != nil {
+	if err := client.Download(t.Context(), buf, obj); err != nil {
 		t.Fatalf("failed to download: %v", err)
 	} else if !bytes.Equal(buf.Bytes(), data) {
 		t.Log(data[:64])
