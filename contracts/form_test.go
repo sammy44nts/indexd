@@ -699,6 +699,12 @@ func TestShouldReplaceContract(t *testing.T) {
 			should:    true,
 		},
 		{
+			name:      "current refreshable < candidate good",
+			current:   contract(false, false, true),
+			candidate: contract(true, true, false),
+			should:    true,
+		},
+		{
 			name:      "current append > not append",
 			current:   contract(true, true, false),
 			candidate: contract(false, true, false),
@@ -726,7 +732,7 @@ func TestShouldReplaceContract(t *testing.T) {
 			name:      "both equally bad",
 			current:   contract(false, false, false),
 			candidate: contract(false, false, false),
-			should:    false,
+			should:    true,
 		},
 	}
 	for _, test := range tests {

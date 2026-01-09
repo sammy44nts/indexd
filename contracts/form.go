@@ -469,27 +469,18 @@ func shouldReplaceContract(current, candidate candidateContract) bool {
 	case current.goodForAppend == nil && current.goodForFunding == nil:
 		// current contract is already good for both uploading and funding
 		return false
-	case candidate.goodForAppend == nil && candidate.goodForFunding == nil:
-		// candidate contract is good for both uploading and funding
-		return true
-	case current.goodForRefresh == nil && candidate.goodForRefresh != nil:
-		// current contract can be refreshed to become good, but candidate cannot
+	case current.goodForRefresh == nil && candidate.goodForRefresh != nil && (candidate.goodForAppend != nil || candidate.goodForFunding != nil):
+		// current contract can be refreshed to become good, candidate cannot
+		// and is not good for both upload and funding.
 		return false
-	case current.goodForRefresh != nil && candidate.goodForRefresh == nil:
-		// candidate contract can be refreshed to become good, but current cannot
-		return true
-	case current.goodForAppend == nil && candidate.goodForAppend != nil:
-		// current contract is good for uploading, but candidate is not
+	case current.goodForAppend == nil && candidate.goodForAppend != nil && candidate.goodForRefresh != nil:
+		// current contract is only good for uploading, candidate is not and
+		// can't be refreshed.
 		return false
-	case current.goodForAppend != nil && candidate.goodForAppend == nil:
-		// candidate contract is good for uploading, but current is not
-		return true
-	case current.goodForFunding == nil && candidate.goodForFunding != nil:
-		// current contract is good for funding, but candidate is not
+	case current.goodForFunding == nil && candidate.goodForFunding != nil && candidate.goodForRefresh != nil:
+		// current contract is only good for funding, candidate is not and can't
+		// be refreshed.
 		return false
-	case current.goodForFunding != nil && candidate.goodForFunding == nil:
-		// candidate contract is good for funding, but current is not
-		return true
 	}
-	return false
+	return true
 }
