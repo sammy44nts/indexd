@@ -743,4 +743,43 @@ func TestShouldReplaceContract(t *testing.T) {
 			}
 		})
 	}
+
+	// run exhaustive combinations for important cases
+	enumerate := func(gfa, gff, gfr []bool) (candidates []candidateContract) {
+		t.Helper()
+		for _, gfa := range gfa {
+			for _, gff := range gff {
+				for _, gfr := range gfr {
+					candidates = append(candidates, contract(gfa, gff, gfr))
+				}
+			}
+		}
+		return
+	}
+
+	assertShouldReplace := func(current []candidateContract, candidates []candidateContract, shouldReplace bool) {
+		t.Helper()
+		for _, current := range current {
+			for _, candidate := range candidates {
+				if replaces := shouldReplaceContract(current, candidate); replaces != shouldReplace {
+					t.Fatalf("expected replace=%v for candidate gfa=%v, gff=%v, gfr=%v, got %v", shouldReplace, candidate.goodForAppend == nil, candidate.goodForFunding == nil, candidate.goodForRefresh == nil, replaces)
+				}
+			}
+		}
+	}
+
+	// a good contract should never be replaced
+	goodContracts := enumerate([]bool{true}, []bool{true}, []bool{true, false})
+	anyContracts := enumerate([]bool{true, false}, []bool{true, false}, []bool{true, false})
+	assertShouldReplace(goodContracts, anyContracts, false)
+
+	// a contract that is not good should be replaced by any good contract
+	badContracts := slices.DeleteFunc(slices.Clone(goodContracts), func(c candidateContract) bool {
+		return c.goodForAppend == nil && c.goodForFunding == nil
+	})
+	assertShouldReplace(badContracts, goodContracts, true)
+
+	// a bad contract should be replaced by any contract that is good for refresh
+	goodForRefreshContracts := enumerate([]bool{true, false}, []bool{true, false}, []bool{true})
+	assertShouldReplace(badContracts, goodForRefreshContracts, true)
 }
