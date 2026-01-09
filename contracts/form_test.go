@@ -774,7 +774,7 @@ func TestShouldReplaceContract(t *testing.T) {
 	assertShouldReplace(goodContracts, anyContracts, false)
 
 	// a contract that is not good should be replaced by any good contract
-	badContracts := slices.DeleteFunc(slices.Clone(goodContracts), func(c candidateContract) bool {
+	badContracts := slices.DeleteFunc(slices.Clone(anyContracts), func(c candidateContract) bool {
 		return c.goodForAppend == nil && c.goodForFunding == nil
 	})
 	assertShouldReplace(badContracts, goodContracts, true)
