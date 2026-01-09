@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -1080,22 +1079,6 @@ func (s *Store) StuckHosts() ([]hosts.StuckHost, error) {
 		return nil, err
 	}
 	return result, nil
-}
-
-func incrementHostUnpinnedSectors(ctx context.Context, tx *txn, hostID int64, delta int64) error {
-	_, err := tx.Exec(ctx, `UPDATE hosts SET unpinned_sectors = unpinned_sectors + $1 WHERE id = $2`, delta, hostID)
-	return err
-}
-
-func incrementHostsUnpinnedSectors(ctx context.Context, tx *txn, deltas map[int64]int64) error {
-	if len(deltas) == 0 {
-		return nil
-	}
-	batch := &pgx.Batch{}
-	for hostID, delta := range deltas {
-		batch.Queue(`UPDATE hosts SET unpinned_sectors = unpinned_sectors + $1 WHERE id = $2`, delta, hostID)
-	}
-	return tx.SendBatch(ctx, batch).Close()
 }
 
 func buildHostOrderByClause(sorts []hosts.HostSortOpt) (string, error) {

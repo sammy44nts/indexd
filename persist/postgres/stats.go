@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/hosts"
 )
@@ -61,6 +62,22 @@ func incrementNumScans(ctx context.Context, tx *txn, success bool) error {
 	}
 	_, err := tx.Exec(ctx, "UPDATE stats SET num_scans = num_scans + 1, num_scans_failed = num_scans_failed + $1", failed)
 	return err
+}
+
+func incrementHostUnpinnedSectors(ctx context.Context, tx *txn, hostID int64, delta int64) error {
+	_, err := tx.Exec(ctx, `UPDATE hosts SET unpinned_sectors = unpinned_sectors + $1 WHERE id = $2`, delta, hostID)
+	return err
+}
+
+func incrementHostsUnpinnedSectors(ctx context.Context, tx *txn, deltas map[int64]int64) error {
+	if len(deltas) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for hostID, delta := range deltas {
+		batch.Queue(`UPDATE hosts SET unpinned_sectors = unpinned_sectors + $1 WHERE id = $2`, delta, hostID)
+	}
+	return tx.SendBatch(ctx, batch).Close()
 }
 
 func initStats(ctx context.Context, tx *txn) error {
