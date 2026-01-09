@@ -93,6 +93,30 @@ func TestUpload(t *testing.T) {
 	})
 }
 
+func TestResumableUpload(t *testing.T) {
+	appKey := types.GeneratePrivateKey()
+	dialer := newMockDialer(50)
+	s := initSDK(appKey, newMockAppClient(), dialer)
+	defer s.Close()
+
+	obj := NewEmptyObject()
+	data := frand.Bytes(5000)
+
+	for _, part := range [][]byte{data[:100], data[100:3000], data[3000:]} {
+		err := s.Upload(context.Background(), &obj, bytes.NewReader(part), WithUploadHostTimeout(100*time.Millisecond))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	buf := bytes.NewBuffer(nil)
+	if err := s.Download(t.Context(), buf, obj); err != nil {
+		t.Fatal(err)
+	} else if !bytes.Equal(buf.Bytes(), data) {
+		t.Fatal("data mismatch")
+	}
+}
+
 func TestDownload(t *testing.T) {
 	dialer := newMockDialer(30)
 	appKey := types.GeneratePrivateKey()

@@ -189,7 +189,7 @@ func (s *SDK) Upload(ctx context.Context, obj *Object, r io.Reader, opts ...Uplo
 		return err
 	}
 
-	r = encrypt((*[32]byte)(obj.dataKey), r, 0)
+	r = encrypt((*[32]byte)(obj.dataKey), r, obj.Size())
 
 	// create erasure coder
 	enc, err := reedsolomon.New(int(uo.dataShards), int(uo.parityShards))
