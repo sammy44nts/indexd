@@ -85,7 +85,8 @@ WITH globals AS (
 		settings_collateral, settings_storage_price, settings_ingress_price,
 		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until, settings_signature,
 		last_successful_scan IS NOT NULL as has_settings,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		((stuck_since IS NULL OR stuck_since >= NOW() - INTERVAL '24 hours') AND settings_remaining_storage > 0) AS good_for_upload
 	FROM hosts
 	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
 	WHERE hosts.public_key = $1
@@ -169,7 +170,8 @@ WITH globals AS (
 		settings_collateral, settings_storage_price, settings_ingress_price,
 		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until, settings_signature,
 		last_successful_scan IS NOT NULL as has_settings,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		((stuck_since IS NULL OR stuck_since >= NOW() - INTERVAL '24 hours') AND settings_remaining_storage > 0) AS good_for_upload
 	FROM hosts
 	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
 ) SELECT
@@ -644,7 +646,8 @@ WITH globals AS (
 		settings_tip_height,
 		settings_valid_until,
 		settings_signature,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		((stuck_since IS NULL OR stuck_since >= NOW() - INTERVAL '24 hours') AND settings_remaining_storage > 0) AS good_for_upload
 	FROM hosts
 	WHERE last_successful_scan IS NOT NULL -- has settings
 )
@@ -653,7 +656,7 @@ SELECT
 	hosts.public_key,
 	hosts.country_code,
 	hosts.location,
-	(stuck_since IS NULL OR stuck_since >= NOW() - INTERVAL '24 hours') AND settings_remaining_storage > 0
+	hosts.good_for_upload
 FROM hosts
 CROSS JOIN globals
 WHERE
@@ -692,19 +695,16 @@ WHERE
 		defer rows.Close()
 
 		var dbHosts []*dbHost
-		var goodForUpload []bool
 		for rows.Next() {
 			var host dbHost
 			var point pgtype.Point
-			var good bool
-			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point, &good); err != nil {
+			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point, &host.GoodForUpload); err != nil {
 				return fmt.Errorf("failed to scan host: %w", err)
 			}
 
 			host.Latitude = point.P.X
 			host.Longitude = point.P.Y
 			dbHosts = append(dbHosts, &host)
-			goodForUpload = append(goodForUpload, good)
 		}
 		if err := rows.Err(); err != nil {
 			return err
@@ -716,14 +716,14 @@ WHERE
 			return fmt.Errorf("failed to decorate host addresses: %w", err)
 		}
 
-		for i, h := range dbHosts {
+		for _, h := range dbHosts {
 			usable = append(usable, hosts.HostInfo{
 				PublicKey:     h.PublicKey,
 				Addresses:     h.Addresses,
 				CountryCode:   h.CountryCode,
 				Latitude:      h.Latitude,
 				Longitude:     h.Longitude,
-				GoodForUpload: goodForUpload[i],
+				GoodForUpload: h.GoodForUpload,
 			})
 		}
 		return nil
@@ -800,6 +800,7 @@ func scanHost(s scanner) (dbHost, error) {
 		(*sqlSignature)(&host.Settings.Prices.Signature),
 		&ignore,
 		&ignore,
+		&host.GoodForUpload,
 		&host.Usability.Uptime,
 		&host.Usability.MaxContractDuration,
 		&host.Usability.MaxCollateral,

@@ -125,6 +125,7 @@ type (
 		LostSectors            uint64              `json:"lostSectors"`
 		AccountFunding         types.Currency      `json:"accountFunding"`
 		TotalSpent             types.Currency      `json:"totalSpent"`
+		GoodForUpload          bool                `json:"goodForUpload"`
 	}
 
 	// HostInfo is a subset of the Host struct that contains only the public
@@ -197,11 +198,12 @@ type (
 // Info returns the HostInfo of the host.
 func (h *Host) Info() HostInfo {
 	return HostInfo{
-		PublicKey:   h.PublicKey,
-		Addresses:   h.Addresses,
-		CountryCode: h.CountryCode,
-		Latitude:    h.Latitude,
-		Longitude:   h.Longitude,
+		PublicKey:     h.PublicKey,
+		Addresses:     h.Addresses,
+		CountryCode:   h.CountryCode,
+		Latitude:      h.Latitude,
+		Longitude:     h.Longitude,
+		GoodForUpload: h.GoodForUpload,
 	}
 }
 
