@@ -189,7 +189,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	adminAPI := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.AdminAPI.Password)(admin.NewAPI(cm, am, contracts, hm, pm, s, wm, store, alerter, adminAPIOpts...)),
+			api: jape.BasicAuth(cfg.AdminAPI.Password)(admin.NewAPI(cm, am, contracts, hm, pm, s, wm, store, alerter, slabs, adminAPIOpts...)),
 			ui:  indexd.Handler(),
 		},
 		ReadTimeout:  30 * time.Second,

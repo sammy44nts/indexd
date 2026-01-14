@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gorilla/websocket"
 	"go.sia.tech/core/consensus"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -26,14 +27,13 @@ import (
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/internal/prometheus"
 	"go.sia.tech/indexd/pins"
+	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
-const (
-	stdTxnSize = 1200 // bytes
-)
+const stdTxnSize = 1200 // bytes
 
 var startTime = time.Now()
 
@@ -143,33 +143,44 @@ type (
 		Alert(id types.Hash256) (alerts.Alert, error)
 		Alerts(offset, limit int, opts ...alerts.AlertOpt) ([]alerts.Alert, error)
 	}
-)
 
-type (
-	admin struct {
-		debug bool
-
-		accounts  Accounts
-		alerter   Alerter
-		chain     ChainManager
-		contracts ContractManager
-		explorer  Explorer
-		hosts     HostManager
-		pins      PinManager
-		store     Store
-		syncer    Syncer
-		wallet    Wallet
-
-		log *zap.Logger
+	// SectorTracker notifies subscribers about changes to pinned sectors.
+	// Subscribers will receive a SectorEvent whenever a sector is pinned or
+	// requested.
+	SectorTracker interface {
+		Subscribe(ch chan<- slabs.SectorEvent)
+		Unsubscribe(ch chan<- slabs.SectorEvent)
 	}
 )
+
+var upgrader = websocket.Upgrader{
+	HandshakeTimeout: 10 * time.Second,
+}
+
+type admin struct {
+	debug bool
+
+	accounts  Accounts
+	alerter   Alerter
+	chain     ChainManager
+	contracts ContractManager
+	explorer  Explorer
+	hosts     HostManager
+	pins      PinManager
+	store     Store
+	syncer    Syncer
+	wallet    Wallet
+	tracker   SectorTracker
+
+	log *zap.Logger
+}
 
 // NewAPI initializes the admin API, which is protected via http basic
 // authentication and should never be exposed on the public internet. The admin
 // API exposes endpoints to manage accounts, hosts, settings and the wallet.
 // This is different from the application API, which users, or rather their
 // applications, can use to pin slabs.
-func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, hosts HostManager, pm PinManager, syncer Syncer, wallet Wallet, store Store, alerter Alerter, opts ...Option) http.Handler {
+func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, hosts HostManager, pm PinManager, syncer Syncer, wallet Wallet, store Store, alerter Alerter, tracker SectorTracker, opts ...Option) http.Handler {
 	a := &admin{
 		chain:     chain,
 		accounts:  accounts,
@@ -180,6 +191,7 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 		syncer:    syncer,
 		wallet:    wallet,
 		alerter:   alerter,
+		tracker:   tracker,
 		log:       zap.NewNop(),
 	}
 	for _, opt := range opts {
@@ -256,6 +268,9 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 		"GET /stats/hosts":     a.handleGETStatsHosts,
 		"GET /stats/scans":     a.handleGETStatsScans,
 		"GET /stats/sectors":   a.handleGETStatsSectors,
+
+		// fun
+		"GET /events": a.handleWebsocket,
 	}
 
 	// debug endpoints
@@ -281,6 +296,24 @@ func (a *admin) handleGETConsensusState(jc jape.Context) {
 
 func (a *admin) handleGETConsensusNetwork(jc jape.Context) {
 	jc.Encode(a.chain.TipState().Network)
+}
+
+func (a *admin) handleWebsocket(jc jape.Context) {
+	c, err := upgrader.Upgrade(jc.ResponseWriter, jc.Request, nil)
+	if err != nil {
+		a.log.Debug("failed to upgrade to websocket", zap.Error(err))
+		return
+	}
+	defer c.Close()
+	ch := make(chan slabs.SectorEvent, 10)
+	defer a.tracker.Unsubscribe(ch)
+	a.tracker.Subscribe(ch)
+	for ev := range ch {
+		if err := c.WriteJSON(ev); err != nil {
+			a.log.Debug("failed to write websocket message", zap.Error(err))
+			return
+		}
+	}
 }
 
 func (a *admin) handleGETPProf(jc jape.Context) {

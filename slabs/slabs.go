@@ -161,6 +161,11 @@ func (s SlabPinParams) Validate() error {
 // PinSlabs adds slabs to the database for pinning. The slabs are associated
 // with the provided account.
 func (m *SlabManager) PinSlabs(ctx context.Context, account proto.Account, nextIntegrityCheck time.Time, toPin ...SlabPinParams) ([]SlabID, error) {
+	for _, slab := range toPin {
+		for _, sector := range slab.Sectors {
+			m.tracker.Notify(sector, false)
+		}
+	}
 	return m.store.PinSlabs(account, nextIntegrityCheck, toPin...)
 }
 
@@ -174,7 +179,21 @@ func (m *SlabManager) UnpinSlab(ctx context.Context, account proto.Account, slab
 
 // Slabs returns the slabs with the given IDs from the database.
 func (m *SlabManager) Slabs(ctx context.Context, account proto.Account, slabIDs []SlabID) ([]Slab, error) {
-	return m.store.Slabs(account, slabIDs)
+	slabs, err := m.store.Slabs(account, slabIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, slab := range slabs {
+		for _, sector := range slab.Sectors {
+			if sector.HostKey != nil {
+				m.tracker.Notify(PinnedSector{
+					Root:    sector.Root,
+					HostKey: *sector.HostKey,
+				}, true)
+			}
+		}
+	}
+	return slabs, nil
 }
 
 // PinnedSlab retrieves a pinned slab from the database by its ID.  If account

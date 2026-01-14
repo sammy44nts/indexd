@@ -43,6 +43,7 @@ type (
 		cm      ContractManager
 		hm      HostManager
 		hosts   HostClient
+		tracker *pinTracker
 
 		store    Store
 		verifier *SectorVerifier
@@ -216,8 +217,11 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 		hm:      hm,
 		store:   store,
 		alerter: alerter,
-		tg:      threadgroup.New(),
-		log:     zap.NewNop(),
+		tracker: &pinTracker{
+			subscribers: make(map[chan<- SectorEvent]struct{}),
+		},
+		tg:  threadgroup.New(),
+		log: zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(m)

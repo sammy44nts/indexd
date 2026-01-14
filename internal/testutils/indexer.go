@@ -48,7 +48,6 @@ var (
 )
 
 type (
-
 	// Indexer is a test utility combining an indexer, an http client for the
 	// indexer and useful helpers for testing.
 	Indexer struct {
@@ -214,7 +213,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 
 	password := hex.EncodeToString(frand.Bytes(16))
 	adminAPI := http.Server{
-		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, am, contracts, hm, pm, syncer, wm, store, alerter, adminAPIOpts...)),
+		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, am, contracts, hm, pm, syncer, wm, store, alerter, slabs, adminAPIOpts...)),
 	}
 
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
