@@ -139,16 +139,6 @@ func (ts testStore) addTestContract(t testing.TB, hk types.PublicKey, good bool,
 	return fcid
 }
 
-// setContractGood updates the good status of a contract.
-func (ts testStore) setContractGood(t testing.TB, fcid types.FileContractID, good bool) {
-	t.Helper()
-
-	_, err := ts.Exec(t.Context(), `UPDATE contracts SET good = $1 WHERE contract_id = $2`, good, sqlHash256(fcid))
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // setContractSize updates the size of a contract.
 func (ts testStore) setContractSize(t testing.TB, fcid types.FileContractID, size uint64) {
 	t.Helper()
@@ -336,15 +326,6 @@ func (ts testStore) scheduleContractsForPruningHelper(t testing.TB) {
 	// set next_prune to past so ContractsForPruning (next_prune < NOW()) returns them
 	_, err := ts.Exec(t.Context(), `UPDATE contracts SET next_prune = NOW() - INTERVAL '1 hour' WHERE good = TRUE AND state IN (0, 1)`)
 	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// setContractNextPrune sets the next prune time for a contract.
-func (ts testStore) setContractNextPrune(t testing.TB, fcid types.FileContractID, nextPrune time.Time) {
-	t.Helper()
-
-	if err := ts.UpdateNextPrune(fcid, nextPrune); err != nil {
 		t.Fatal(err)
 	}
 }
