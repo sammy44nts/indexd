@@ -152,8 +152,9 @@ func (s *Store) PruneAccounts(limit int) error {
 
 	return s.transaction(func(ctx context.Context, tx *txn) error {
 		var accountID int64
+		var connectKeyID sql.NullInt64
 
-		err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE deleted_at IS NOT NULL ORDER by deleted_at LIMIT 1`).Scan(&accountID)
+		err := tx.QueryRow(ctx, `SELECT id, connect_key_id FROM accounts WHERE deleted_at IS NOT NULL ORDER by deleted_at LIMIT 1`).Scan(&accountID, &connectKeyID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
@@ -218,6 +219,14 @@ RETURNING o.object_key;`, accountID, limit)
 			_, err = tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to delete account: %w", err)
+			}
+
+			// this account should no longer count as using a connect key
+			if connectKeyID.Valid {
+				_, err = tx.Exec(ctx, `UPDATE app_connect_keys SET remaining_uses = remaining_uses + 1 WHERE id = $1`, connectKeyID.Int64)
+				if err != nil {
+					return fmt.Errorf("failed to increment connect key use: %w", err)
+				}
 			}
 
 			err = incrementNumAccounts(ctx, tx, -1)
