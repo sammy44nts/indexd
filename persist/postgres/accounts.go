@@ -113,7 +113,7 @@ func (s *Store) ActiveAccounts(threshold time.Time) (count uint64, err error) {
 func (s *Store) DeleteAccount(acc proto.Account) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {
 		var connectKeyID sql.NullInt64
-		err := tx.QueryRow(ctx, `UPDATE accounts SET deleted_at = NOW() WHERE public_key = $1 RETURNING connect_key_id`, sqlPublicKey(acc)).Scan(&connectKeyID)
+		err := tx.QueryRow(ctx, `UPDATE accounts SET deleted_at = NOW() WHERE public_key = $1 AND deleted_at IS NULL RETURNING connect_key_id`, sqlPublicKey(acc)).Scan(&connectKeyID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return accounts.ErrNotFound
 		} else if err != nil {
