@@ -706,6 +706,12 @@ func (s *Store) DeleteContract(contractID types.FileContractID) error {
 			return fmt.Errorf("failed to unpin sectors: %w", err)
 		}
 
+		// delete the entry in contract_sectors_map_id
+		_, err = tx.Exec(ctx, `DELETE FROM contract_sectors_map WHERE id = $1`, contractMapID)
+		if err != nil {
+			return fmt.Errorf("failed to delete from contract sectors map: %w", err)
+		}
+
 		// update stats
 		if pinned > 0 {
 			if err := incrementNumPinnedSectors(ctx, tx, -pinned); err != nil {
