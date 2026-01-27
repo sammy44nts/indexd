@@ -205,12 +205,12 @@ func sectorsToMigrate(slab Slab, allHosts []hosts.Host, goodContracts []contract
 
 		// sector will not be migrated. Remove it from the hosts map
 		// and add it to the spaced set.
-		set.Add(host.Info())
+		set.Add(host)
 	}
 	var candidates []types.PublicKey
 	for _, host := range hostsMap {
 		// must have a good contract and be sufficiently far apart
-		if _, ok := hasGoodContract[host.PublicKey]; ok && set.Add(host.Info()) {
+		if _, ok := hasGoodContract[host.PublicKey]; ok && set.Add(host) {
 			candidates = append(candidates, host.PublicKey)
 		}
 	}

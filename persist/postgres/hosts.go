@@ -30,7 +30,8 @@ const (
 )
 
 type dbHost struct {
-	id int64
+	id            int64
+	GoodForUpload bool // used by UsableHosts query
 	hosts.Host
 }
 
@@ -626,6 +627,7 @@ WITH globals AS (
 		country_code,
 		location,
 		last_successful_scan,
+		stuck_since,
 		settings_protocol_version,
 		settings_release,
 		settings_wallet_address,
@@ -643,7 +645,8 @@ WITH globals AS (
 		settings_tip_height,
 		settings_valid_until,
 		settings_signature,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		(stuck_since IS NULL AND settings_remaining_storage > 0) AS good_for_upload
 	FROM hosts
 	WHERE last_successful_scan IS NOT NULL -- has settings
 )
@@ -651,7 +654,8 @@ SELECT
 	hosts.id,
 	hosts.public_key,
 	hosts.country_code,
-	hosts.location
+	hosts.location,
+	hosts.good_for_upload
 FROM hosts
 CROSS JOIN globals
 WHERE
@@ -693,7 +697,7 @@ WHERE
 		for rows.Next() {
 			var host dbHost
 			var point pgtype.Point
-			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point); err != nil {
+			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point, &host.GoodForUpload); err != nil {
 				return fmt.Errorf("failed to scan host: %w", err)
 			}
 
@@ -713,11 +717,12 @@ WHERE
 
 		for _, h := range dbHosts {
 			usable = append(usable, hosts.HostInfo{
-				PublicKey:   h.PublicKey,
-				Addresses:   h.Addresses,
-				CountryCode: h.CountryCode,
-				Latitude:    h.Latitude,
-				Longitude:   h.Longitude,
+				PublicKey:     h.PublicKey,
+				Addresses:     h.Addresses,
+				CountryCode:   h.CountryCode,
+				Latitude:      h.Latitude,
+				Longitude:     h.Longitude,
+				GoodForUpload: h.GoodForUpload,
 			})
 		}
 		return nil

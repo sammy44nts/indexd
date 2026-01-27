@@ -22,7 +22,7 @@ func NewSpacedSet(minDistanceKm float64) *SpacedSet {
 
 // Add adds the host to the set if it is sufficiently spaced apart from the
 // existing hosts. It returns true if the host was added, false otherwise.
-func (s *SpacedSet) Add(h HostInfo) bool {
+func (s *SpacedSet) Add(h Host) bool {
 	if s.CanAddHost(h) {
 		s.selected[h.PublicKey] = h.Location()
 		return true
@@ -32,7 +32,7 @@ func (s *SpacedSet) Add(h HostInfo) bool {
 
 // CanAddHost returns true if the host is sufficiently far removed from the
 // existing hosts in the set. Uniqueness is always enforced.
-func (s *SpacedSet) CanAddHost(h HostInfo) bool {
+func (s *SpacedSet) CanAddHost(h Host) bool {
 	if _, exists := s.selected[h.PublicKey]; exists {
 		return false
 	}

@@ -767,6 +767,8 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
 	} else if hosts[0].Addresses == nil || hosts[1].Addresses == nil {
 		t.Fatal("expected hosts to have addresses")
+	} else if !hosts[0].GoodForUpload || !hosts[1].GoodForUpload {
+		t.Fatal("expected hosts to be good for upload")
 	}
 
 	// assert offset and limit are applied
@@ -880,6 +882,34 @@ func TestUsableHosts(t *testing.T) {
 		Latitude:    0,
 		Longitude:   0,
 	}, siamuxProtocol, true, false, true)
+
+	// test GoodForUpload field
+	// set uh1 to have no remaining storage - should have GoodForUpload=false
+	settingsNoStorage := newTestHostSettings(uh1)
+	settingsNoStorage.RemainingStorage = 0
+	if err := db.UpdateHostScan(uh1, settingsNoStorage, locationUS, true, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// set uh2 to be stuck - any stuck hosts are not good for upload
+	if _, err := db.pool.Exec(t.Context(), `UPDATE hosts SET stuck_since = NOW() - INTERVAL '1 hours' WHERE public_key = $1`, sqlPublicKey(uh2)); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify GoodForUpload is false for both hosts
+	usableHosts, err := db.UsableHosts(0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range usableHosts {
+		if h.PublicKey == uh1 && h.GoodForUpload {
+			t.Fatal("expected host with insufficient storage to not be good for upload")
+		} else if h.PublicKey == uh2 && h.GoodForUpload {
+			t.Fatal("expected stuck host to not be good for upload")
+		} else if h.PublicKey == uh3 && !h.GoodForUpload {
+			t.Fatal("expected normal host to be good for upload")
+		}
+	}
 }
 
 func TestHostsForScanning(t *testing.T) {

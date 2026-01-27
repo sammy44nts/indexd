@@ -131,11 +131,12 @@ type (
 	// key and addresses. It is used for listing usable hosts in the
 	// application API.
 	HostInfo struct {
-		PublicKey   types.PublicKey    `json:"publicKey"`
-		Addresses   []chain.NetAddress `json:"addresses"`
-		CountryCode string             `json:"countryCode"`
-		Latitude    float64            `json:"latitude"`
-		Longitude   float64            `json:"longitude"`
+		PublicKey     types.PublicKey    `json:"publicKey"`
+		Addresses     []chain.NetAddress `json:"addresses"`
+		CountryCode   string             `json:"countryCode"`
+		Latitude      float64            `json:"latitude"`
+		Longitude     float64            `json:"longitude"`
+		GoodForUpload bool               `json:"goodForUpload"`
 	}
 
 	// StuckHost contains the public key of a stuck host and the time it
@@ -193,20 +194,18 @@ type (
 	}
 )
 
-// Info returns the HostInfo of the host.
-func (h *Host) Info() HostInfo {
-	return HostInfo{
-		PublicKey:   h.PublicKey,
-		Addresses:   h.Addresses,
+// IsGood returns true if the host is considered good for storing data.
+func (h *Host) IsGood() bool {
+	return h.Usability.Usable() && !h.Blocked
+}
+
+// Location returns the geoip location of the host.
+func (h *Host) Location() geoip.Location {
+	return geoip.Location{
 		CountryCode: h.CountryCode,
 		Latitude:    h.Latitude,
 		Longitude:   h.Longitude,
 	}
-}
-
-// IsGood returns true if the host is considered good for storing data.
-func (h *Host) IsGood() bool {
-	return h.Usability.Usable() && !h.Blocked
 }
 
 // Location returns the geoip location of the host.

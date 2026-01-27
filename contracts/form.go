@@ -387,7 +387,7 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, setting
 		// add all existing hosts to the set to ensure spacing
 		// with new hosts
 		for _, cc := range usableHostContracts {
-			set.Add(cc.host.Info())
+			set.Add(cc.host)
 		}
 		additional := int(settings.WantedContracts) - goodContracts
 		for _, host := range hostsWithoutContracts {
@@ -409,13 +409,13 @@ func (cm *ContractManager) performContractFormation(ctx context.Context, setting
 			case withinGougingLeeway(host.Settings.Prices.EgressPrice, usabilitySettings.MaxEgressPrice):
 				log.Debug("candidate host is above egress price gouging threshold")
 				continue // host should be sufficiently below price gouging setting
-			case !set.CanAddHost(host.Info()):
+			case !set.CanAddHost(host):
 				log.Debug("candidate host is too close to existing host")
 				continue // host must be sufficiently spaced from other hosts
 			}
 			log.Debug("forming contract with new host", zap.Int("remaining", additional))
 			if formContract(ctx, host, false, log) {
-				set.Add(host.Info())
+				set.Add(host)
 				additional--
 			}
 		}
