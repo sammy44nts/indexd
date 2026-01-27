@@ -280,6 +280,40 @@ func TestProviderCandidates(t *testing.T) {
 	}
 }
 
+func TestUploadCandidates(t *testing.T) {
+	host1 := types.GeneratePrivateKey().PublicKey()
+	host2 := types.GeneratePrivateKey().PublicKey()
+	host3 := types.GeneratePrivateKey().PublicKey()
+
+	store := &mockHostStore{
+		usableHosts: map[types.PublicKey]hosts.HostInfo{
+			host1: {PublicKey: host1, GoodForUpload: true},
+			host2: {PublicKey: host2, GoodForUpload: true},
+			host3: {PublicKey: host3, GoodForUpload: false},
+		},
+	}
+	provider := NewProvider(store)
+
+	candidates, err := provider.Candidates()
+	if err != nil {
+		t.Fatal(err)
+	} else if available := candidates.Available(); available != 3 {
+		t.Fatalf("expected 3 candidates, got %d", available)
+	}
+
+	uploadCandidates, err := provider.UploadCandidates()
+	if err != nil {
+		t.Fatal(err)
+	} else if available := uploadCandidates.Available(); available != 2 {
+		t.Fatalf("expected 2 upload candidates, got %d", available)
+	}
+	for pk := range uploadCandidates.Iter() {
+		if pk != host1 && pk != host2 {
+			t.Fatalf("unexpected upload candidate: %s", pk)
+		}
+	}
+}
+
 func TestDuplicateCandidates(t *testing.T) {
 	hosts := []types.PublicKey{
 		types.GeneratePrivateKey().PublicKey(),
