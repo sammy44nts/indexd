@@ -493,6 +493,23 @@ paths:
               password: "your-admin-password"
             })
             const contract = await admin.contract("filecontractid:your-id")
+    delete:
+      tags:
+        - contracts
+      summary: Delete a contract
+      description: Deletes a contract by unpinning all its sectors and marking the contract as bad
+      operationId: deleteContract
+      parameters:
+        - name: contractid
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/FileContractID"
+      responses:
+        "200":
+          description: Contract deleted successfully
+        "404":
+          description: Contract not found
 
   /contracts:
     get:

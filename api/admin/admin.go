@@ -111,6 +111,7 @@ type (
 		HostStats(offset, limit int) ([]hosts.HostStats, error)
 		SectorStats() (SectorsStatsResponse, error)
 
+		DeleteContract(contractID types.FileContractID) error
 		LastScannedIndex() (types.ChainIndex, error)
 	}
 
@@ -203,7 +204,8 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 		"POST   /alerts/dismiss": a.handlePOSTAlertsDismiss,
 
 		// contract endpoints
-		"GET /contract/:contractid": a.handleGETContract,
+		"GET    /contract/:contractid": a.handleGETContract,
+		"DELETE /contract/:contractid": a.handleDELETEContract,
 
 		// contracts endpoints
 		"GET /contracts": a.handleGETContracts,
@@ -590,6 +592,23 @@ func (a *admin) handleGETContract(jc jape.Context) {
 	}
 
 	jc.Encode(contract)
+}
+
+func (a *admin) handleDELETEContract(jc jape.Context) {
+	var contractID types.FileContractID
+	if jc.DecodeParam("contractid", &contractID) != nil {
+		return
+	}
+
+	err := a.store.DeleteContract(contractID)
+	if errors.Is(err, contracts.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if jc.Check("failed to delete contract", err) != nil {
+		return
+	}
+
+	jc.Encode(nil)
 }
 
 func (a *admin) handleGETContracts(jc jape.Context) {
