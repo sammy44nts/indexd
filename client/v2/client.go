@@ -93,15 +93,17 @@ func (t *transport) dial(ctx context.Context, hostKey types.PublicKey, addresses
 	var dialCtx, dialCancel = context.WithCancel(ctx)
 	defer dialCancel()
 
+	connectErrs := make([]error, len(addresses))
+
 top:
-	for _, addr := range addresses {
+	for i, addr := range addresses {
 		select {
 		case <-dialCtx.Done():
 			break top
 		case sema <- struct{}{}:
 		}
 		wg.Add(1)
-		go func(addr chain.NetAddress) {
+		go func(i int, addr chain.NetAddress) {
 			defer func() {
 				<-sema
 				wg.Done()
@@ -117,6 +119,7 @@ top:
 			default:
 				return
 			}
+			connectErrs[i] = err
 			if err != nil || dialCtx.Err() != nil {
 				// failed to connect or already connected elsewhere
 				if err == nil {
@@ -132,7 +135,7 @@ top:
 				_ = transport.Close()
 			}
 			t.mu.Unlock()
-		}(addr)
+		}(i, addr)
 	}
 	// wait for all dial attempts to finish
 	wg.Wait()
@@ -140,7 +143,7 @@ top:
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.tc == nil {
-		return nil, fmt.Errorf("failed to connect to host %s", hostKey.String())
+		return nil, fmt.Errorf("failed to connect to host %s (%w)", hostKey.String(), errors.Join(connectErrs...))
 	}
 	return t.tc, nil
 }
@@ -308,6 +311,12 @@ func (c *Client) ReadSector(ctx context.Context, accountKey types.PrivateKey, ho
 // historical performance.
 func (c *Client) Candidates() (*Candidates, error) {
 	return c.hosts.Candidates()
+}
+
+// UploadCandidates returns host candidates that are good for uploading,
+// ordered by their historical performance.
+func (c *Client) UploadCandidates() (*Candidates, error) {
+	return c.hosts.UploadCandidates()
 }
 
 // Prioritize reorders the given hosts based on their historical performance.

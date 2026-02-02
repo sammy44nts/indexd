@@ -39,6 +39,11 @@ func (m *mockHostDialer) Candidates() (*client.Candidates, error) {
 	return client.NewCandidates(slices.Collect(maps.Keys(m.hosts))), nil
 }
 
+// UploadCandidates implements the [hostDialer] interface.
+func (m *mockHostDialer) UploadCandidates() (*client.Candidates, error) {
+	return client.NewCandidates(slices.Collect(maps.Keys(m.hosts))), nil
+}
+
 // Prioritize implements the [hostDialer] interface.
 func (m *mockHostDialer) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	return hosts
@@ -283,6 +288,26 @@ func (mc *mockAppClient) CreateSharedObjectURL(ctx context.Context, _ types.Priv
 	copy(key[:32], objectKey[:])
 	copy(key[32:], encryptionKey)
 	return hex.EncodeToString(key), nil
+}
+
+func (mc *mockAppClient) PruneSlabs(ctx context.Context, _ types.PrivateKey) error {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	used := make(map[slabs.SlabID]slabs.PinnedSlab)
+	for _, obj := range mc.objects {
+		for _, slab := range obj.Slabs {
+			digest := slab.Digest()
+			used[digest] = slabs.PinnedSlab{
+				ID:            digest,
+				EncryptionKey: slab.EncryptionKey,
+				MinShards:     slab.MinShards,
+				Sectors:       slab.Sectors,
+			}
+		}
+	}
+	mc.pinned = used
+	return nil
 }
 
 func newMockAppClient() *mockAppClient {

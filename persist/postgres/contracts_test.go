@@ -1484,6 +1484,99 @@ func TestMarkContractBad(t *testing.T) {
 	}
 }
 
+func TestDeleteContract(t *testing.T) {
+	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
+
+	// add a host and contract
+	hk := store.addTestHost(t)
+	fcid := store.addTestContract(t, hk)
+
+	// verify contract is good initially
+	contract, err := store.Contract(fcid)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Good {
+		t.Fatal("expected contract to be good initially")
+	}
+
+	account := proto.Account{1}
+	store.addTestAccount(t, types.PublicKey(account))
+
+	// add a slab with sectors
+	params := slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors: []slabs.PinnedSector{
+			{Root: frand.Entropy256(), HostKey: hk},
+			{Root: frand.Entropy256(), HostKey: hk},
+			{Root: frand.Entropy256(), HostKey: hk},
+		},
+	}
+	_, err = store.PinSlabs(account, time.Now().Add(time.Hour), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// get unpinned sectors and pin them to the contract
+	unpinnedSectors, err := store.UnpinnedSectors(hk, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unpinnedSectors) != 3 {
+		t.Fatalf("expected 3 unpinned sectors, got %d", len(unpinnedSectors))
+	}
+
+	if err := store.PinSectors(fcid, unpinnedSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify sectors are pinned
+	statsBefore, err := store.SectorStats()
+	if err != nil {
+		t.Fatal(err)
+	} else if statsBefore.Pinned != 3 {
+		t.Fatalf("expected 3 pinned sectors, got %d", statsBefore.Pinned)
+	} else if statsBefore.Unpinned != 0 {
+		t.Fatalf("expected 0 unpinned sectors, got %d", statsBefore.Unpinned)
+	}
+
+	// delete the contract
+	if err := store.DeleteContract(fcid); err != nil {
+		t.Fatalf("failed to delete contract: %v", err)
+	}
+
+	// verify contract is marked bad
+	contract, err = store.Contract(fcid)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Good {
+		t.Fatal("expected contract to be marked bad after deletion")
+	}
+
+	// verify sectors are unpinned
+	statsAfter, err := store.SectorStats()
+	if err != nil {
+		t.Fatal(err)
+	} else if statsAfter.Pinned != 0 {
+		t.Fatalf("expected 0 pinned sectors after delete, got %d", statsAfter.Pinned)
+	} else if statsAfter.Unpinned != 3 {
+		t.Fatalf("expected 3 unpinned sectors after delete, got %d", statsAfter.Unpinned)
+	}
+
+	// verify sectors are still there but unpinned
+	unpinnedAfter, err := store.UnpinnedSectors(hk, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unpinnedAfter) != 3 {
+		t.Fatalf("expected 3 unpinned sectors after delete, got %d", len(unpinnedAfter))
+	}
+
+	// test deleting a non-existent contract
+	var missingID types.FileContractID
+	if err := store.DeleteContract(missingID); !errors.Is(err, contracts.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing contract, got: %v", err)
+	}
+}
+
 func TestUpdateContractRevision(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 

@@ -142,6 +142,8 @@ type (
 		UpdateContractRevision(contract rhp.ContractRevision, usage proto.Usage) error
 		UpdateNextPrune(contractID types.FileContractID, nextPrune time.Time) error
 
+		UpdateStuckHosts(stuck []types.PublicKey) error
+
 		LastScannedIndex() (ci types.ChainIndex, err error)
 	}
 

@@ -51,7 +51,7 @@ type (
 		CheckFailed int64 `json:"checkFailed"`
 	}
 
-	// ScansStatsResponse is the response body for [GET] /stats/hosts/scans.
+	// ScansStatsResponse is the response body for [GET] /stats/scans.
 	ScansStatsResponse struct {
 		Total  int64 `json:"total"`
 		Failed int64 `json:"failed"`

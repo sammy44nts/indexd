@@ -1492,8 +1492,8 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 	}
 
 	// set the uploaded timestamp to past the threshold pruning threshold date
-	// of 3 days
-	_, err = store.pool.Exec(t.Context(), "UPDATE sectors SET uploaded_at = NOW() - Interval '4 days' WHERE id = 1")
+	// of 3 days and set consecutive_failed_checks to a non-zero value
+	_, err = store.pool.Exec(t.Context(), "UPDATE sectors SET uploaded_at = NOW() - Interval '4 days', consecutive_failed_checks = 5 WHERE id = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1511,6 +1511,15 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 
 	if err := store.MarkSectorsUnpinnable(time.Now().Add(-3 * 24 * time.Hour)); err != nil {
 		t.Fatal(err)
+	}
+
+	// assert consecutive_failed_checks was reset to 0
+	var consecutiveFailedChecks int
+	err = store.pool.QueryRow(t.Context(), "SELECT consecutive_failed_checks FROM sectors WHERE id = 1").Scan(&consecutiveFailedChecks)
+	if err != nil {
+		t.Fatal(err)
+	} else if consecutiveFailedChecks != 0 {
+		t.Fatalf("expected consecutive_failed_checks to be 0, got %d", consecutiveFailedChecks)
 	}
 
 	// sector should have had host_id nulled out due to MarkSectorsUnpinnable

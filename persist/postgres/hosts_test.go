@@ -93,10 +93,34 @@ func TestBlockHosts(t *testing.T) {
 	hk2 := store.addTestHost(t, types.PublicKey{2})
 	hk3 := types.PublicKey{3} // not in DB
 
+	// create a sector for hk1 with a non-zero consecutive_failed_checks
+	sectorRoot := frand.Entropy256()
+	_, err := store.pool.Exec(t.Context(), `
+		INSERT INTO sectors (sector_root, host_id, next_integrity_check, consecutive_failed_checks)
+		SELECT $1, id, NOW(), 5 FROM hosts WHERE public_key = $2
+	`, sqlHash256(sectorRoot), sqlPublicKey(hk1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// update num_unpinned_sectors stat to match inserted sector
+	_, err = store.pool.Exec(t.Context(), `UPDATE stats SET num_unpinned_sectors = num_unpinned_sectors + 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// assert block reasons
 	reasons := []string{"a", "b"}
 	if err := store.BlockHosts([]types.PublicKey{hk1, hk2}, reasons); err != nil {
 		t.Fatal(err)
+	}
+
+	// assert consecutive_failed_checks was reset to 0
+	var consecutiveFailedChecks int
+	err = store.pool.QueryRow(t.Context(), `SELECT consecutive_failed_checks FROM sectors WHERE sector_root = $1`, sqlHash256(sectorRoot)).Scan(&consecutiveFailedChecks)
+	if err != nil {
+		t.Fatal(err)
+	} else if consecutiveFailedChecks != 0 {
+		t.Fatalf("expected consecutive_failed_checks to be 0, got %d", consecutiveFailedChecks)
 	}
 	for _, hk := range []types.PublicKey{hk1, hk2} {
 		host, err := store.Host(hk)
@@ -743,6 +767,8 @@ func TestUsableHosts(t *testing.T) {
 		t.Fatal("unexpected hosts", hosts[0], hosts[1])
 	} else if hosts[0].Addresses == nil || hosts[1].Addresses == nil {
 		t.Fatal("expected hosts to have addresses")
+	} else if !hosts[0].GoodForUpload || !hosts[1].GoodForUpload {
+		t.Fatal("expected hosts to be good for upload")
 	}
 
 	// assert offset and limit are applied
@@ -856,6 +882,34 @@ func TestUsableHosts(t *testing.T) {
 		Latitude:    0,
 		Longitude:   0,
 	}, siamuxProtocol, true, false, true)
+
+	// test GoodForUpload field
+	// set uh1 to have no remaining storage - should have GoodForUpload=false
+	settingsNoStorage := newTestHostSettings(uh1)
+	settingsNoStorage.RemainingStorage = 0
+	if err := db.UpdateHostScan(uh1, settingsNoStorage, locationUS, true, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// set uh2 to be stuck - any stuck hosts are not good for upload
+	if _, err := db.pool.Exec(t.Context(), `UPDATE hosts SET stuck_since = NOW() - INTERVAL '1 hours' WHERE public_key = $1`, sqlPublicKey(uh2)); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify GoodForUpload is false for both hosts
+	usableHosts, err := db.UsableHosts(0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range usableHosts {
+		if h.PublicKey == uh1 && h.GoodForUpload {
+			t.Fatal("expected host with insufficient storage to not be good for upload")
+		} else if h.PublicKey == uh2 && h.GoodForUpload {
+			t.Fatal("expected stuck host to not be good for upload")
+		} else if h.PublicKey == uh3 && !h.GoodForUpload {
+			t.Fatal("expected normal host to be good for upload")
+		}
+	}
 }
 
 func TestHostsForScanning(t *testing.T) {
@@ -1086,6 +1140,159 @@ func TestResetLostSectors(t *testing.T) {
 	if err := db.ResetLostSectors(types.PublicKey{99}); !errors.Is(err, hosts.ErrNotFound) {
 		t.Fatalf("expected hosts.ErrNotFound, got %v", err)
 	}
+}
+
+func TestStuckHosts(t *testing.T) {
+	// create database
+	log := zaptest.NewLogger(t)
+	db := initPostgres(t, log.Named("postgres"))
+
+	addHost := func() types.PublicKey {
+		t.Helper()
+
+		hk := db.addTestHost(t)
+		db.addTestContract(t, hk)
+		if _, err := db.pool.Exec(t.Context(), "UPDATE hosts SET usage_total_spent = $1 WHERE public_key = $2", sqlCurrency(types.NewCurrency64(1)), sqlPublicKey(hk)); err != nil {
+			t.Fatal(err)
+		}
+		return hk
+	}
+
+	// add three hosts
+	hk1 := addHost()
+	hk2 := addHost()
+	hk3 := addHost()
+
+	assertStuckHosts := func(expected []types.PublicKey) {
+		t.Helper()
+		stuckHosts, err := db.StuckHosts()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stuckHosts) != len(expected) {
+			t.Fatalf("expected %d stuck hosts, got %d", len(expected), len(stuckHosts))
+		}
+		for _, exp := range expected {
+			found := false
+			for _, sh := range stuckHosts {
+				if sh.PublicKey == exp {
+					if sh.StuckSince.IsZero() {
+						t.Fatalf("stuck since time should not be zero for host %v", exp)
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected host %v to be stuck", exp)
+			}
+		}
+
+		stats, err := db.HostStats(0, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var count int
+		for _, h := range stats {
+			if h.Stuck {
+				count++
+			}
+		}
+		if count != len(expected) {
+			t.Fatalf("expected %d stuck hosts, got %d", len(expected), count)
+		}
+	}
+
+	// initially no hosts should be stuck
+	assertStuckHosts(nil)
+
+	// mark hk1 as stuck
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk1}); err != nil {
+		t.Fatal(err)
+	}
+
+	// hk1 should still not be returned as stuck yet (less than 24 hours)
+	assertStuckHosts(nil)
+
+	// manually set stuck_since to 25 hours ago for hk1 to simulate the 24h threshold
+	_, err := db.pool.Exec(t.Context(), `UPDATE hosts SET stuck_since = NOW() - INTERVAL '25 hours' WHERE public_key = $1`, sqlPublicKey(hk1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// now hk1 should be stuck
+	assertStuckHosts([]types.PublicKey{hk1})
+
+	// mark hk2 as stuck too (but recent, so not returned yet), keeping hk1 stuck
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk1, hk2}); err != nil {
+		t.Fatal(err)
+	}
+
+	// still only hk1 should be returned (hk2 is recent)
+	assertStuckHosts([]types.PublicKey{hk1})
+
+	// manually set stuck_since to 25 hours ago for hk2
+	_, err = db.pool.Exec(t.Context(), `UPDATE hosts SET stuck_since = NOW() - INTERVAL '25 hours' WHERE public_key = $1`, sqlPublicKey(hk2))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// now both hk1 and hk2 should be stuck
+	assertStuckHosts([]types.PublicKey{hk1, hk2})
+
+	// test that UpdateStuckHosts implicitly clears hosts not in the list
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk2}); err != nil {
+		t.Fatal(err)
+	}
+
+	// now only hk2 should be stuck
+	assertStuckHosts([]types.PublicKey{hk2})
+
+	// check UpdateStuckHosts preserves stuck_since if already set
+	var stuckSince time.Time
+	err = db.pool.QueryRow(t.Context(), `SELECT stuck_since FROM hosts WHERE public_key = $1`, sqlPublicKey(hk2)).Scan(&stuckSince)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// call UpdateStuckHosts again with same host
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk2}); err != nil {
+		t.Fatal(err)
+	}
+
+	// stuck_since should not have changed
+	var stuckSinceAfter time.Time
+	err = db.pool.QueryRow(t.Context(), `SELECT stuck_since FROM hosts WHERE public_key = $1`, sqlPublicKey(hk2)).Scan(&stuckSinceAfter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stuckSince.Equal(stuckSinceAfter) {
+		t.Fatalf("expected stuck_since to remain %v, got %v", stuckSince, stuckSinceAfter)
+	}
+
+	// test clearing all stuck hosts by passing empty list
+	if err := db.UpdateStuckHosts(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// no hosts should be stuck anymore
+	assertStuckHosts(nil)
+
+	// test marking multiple hosts as stuck at once
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk1, hk2, hk3}); err != nil {
+		t.Fatal(err)
+	}
+
+	// manually set all to 25 hours ago
+	_, err = db.pool.Exec(t.Context(), `UPDATE hosts SET stuck_since = NOW() - INTERVAL '25 hours' WHERE public_key = ANY($1)`,
+		[]sqlPublicKey{sqlPublicKey(hk1), sqlPublicKey(hk2), sqlPublicKey(hk3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// all three should be stuck
+	assertStuckHosts([]types.PublicKey{hk1, hk2, hk3})
 }
 
 func TestHostsWithUnpinnableSectors(t *testing.T) {
@@ -2717,6 +2924,72 @@ func BenchmarkHostStats(b *testing.B) {
 			b.Fatalf("expected %d host stats, got %d", limit, len(stats))
 		}
 	}
+}
+
+func BenchmarkStuckHosts(b *testing.B) {
+	store := initPostgres(b, zap.NewNop())
+
+	const (
+		numHosts = 10_000
+	)
+
+	// prepare database
+	var allHosts []types.PublicKey
+	if err := store.transaction(func(ctx context.Context, tx *txn) error {
+		for i := range numHosts {
+			hk := types.GeneratePrivateKey().PublicKey()
+			allHosts = append(allHosts, hk)
+
+			// add host
+			var hostID int64
+			if err := tx.QueryRow(ctx, `
+				INSERT INTO hosts (public_key, last_announcement)
+				VALUES ($1, NOW())
+				RETURNING id;`, sqlPublicKey(hk)).Scan(&hostID); err != nil {
+				return err
+			}
+
+			// 10% of hosts are stuck (stuck_since > 24 hours ago)
+			if i%10 == 0 {
+				_, err := tx.Exec(ctx, `UPDATE hosts SET stuck_since = NOW() - INTERVAL '48 hours' WHERE id = $1`, hostID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+
+	// analyze tables to ensure query planner has up-to-date statistics
+	_, vErr1 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) hosts;`)
+	_, vErr2 := store.pool.Exec(b.Context(), `VACUUM (ANALYZE) contracts;`)
+	if err := errors.Join(vErr1, vErr2); err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("StuckHosts", func(b *testing.B) {
+		for b.Loop() {
+			hosts, err := store.StuckHosts()
+			if err != nil {
+				b.Fatal(err)
+			} else if len(hosts) == 0 {
+				b.Fatal("expected some hosts")
+			}
+		}
+	})
+
+	b.Run("UpdateStuckHosts", func(b *testing.B) {
+		// use 10% of hosts for stuck
+		stuckHosts := allHosts[:numHosts/10]
+		for b.Loop() {
+			if err := store.UpdateStuckHosts(stuckHosts); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func (s *Store) addTestHost(t testing.TB, hks ...types.PublicKey) types.PublicKey {

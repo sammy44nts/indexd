@@ -30,7 +30,8 @@ const (
 )
 
 type dbHost struct {
-	id int64
+	id            int64
+	GoodForUpload bool // used by UsableHosts query
 	hosts.Host
 }
 
@@ -75,7 +76,8 @@ WITH globals AS (
 	FROM global_settings
 ), hosts AS (
 	SELECT
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, hb.reasons, lost_sectors,
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, hb.reasons,
+		lost_sectors,
 		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime, usage_account_funding, usage_total_spent,
 		country_code, location,
 		settings_protocol_version, settings_release, settings_wallet_address,
@@ -158,7 +160,8 @@ WITH globals AS (
     FROM global_settings
 ), hosts AS (
 	SELECT
-		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, hb.reasons, lost_sectors,
+		id, hosts.public_key, last_announcement, hb.public_key IS NOT NULL AS blocked, hb.reasons,
+		lost_sectors,
 		last_failed_scan, last_successful_scan, next_scan, consecutive_failed_scans, recent_uptime, usage_account_funding, usage_total_spent,
 		country_code, location,
 		settings_protocol_version, settings_release, settings_wallet_address,
@@ -309,7 +312,7 @@ func (s *Store) BlockHosts(hks []types.PublicKey, reasons []string) error {
 
 			res, err := tx.Exec(ctx, `
 				UPDATE sectors
-				SET host_id = NULL
+				SET host_id = NULL, consecutive_failed_checks = 0
 				WHERE host_id = $1 AND contract_sectors_map_id IS NULL`, hostID)
 			if err != nil {
 				return fmt.Errorf("failed to update sectors: %w", err)
@@ -624,6 +627,7 @@ WITH globals AS (
 		country_code,
 		location,
 		last_successful_scan,
+		stuck_since,
 		settings_protocol_version,
 		settings_release,
 		settings_wallet_address,
@@ -641,7 +645,8 @@ WITH globals AS (
 		settings_tip_height,
 		settings_valid_until,
 		settings_signature,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		(stuck_since IS NULL AND settings_remaining_storage > 0) AS good_for_upload
 	FROM hosts
 	WHERE last_successful_scan IS NOT NULL -- has settings
 )
@@ -649,7 +654,8 @@ SELECT
 	hosts.id,
 	hosts.public_key,
 	hosts.country_code,
-	hosts.location
+	hosts.location,
+	hosts.good_for_upload
 FROM hosts
 CROSS JOIN globals
 WHERE
@@ -691,7 +697,7 @@ WHERE
 		for rows.Next() {
 			var host dbHost
 			var point pgtype.Point
-			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point); err != nil {
+			if err := rows.Scan(&host.id, (*sqlPublicKey)(&host.PublicKey), &host.CountryCode, &point, &host.GoodForUpload); err != nil {
 				return fmt.Errorf("failed to scan host: %w", err)
 			}
 
@@ -711,11 +717,12 @@ WHERE
 
 		for _, h := range dbHosts {
 			usable = append(usable, hosts.HostInfo{
-				PublicKey:   h.PublicKey,
-				Addresses:   h.Addresses,
-				CountryCode: h.CountryCode,
-				Latitude:    h.Latitude,
-				Longitude:   h.Longitude,
+				PublicKey:     h.PublicKey,
+				Addresses:     h.Addresses,
+				CountryCode:   h.CountryCode,
+				Latitude:      h.Latitude,
+				Longitude:     h.Longitude,
+				GoodForUpload: h.GoodForUpload,
 			})
 		}
 		return nil
@@ -1010,6 +1017,70 @@ func (s *Store) HostsWithLostSectors() ([]types.PublicKey, error) {
 		return nil, err
 	}
 	return hks, nil
+}
+
+// UpdateStuckHosts updates the stuck_since timestamp for hosts. Hosts in the
+// stuck slice will be marked as stuck (preserving existing timestamps). All
+// other hosts that are currently marked as stuck will have their stuck status
+// cleared.
+func (s *Store) UpdateStuckHosts(stuck []types.PublicKey) error {
+	return s.transaction(func(ctx context.Context, tx *txn) error {
+		sqlHks := make([]sqlPublicKey, len(stuck))
+		for i, hk := range stuck {
+			sqlHks[i] = sqlPublicKey(hk)
+		}
+
+		// mark hosts as stuck
+		if len(stuck) > 0 {
+			_, err := tx.Exec(ctx, `
+				UPDATE hosts
+				SET stuck_since = COALESCE(stuck_since, NOW())
+				WHERE public_key = ANY($1)`, sqlHks)
+			if err != nil {
+				return fmt.Errorf("failed to set stuck hosts: %w", err)
+			}
+		}
+
+		// clear stuck_since for hosts not in the stuck list
+		_, err := tx.Exec(ctx, `
+			UPDATE hosts
+			SET stuck_since = NULL
+			WHERE stuck_since IS NOT NULL
+				AND public_key != ALL($1)`, sqlHks)
+		if err != nil {
+			return fmt.Errorf("failed to clear stuck hosts: %w", err)
+		}
+		return nil
+	})
+}
+
+// StuckHosts returns a list of stuck hosts with the timestamp they first
+// became stuck. A host is stuck if stuck_since is more than 24 hours ago.
+func (s *Store) StuckHosts() ([]hosts.StuckHost, error) {
+	var result []hosts.StuckHost
+	if err := s.transaction(func(ctx context.Context, tx *txn) error {
+		rows, err := tx.Query(ctx, `
+			SELECT public_key, stuck_since
+			FROM hosts
+			WHERE stuck_since IS NOT NULL
+				AND stuck_since < NOW() - INTERVAL '24 hours'`)
+		if err != nil {
+			return fmt.Errorf("failed to query stuck hosts: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var sh hosts.StuckHost
+			if err := rows.Scan((*sqlPublicKey)(&sh.PublicKey), &sh.StuckSince); err != nil {
+				return err
+			}
+			result = append(result, sh)
+		}
+		return rows.Err()
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func buildHostOrderByClause(sorts []hosts.HostSortOpt) (string, error) {

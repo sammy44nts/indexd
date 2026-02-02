@@ -129,6 +129,15 @@ func TestAppConnectKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// verify that remaining uses was incremented after account deletion
+	key, err := store.AppConnectKey(connectKey)
+	if err != nil {
+		t.Fatal("failed to get app connect key:", err)
+	} else if key.RemainingUses != 2 {
+		// was set to 1 via UpdateAppConnectKey, then +1 after prune
+		t.Fatalf("expected remaining uses to be 2 after account deletion, got %d", key.RemainingUses)
+	}
+
 	// try deleting key again now that it's not in use
 	if err := store.DeleteAppConnectKey(connectKey); err != nil {
 		t.Fatal(err)

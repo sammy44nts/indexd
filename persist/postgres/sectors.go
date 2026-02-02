@@ -667,7 +667,7 @@ func (s *Store) MarkSectorsUnpinnable(threshold time.Time) error {
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		res, err := tx.Exec(ctx, `
             UPDATE sectors
-            SET host_id = NULL
+            SET host_id = NULL, consecutive_failed_checks = 0
             WHERE host_id IS NOT NULL
 	            AND contract_sectors_map_id IS NULL
 	            AND uploaded_at <= $1`, threshold)

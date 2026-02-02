@@ -43,6 +43,7 @@ CREATE TABLE hosts (
     country_code TEXT NOT NULL DEFAULT '',
     location POINT NOT NULL DEFAULT POINT(0.0, 0.0),
     lost_sectors INTEGER NOT NULL DEFAULT 0,
+    stuck_since TIMESTAMP WITH TIME ZONE,
 
     scans INTEGER NOT NULL DEFAULT 0 CHECK (scans >= 0),
     scans_failed INTEGER NOT NULL DEFAULT 0 CHECK (scans_failed >= 0),
@@ -69,6 +70,9 @@ CREATE TABLE hosts (
     settings_signature BYTEA NOT NULL DEFAULT '\x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'::bytea CHECK (LENGTH(settings_signature) = 64)
 );
 CREATE INDEX hosts_next_scan_idx ON hosts(next_scan);
+
+-- speed up querying for stuck hosts
+CREATE INDEX hosts_stuck_since_idx ON hosts(stuck_since) WHERE stuck_since IS NOT NULL;
 
 CREATE INDEX hosts_last_integrity_check_idx ON hosts(last_integrity_check ASC);
 CREATE INDEX hosts_lost_sectors_idx ON hosts(lost_sectors);

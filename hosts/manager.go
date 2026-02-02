@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/threadgroup"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/geoip"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -27,6 +28,10 @@ const (
 	pruneFrequency                  = time.Hour * 24
 	pruneMinConsecutiveScanFailures = 10
 	pruneMinDowntime                = time.Hour * 24 * 365 // 1 year
+
+	// stuckFrequency represents how often we check for stuck hosts and
+	// register an alert if there are any
+	stuckFrequency = time.Hour
 
 	scanThreads                    = 50
 	scanTimeout                    = time.Minute
@@ -41,6 +46,8 @@ var (
 	// ErrBadHost is returned when a host can't be interacted with due to being
 	// considered bad.
 	ErrBadHost = errors.New("host is bad")
+
+	alertStuckHostsID = alerts.RandomAlertID()
 )
 
 type (
@@ -64,6 +71,7 @@ type (
 		scanner       Scanner
 		locator       Locator
 		store         Store
+		alerter       AlertsManager
 
 		triggerHostScanningChan chan struct{}
 
@@ -84,6 +92,7 @@ type (
 		ScansFailed         int64                  `json:"scansFailed"`
 		Blocked             bool                   `json:"blocked"`
 		BlockedReasons      []string               `json:"blockedReasons"`
+		Stuck               bool                   `json:"stuck"`
 	}
 
 	// OnlineChecker defines an interface to check whether the indexer is online. It's
@@ -117,6 +126,7 @@ type (
 		HostsForPinning() ([]types.PublicKey, error)
 		HostsForScanning() ([]types.PublicKey, error)
 		HostsWithUnpinnableSectors() ([]types.PublicKey, error)
+		StuckHosts() ([]StuckHost, error)
 
 		BlockHosts(hostKeys []types.PublicKey, reasons []string) error
 		BlockedHosts(offset, limit int) ([]types.PublicKey, error)
@@ -129,6 +139,12 @@ type (
 
 		UsabilitySettings() (UsabilitySettings, error)
 		UpdateUsabilitySettings(us UsabilitySettings) error
+	}
+
+	// AlertsManager defines an interface to register alerts.
+	AlertsManager interface {
+		RegisterAlert(alert alerts.Alert) error
+		DismissAlerts(ids ...types.Hash256)
 	}
 
 	// Syncer defines an interface that exposes the Peers method.
@@ -205,7 +221,7 @@ func (hm *HostManager) ResetLostSectors(ctx context.Context, hk types.PublicKey)
 }
 
 // NewManager creates a new host manager.
-func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, opts ...Option) (*HostManager, error) {
+func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, alerter AlertsManager, opts ...Option) (*HostManager, error) {
 	// uses Cloudflare 1.1.1.1 for when OS resolver fails
 	fallbackResolver := &net.Resolver{
 		// PreferGo allows us to use our own dialer
@@ -227,6 +243,7 @@ func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, 
 		locator:       locator,
 		store:         store,
 		hosts:         client,
+		alerter:       alerter,
 
 		triggerHostScanningChan: make(chan struct{}, 1),
 
@@ -253,9 +270,11 @@ func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, 
 		defer cancel()
 
 		pruneTicker := time.NewTicker(pruneFrequency)
+		stuckTicker := time.NewTicker(stuckFrequency)
 		scanTicker := time.NewTicker(m.scanFrequency)
 		defer func() {
 			pruneTicker.Stop()
+			stuckTicker.Stop()
 			scanTicker.Stop()
 		}()
 
@@ -263,6 +282,8 @@ func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, 
 			select {
 			case <-pruneTicker.C:
 				m.pruneHosts()
+			case <-stuckTicker.C:
+				m.registerStuckHostsAlert()
 			case <-m.triggerHostScanningChan:
 				// reset ticker
 				scanTicker.Stop()
@@ -558,6 +579,35 @@ loop:
 	wg.Wait()
 
 	m.log.Debug("host scans finished", zap.Int("hosts", len(hosts)), zap.Duration("duration", time.Since(start)))
+}
+
+func newStuckHostsAlert(hosts []StuckHost) alerts.Alert {
+	return alerts.Alert{
+		ID:       alertStuckHostsID,
+		Severity: alerts.SeverityWarning,
+		Message:  "Host(s) are stuck",
+		Data: map[string]any{
+			"hosts": hosts,
+			"hint":  "Contract operations (form/renew/refresh) have been failing for these hosts for more than 24 hours. Consider blocking these hosts through the blocklist feature.",
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+func (m *HostManager) registerStuckHostsAlert() {
+	stuckHosts, err := m.store.StuckHosts()
+	if err != nil {
+		m.log.Error("failed to get stuck hosts", zap.Error(err))
+		return
+	}
+	if len(stuckHosts) > 0 {
+		if err := m.alerter.RegisterAlert(newStuckHostsAlert(stuckHosts)); err != nil {
+			m.log.Error("failed to register stuck hosts alert", zap.Error(err))
+			return
+		}
+	} else {
+		m.alerter.DismissAlerts(alertStuckHostsID)
+	}
 }
 
 // fetchSettings uses the given scanner to fetch the settings of the host with

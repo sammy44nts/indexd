@@ -13,9 +13,9 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
-	"go.sia.tech/indexd/internal/testutils"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -45,48 +45,6 @@ func (f *mockFunder) FundAccounts(ctx context.Context, host hosts.Host, contract
 	return len(accs), 1, nil
 }
 
-type testStore struct {
-	testutils.TestStore
-}
-
-func (s testStore) resetNextFund(t testing.TB) {
-	t.Helper()
-	if _, err := s.Exec(t.Context(), `UPDATE account_hosts SET next_fund = NOW()`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func (s testStore) hostAccounts(t testing.TB) (result []accounts.HostAccount) {
-	t.Helper()
-
-	rows, err := s.Query(t.Context(), `SELECT next_fund FROM account_hosts`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var account accounts.HostAccount
-		if err := rows.Scan(&account.NextFund); err != nil {
-			t.Fatal(err)
-		}
-		result = append(result, account)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return
-}
-
-func newTestStore(t testing.TB) testStore {
-	s := testutils.NewDB(t, contracts.DefaultMaintenanceSettings, zaptest.NewLogger(t))
-	t.Cleanup(func() {
-		s.Close()
-	})
-
-	return testStore{s}
-}
-
 // TestFunding is a unit test that covers the functionality of the
 // FundAccounts method on the contracts manager.
 func TestFunding(t *testing.T) {
@@ -106,7 +64,7 @@ func TestFunding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hm, err := hosts.NewManager(nil, nil, nil, s, hosts.WithLogger(log.Named("hosts")))
+	hm, err := hosts.NewManager(nil, nil, nil, s, alerts.NewManager(), hosts.WithLogger(log.Named("hosts")))
 	if err != nil {
 		t.Fatal(err)
 	}

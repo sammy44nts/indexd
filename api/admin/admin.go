@@ -111,6 +111,7 @@ type (
 		HostStats(offset, limit int) ([]hosts.HostStats, error)
 		SectorStats() (SectorsStatsResponse, error)
 
+		DeleteContract(contractID types.FileContractID) error
 		LastScannedIndex() (types.ChainIndex, error)
 	}
 
@@ -203,7 +204,8 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 		"POST   /alerts/dismiss": a.handlePOSTAlertsDismiss,
 
 		// contract endpoints
-		"GET /contract/:contractid": a.handleGETContract,
+		"GET    /contract/:contractid": a.handleGETContract,
+		"DELETE /contract/:contractid": a.handleDELETEContract,
 
 		// contracts endpoints
 		"GET /contracts": a.handleGETContracts,
@@ -592,6 +594,23 @@ func (a *admin) handleGETContract(jc jape.Context) {
 	jc.Encode(contract)
 }
 
+func (a *admin) handleDELETEContract(jc jape.Context) {
+	var contractID types.FileContractID
+	if jc.DecodeParam("contractid", &contractID) != nil {
+		return
+	}
+
+	err := a.store.DeleteContract(contractID)
+	if errors.Is(err, contracts.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if jc.Check("failed to delete contract", err) != nil {
+		return
+	}
+
+	jc.Encode(nil)
+}
+
 func (a *admin) handleGETContracts(jc jape.Context) {
 	offset, limit, ok := api.ParseOffsetLimit(jc)
 	if !ok {
@@ -783,7 +802,9 @@ func (a *admin) handlePUTHostsBlocklist(jc jape.Context) {
 	if jc.Decode(&hosts) != nil {
 		return
 	}
-	jc.Check("failed to add host keys to blocklist", a.hosts.BlockHosts(jc.Request.Context(), hosts.HostKeys, hosts.Reasons))
+	if jc.Check("failed to add host keys to blocklist", a.hosts.BlockHosts(jc.Request.Context(), hosts.HostKeys, hosts.Reasons)) != nil {
+		return
+	}
 	jc.Encode(nil)
 }
 
@@ -792,7 +813,9 @@ func (a *admin) handleDELETEHostsBlocklist(jc jape.Context) {
 	if jc.DecodeParam("hostkey", &hk) != nil {
 		return
 	}
-	jc.Check("failed to unblock host", a.hosts.UnblockHost(jc.Request.Context(), hk))
+	if jc.Check("failed to unblock host", a.hosts.UnblockHost(jc.Request.Context(), hk)) != nil {
+		return
+	}
 	jc.Encode(nil)
 }
 
@@ -809,7 +832,9 @@ func (a *admin) handlePUTSettingsContracts(jc jape.Context) {
 	if jc.Decode(&ms) != nil {
 		return
 	}
-	jc.Check("failed to update contract settings", a.contracts.UpdateMaintenanceSettings(jc.Request.Context(), ms))
+	if jc.Check("failed to update contract settings", a.contracts.UpdateMaintenanceSettings(jc.Request.Context(), ms)) != nil {
+		return
+	}
 	jc.Encode(nil)
 }
 
@@ -826,7 +851,9 @@ func (a *admin) handlePUTSettingsHosts(jc jape.Context) {
 	if jc.Decode(&s) != nil {
 		return
 	}
-	jc.Check("failed to update host settings", a.hosts.UpdateUsabilitySettings(jc.Request.Context(), s))
+	if jc.Check("failed to update host settings", a.hosts.UpdateUsabilitySettings(jc.Request.Context(), s)) != nil {
+		return
+	}
 	jc.Encode(nil)
 }
 
@@ -847,7 +874,9 @@ func (a *admin) handlePUTSettingsPricePinning(jc jape.Context) {
 		return
 	}
 
-	jc.Check("failed to update price pinning settings", a.pins.UpdatePinnedSettings(jc.Request.Context(), s))
+	if jc.Check("failed to update price pinning settings", a.pins.UpdatePinnedSettings(jc.Request.Context(), s)) != nil {
+		return
+	}
 	jc.Encode(nil)
 }
 

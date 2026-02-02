@@ -630,6 +630,9 @@ components:
           type: number
           format: float
           description: Approximate longitude of the host inferred from its IP address.
+        goodForUpload:
+          type: boolean
+          description: Whether the host is good for uploading data. False if the host is stuck or out of storage.
 
     HostUsability:
       type: object
@@ -862,14 +865,14 @@ components:
               type: string
             description: Reasons why the host was blocked, if any
 
-    HostScanStatsResponse:
+    ScansStatsResponse:
       type: object
       properties:
-        scans:
+        total:
           type: integer
           format: int64
           description: Total number of host scans across all hosts
-        scansFailed:
+        failed:
           type: integer
           format: int64
           description: Total number of failed host scans across all hosts

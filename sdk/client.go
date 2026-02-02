@@ -9,7 +9,6 @@ import (
 	"io"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/klauspost/reedsolomon"
@@ -30,6 +29,7 @@ type (
 		ReadSector(ctx context.Context, accountKey types.PrivateKey, hostKey types.PublicKey, root types.Hash256, w io.Writer, offset, length uint64) (rhp.RPCReadSectorResult, error)
 
 		Candidates() (*client.Candidates, error)
+		UploadCandidates() (*client.Candidates, error)
 		Prioritize(hosts []types.PublicKey) []types.PublicKey
 		Close() error
 	}
@@ -48,6 +48,7 @@ type (
 		Slab(context.Context, types.PrivateKey, slabs.SlabID) (slabs.PinnedSlab, error)
 		PinSlabs(context.Context, types.PrivateKey, ...slabs.SlabPinParams) ([]slabs.SlabID, error)
 		UnpinSlab(context.Context, types.PrivateKey, slabs.SlabID) error
+		PruneSlabs(context.Context, types.PrivateKey) error
 	}
 
 	downloadOption struct {
@@ -115,46 +116,91 @@ func (s *SDK) downloadSlab(ctx context.Context, slab slabs.SlabSlice, maxInfligh
 	// prioritize hosts
 	slabHosts = s.hosts.Prioritize(slabHosts)
 
-	var successful atomic.Uint32
+	// helper to launch download
+	type result struct {
+		index int
+		buf   []byte
+		err   error
+	}
 	var wg sync.WaitGroup
-	sectors := make([][]byte, len(slab.Sectors))
+	defer wg.Wait()
+	responseCh := make(chan *result, len(slabSectors))
 	sema := make(chan struct{}, maxInflight)
-top:
-	for _, hostKey := range slabHosts {
+	tryDownloadSector := func(ctx context.Context, d sectorDownload) {
 		select {
 		case <-ctx.Done():
-			break top
+			return
 		case sema <- struct{}{}:
 			// limit number of concurrent requests
 		}
-		wg.Add(1)
-		sector, ok := slabSectors[hostKey]
-		if !ok {
-			panic("missing slab for host") // developer error
-		}
-		go func(ctx context.Context, sector slabs.PinnedSector, i int) {
-			defer func() {
-				<-sema
-				wg.Done()
-			}()
+		wg.Go(func() {
 			buf := bytes.NewBuffer(make([]byte, 0, length))
-			err := downloadShard(ctx, s.hosts, s.appKey, sector.HostKey, buf, sector.Root, offset, length, timeout)
-			if err != nil {
+			err := downloadShard(ctx, s.hosts, s.appKey, d.sector.HostKey, buf, d.sector.Root, offset, length, timeout)
+			<-sema
+			select {
+			case <-ctx.Done():
 				return
+			case responseCh <- &result{index: d.index, buf: buf.Bytes(), err: err}:
 			}
-			sectors[i] = buf.Bytes()
-			if v := successful.Add(1); v >= uint32(slab.MinShards) {
-				// got enough pieces to recover
-				cancel()
-			}
-		}(ctx, sector.sector, sector.index)
+		})
 	}
 
-	wg.Wait()
-	if n := successful.Load(); n < uint32(slab.MinShards) {
-		return nil, fmt.Errorf("retrieved %d sectors, minimum required: %d: %w", n, slab.MinShards, ErrNotEnoughShards)
+	// launch minShards downloads right away
+	for range slab.MinShards {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		tryDownloadSector(ctx, slabSectors[slabHosts[0]])
+		slabHosts = slabHosts[1:]
 	}
-	return sectors, nil
+
+	// launch more downloads as results come in or periodically if there is
+	// still capacity in the semaphore
+	var successful int
+	shards := make([][]byte, len(slab.Sectors))
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case res := <-responseCh:
+			if res.err == nil {
+				// successful download
+				shards[res.index] = res.buf
+				successful++
+				if successful >= int(slab.MinShards) {
+					// enough shards downloaded
+					return shards, nil
+				}
+			} else {
+				// failed download
+				rem := max(0, int(slab.MinShards)-successful)
+				if rem == 0 {
+					return shards, nil // sanity check
+				} else if len(sema)+len(slabHosts) < rem {
+					// not enough hosts left to satisfy min shards
+					return nil, ErrNotEnoughShards
+				} else if len(sema) <= rem && len(slabHosts) > 0 {
+					// only spawn additional download tasks if there are not
+					// enough to satisfy the required number of shards. The
+					// sleep arm will handle slow hosts.
+					tryDownloadSector(ctx, slabSectors[slabHosts[0]])
+					slabHosts = slabHosts[1:]
+				}
+			}
+		case <-timer.C:
+			// if the semaphore has capacity, launch more downloads
+			if len(sema) < cap(sema) && len(slabHosts) > 0 {
+				tryDownloadSector(ctx, slabSectors[slabHosts[0]])
+				slabHosts = slabHosts[1:]
+			}
+		case <-ctx.Done():
+			// download got interrupted before it could finish
+			return nil, ctx.Err()
+		}
+		timer.Reset(time.Second)
+	}
 }
 
 // AppKey returns the app key used by the SDK.
@@ -164,6 +210,12 @@ top:
 // the indexer.
 func (s *SDK) AppKey() types.PrivateKey {
 	return s.appKey
+}
+
+// PruneSlabs removes all slabs on the account that are not associated with
+// an object.
+func (s *SDK) PruneSlabs(ctx context.Context) error {
+	return s.client.PruneSlabs(ctx, s.appKey)
 }
 
 // Upload uploads the data to hosts and pins it to the indexer.

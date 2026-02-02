@@ -9,8 +9,8 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/hosts"
-	"go.sia.tech/indexd/internal/testutils"
 	"go.sia.tech/indexd/slabs"
+	"go.sia.tech/indexd/testutils"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +30,7 @@ func TestMigrations(t *testing.T) {
 	cluster.WaitForContracts(t)
 
 	// upload sectors to hosts
-	encryptionKey, shards, roots := slabs.NewTestShards(t, 1, 10)
+	encryptionKey, shards, roots := NewTestShards(t, 1, 10)
 	client := client.New(client.NewProvider(hosts.NewHostStore(cluster.Indexer.Store())))
 	defer client.Close()
 	for i := range shards {
@@ -130,7 +130,7 @@ func TestUpdateLastUsed(t *testing.T) {
 	defer client.Close()
 
 	// upload sectors to hosts
-	encryptionKey, shards, roots := slabs.NewTestShards(t, 1, 9)
+	encryptionKey, shards, roots := NewTestShards(t, 1, 9)
 	for i := range shards {
 		if _, err := client.WriteSector(context.Background(), sk, cluster.Hosts[i].PublicKey(), shards[i]); err != nil {
 			t.Fatal(err)
