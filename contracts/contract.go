@@ -274,3 +274,21 @@ func (s *ContractState) UnmarshalText(b []byte) error {
 		return fmt.Errorf("unknown contract state %v", s)
 	}
 }
+
+// maxRenewableContractSize returns the maximum size a contract can have to
+// still be renewable
+func maxRenewableContractSize(hostSettings proto.HostSettings, period uint64) uint64 {
+	maxCollateral := hostSettings.MaxCollateral
+	sectorUsage := hostSettings.Prices.RPCAppendSectorsCost(1, period+proto.ProofWindow)
+	sectorCollateral := sectorUsage.HostRiskedCollateral()
+	if sectorCollateral.IsZero() {
+		sectorCollateral = types.NewCurrency64(1)
+	}
+	maxSectors := maxCollateral.Div(sectorCollateral)
+	maxSectorsSize := maxSectors.Mul64(proto.SectorSize).Big()
+	maxSize := uint64(maxContractSize)
+	if maxSectorsSize.IsUint64() {
+		maxSize = min(maxSize, maxSectorsSize.Uint64())
+	}
+	return maxSize * 8 / 10 // 20% safety margin
+}

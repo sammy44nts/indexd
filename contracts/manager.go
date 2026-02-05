@@ -77,7 +77,7 @@ type (
 		// The integer returned does not indicate the number of sectors that were
 		// appended, but rather the number of sectors that were attempted. Check the
 		// result for the actual number of sectors that were appended.
-		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256, maxSize uint64) (rhp.RPCAppendSectorsResult, int, error)
+		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256, maxContractSize uint64) (rhp.RPCAppendSectorsResult, int, error)
 		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
 		FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error)
 		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
@@ -544,22 +544,4 @@ func NewManager(renterKey types.PrivateKey, accountManager AccountManager, accou
 		cm.maintenanceLoop(ctx)
 	}()
 	return cm, nil
-}
-
-// maxRenewableContractSize returns the maximum size a contract can have to
-// still be renewable
-func maxRenewableContractSize(hostSettings proto.HostSettings, period uint64) uint64 {
-	maxCollateral := hostSettings.MaxCollateral
-	sectorUsage := hostSettings.Prices.RPCAppendSectorsCost(1, period+proto.ProofWindow)
-	sectorCollateral := sectorUsage.HostRiskedCollateral()
-	if sectorCollateral.IsZero() {
-		sectorCollateral = types.NewCurrency64(1)
-	}
-	maxSectors := maxCollateral.Div(sectorCollateral)
-	maxSectorsSize := maxSectors.Mul64(proto.SectorSize).Big()
-	maxSize := uint64(maxContractSize)
-	if maxSectorsSize.IsUint64() {
-		maxSize = min(maxSize, maxSectorsSize.Uint64())
-	}
-	return maxSize * 8 / 10 // 20% safety margin
 }
