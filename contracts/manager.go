@@ -552,6 +552,9 @@ func maxRenewableContractSize(hostSettings proto.HostSettings, period uint64) ui
 	maxCollateral := hostSettings.MaxCollateral
 	sectorUsage := hostSettings.Prices.RPCAppendSectorsCost(1, period)
 	sectorCollateral := sectorUsage.HostRiskedCollateral()
+	if sectorCollateral.IsZero() {
+		sectorCollateral = types.NewCurrency64(1)
+	}
 	maxSectors := maxCollateral.Div(sectorCollateral)
 	maxSectorsSize := maxSectors.Mul64(proto.SectorSize).Big()
 	maxSize := uint64(maxContractSize)
