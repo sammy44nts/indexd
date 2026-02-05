@@ -648,11 +648,22 @@ CREATE INDEX hosts_stuck_since_idx ON hosts(stuck_since) WHERE stuck_since IS NO
 	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE hosts h
-			SET unpinned_sectors = COALESCE((
-				SELECT COUNT(*)
-				FROM sectors s
-				WHERE s.host_id = h.id AND s.contract_sectors_map_id IS NULL
-			), 0);
+			SET unpinned_sectors = COALESCE(sub.cnt, 0)
+			FROM (
+				SELECT host_id, COUNT(*) as cnt
+				FROM sectors
+				WHERE contract_sectors_map_id IS NULL
+				GROUP BY host_id
+			) sub
+			WHERE h.id = sub.host_id;
+			
+			UPDATE hosts
+			SET unpinned_sectors = 0
+			WHERE id NOT IN (
+				SELECT DISTINCT host_id 
+				FROM sectors 
+				WHERE contract_sectors_map_id IS NULL
+			);
 		`)
 		return err
 	},
