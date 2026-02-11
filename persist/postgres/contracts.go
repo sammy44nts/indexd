@@ -706,7 +706,7 @@ func (s *Store) DeleteContract(contractID types.FileContractID) error {
 
 		// count the number of sectors pinned to this contract
 		var pinned, hostID int64
-		err = tx.QueryRow(ctx, `SELECT COUNT(*), MAX(host_id) FROM sectors WHERE contract_sectors_map_id = $1`, contractMapID).Scan(&pinned, &hostID)
+		err = tx.QueryRow(ctx, `SELECT COUNT(*), any_value(host_id) FROM sectors WHERE contract_sectors_map_id = $1`, contractMapID).Scan(&pinned, &hostID)
 		if err != nil {
 			return fmt.Errorf("failed to count pinned sectors: %w", err)
 		}
