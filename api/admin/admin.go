@@ -385,9 +385,16 @@ func (a *admin) handlePUTAppConnectKeys(jc jape.Context) {
 	if jc.Decode(&key) != nil {
 		return
 	}
+	if key.Quota == "" {
+		jc.Error(errors.New("quota is required"), http.StatusBadRequest)
+		return
+	}
 
 	_, err := a.accounts.UpdateAppConnectKey(jc.Request.Context(), key)
 	if errors.Is(err, accounts.ErrKeyNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if errors.Is(err, accounts.ErrQuotaNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
 	} else if jc.Check("failed to update app connect key", err) != nil {
@@ -478,6 +485,10 @@ func (a *admin) handlePUTQuota(jc jape.Context) {
 
 	var req accounts.PutQuotaRequest
 	if jc.Decode(&req) != nil {
+		return
+	}
+	if req.TotalUses < 0 {
+		jc.Error(errors.New("totalUses must be non-negative"), http.StatusBadRequest)
 		return
 	}
 
