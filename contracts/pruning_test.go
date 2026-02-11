@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -62,6 +63,17 @@ func (c *hostClientMock) FreeSectors(ctx context.Context, hostPrices proto.HostP
 		contractID: contractID,
 		indices:    indices,
 	})
+
+	// swap removed sectors with sectors from the end like the host would
+	roots := c.sectorRoots[contractID]
+	sortedIndices := append([]uint64{}, indices...)
+	sort.Slice(sortedIndices, func(i, j int) bool { return sortedIndices[i] > sortedIndices[j] })
+	for _, idx := range sortedIndices {
+		roots[idx] = roots[len(roots)-1]
+		roots = roots[:len(roots)-1]
+	}
+	c.sectorRoots[contractID] = roots
+
 	return rhp.RPCFreeSectorsResult{}, nil
 }
 
@@ -307,5 +319,77 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 		default:
 			t.Fatal("unexpected contract ID", c.ID)
 		}
+	}
+}
+
+func TestPruneContractBatchBoundary(t *testing.T) {
+	store := newTestStore(t)
+	hmMock := newHostManagerMock(store)
+
+	hk := types.PublicKey{1}
+	h := hosts.Host{
+		PublicKey: hk,
+		Addresses: []chain.NetAddress{{Protocol: siamux.Protocol, Address: "host.com"}},
+		Settings:  goodSettings,
+		Usability: hosts.GoodUsability,
+	}
+	store.addTestHost(t, h)
+	hmMock.settings[hk] = h.Settings
+
+	fcid := store.addTestContract(t, hk, true, types.FileContractID{1})
+	store.setContractRemainingAllowance(t, fcid, types.Siacoins(1))
+
+	// prepare 7 sector roots, with batch size 3 this spans 3 batches
+	r1 := types.Hash256{1}
+	r2 := types.Hash256{2}
+	r3 := types.Hash256{3}
+	r4 := types.Hash256{4}
+	r5 := types.Hash256{5}
+	r6 := types.Hash256{6}
+	r7 := types.Hash256{7}
+
+	// pin r1, r4, r5, r7 to the contract, making r2, r3, r6 prunable
+	store.addPinnedSectors(t, hk, fcid, []types.Hash256{r1, r4, r5, r7})
+
+	hMock := newHostClientMock(hk)
+	dialer := newDialerMock()
+	dialer.clients[hk] = hMock
+
+	// host has all 7 sectors
+	hMock.sectorRoots[fcid] = []types.Hash256{r1, r2, r3, r4, r5, r6, r7}
+
+	store.setContractSize(t, fcid, proto.SectorSize*7)
+	store.setRevisionFilesize(t, fcid, proto.SectorSize*7)
+	store.scheduleContractsForPruningHelper(t)
+
+	// use batch size 3 so the contract spans multiple batches; after
+	// FreeSectors removes sectors in the first batch, subsequent batches must
+	// account for the reduced sector count to avoid requesting out-of-bounds
+	// ranges from the host
+	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, nil, store, dialer, hmMock, nil, nil, contracts.WithSectorRootsBatchSize(3))
+
+	err := cm.PerformContractPruningOnHost(context.Background(), h, zap.NewNop())
+	if err != nil {
+		t.Fatalf("failed to prune contract: %v", err)
+	}
+
+	// assert FreeSectors was called (sectors were pruned)
+	if len(hMock.freeSectorsCalls) == 0 {
+		t.Fatal("expected at least one FreeSectors call")
+	}
+
+	// verify the contract's NextPrune is set to the success interval (24h),
+	// not the failure interval (3h); if the batch boundary bug is present,
+	// SectorRoots fails on the second batch causing pruneContract to return
+	// an error, which schedules the next prune at the failure interval
+	allContracts, err := store.Contracts(0, 10)
+	if err != nil {
+		t.Fatalf("failed to fetch contracts: %v", err)
+	} else if len(allContracts) != 1 {
+		t.Fatalf("expected 1 contract, got %d", len(allContracts))
+	}
+	success := time.Now().Add(contracts.PruneIntervalSuccess)
+	if c := allContracts[0]; !(c.NextPrune.After(success.Add(-time.Minute)) && c.NextPrune.Before(success.Add(time.Minute))) {
+		t.Fatalf("expected next prune to be ~24h from now, got %v (expected around %v)", c.NextPrune, success)
 	}
 }
