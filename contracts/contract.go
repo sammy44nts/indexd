@@ -169,12 +169,14 @@ func (c Contract) inRenewWindow(renewWindow, height uint64) bool {
 }
 
 // GoodForAppend indicates whether a contract can be used to append sectors
-func (c Contract) GoodForAppend(prices proto.HostPrices, renewWindow, height uint64) error {
+func (c Contract) GoodForAppend(settings proto.HostSettings, renewWindow, height, period uint64) error {
+	prices := settings.Prices
+	maxRenewableSize := maxRenewableContractSize(settings, period)
 	switch {
 	case !c.Good:
 		return fmt.Errorf("contract is not good")
-	case c.Size >= maxContractSize:
-		return fmt.Errorf("contract has reached maximum size")
+	case c.Size >= maxRenewableSize:
+		return fmt.Errorf("contract has reached maximum renewable size: %d >= %d", c.Size, maxRenewableSize)
 	case c.ProofHeight <= height:
 		return fmt.Errorf("contract is not revisable")
 	case c.inRenewWindow(renewWindow, height):
@@ -195,7 +197,7 @@ func (c Contract) GoodForAppend(prices proto.HostPrices, renewWindow, height uin
 }
 
 // GoodForRefresh indicates whether a contract is likely to succeed refreshing.
-func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.Currency, renewWindow, height uint64) error {
+func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.Currency, renewWindow, height, period uint64) error {
 	if c.inRenewWindow(renewWindow, height) {
 		return fmt.Errorf("contract is in renew window")
 	}
@@ -208,11 +210,12 @@ func (c Contract) GoodForRefresh(settings proto.HostSettings, fundTarget types.C
 	} else {
 		totalCollateral = c.TotalCollateral.Add(collateral)
 	}
+	maxRenewableSize := maxRenewableContractSize(settings, period)
 	switch {
 	case !c.Good:
 		return fmt.Errorf("contract is not good")
-	case c.Size >= maxContractSize:
-		return fmt.Errorf("contract has reached maximum size")
+	case c.Size >= maxRenewableSize:
+		return fmt.Errorf("contract has reached maximum renewable size: %d >= %d", c.Size, maxRenewableSize)
 	case c.ProofHeight <= height:
 		return fmt.Errorf("contract is not revisable")
 	case totalCollateral.Cmp(settings.MaxCollateral) > 0:
@@ -270,4 +273,22 @@ func (s *ContractState) UnmarshalText(b []byte) error {
 	default:
 		return fmt.Errorf("unknown contract state %v", s)
 	}
+}
+
+// maxRenewableContractSize returns the maximum size a contract can have to
+// still be renewable
+func maxRenewableContractSize(hostSettings proto.HostSettings, period uint64) uint64 {
+	maxCollateral := hostSettings.MaxCollateral
+	sectorUsage := hostSettings.Prices.RPCAppendSectorsCost(1, period+proto.ProofWindow)
+	sectorCollateral := sectorUsage.HostRiskedCollateral()
+	if sectorCollateral.IsZero() {
+		sectorCollateral = types.NewCurrency64(1)
+	}
+	maxSectors := maxCollateral.Div(sectorCollateral)
+	maxSectorsSize := maxSectors.Mul64(proto.SectorSize).Big()
+	maxSize := uint64(maxContractSize)
+	if maxSectorsSize.IsUint64() {
+		maxSize = min(maxSize, maxSectorsSize.Uint64())
+	}
+	return maxSize * 8 / 10 // 20% safety margin
 }

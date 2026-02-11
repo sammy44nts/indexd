@@ -17,8 +17,6 @@ import (
 )
 
 const (
-	maxContractSize = 10 * 1 << 40 // 10TB
-
 	// defaultRevisionSubmissionBuffer is a buffer that mainnet hosts apply on
 	// the contract's proof height before they consider a contract revisable, so
 	// if the current block height plus the buffer exceed the proof height, the
@@ -122,7 +120,7 @@ func (c *HostClient) AccountBalance(ctx context.Context, account proto.Account) 
 // The integer returned does not indicate the number of sectors that were
 // appended, but rather the number of sectors that were attempted. Check the
 // result for the actual number of sectors that were appended.
-func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (res rhp.RPCAppendSectorsResult, attempted int, err error) {
+func (c *HostClient) AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256, maxContractSize uint64) (res rhp.RPCAppendSectorsResult, attempted int, err error) {
 	// sanity check
 	if len(sectors) > proto.MaxSectorBatchSize {
 		return rhp.RPCAppendSectorsResult{}, 0, fmt.Errorf("too many sectors, %d > %d", len(sectors), proto.MaxSectorBatchSize) // developer error

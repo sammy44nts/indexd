@@ -77,7 +77,7 @@ type (
 		// The integer returned does not indicate the number of sectors that were
 		// appended, but rather the number of sectors that were attempted. Check the
 		// result for the actual number of sectors that were appended.
-		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, int, error)
+		AppendSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, sectors []types.Hash256, maxContractSize uint64) (rhp.RPCAppendSectorsResult, int, error)
 		FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error)
 		FreeSectors(ctx context.Context, hostPrices proto.HostPrices, contractID types.FileContractID, indices []uint64) (rhp.RPCFreeSectorsResult, error)
 		RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error)
@@ -436,7 +436,7 @@ func (cm *ContractManager) ContractsForAppend() (good []Contract, err error) {
 		return nil, fmt.Errorf("failed to fetch maintenance settings: %w", err)
 	}
 
-	hostsMap := make(map[types.PublicKey]proto.HostPrices)
+	hostsMap := make(map[types.PublicKey]proto.HostSettings)
 
 	const batchSize = 50
 	for offset := 0; ; offset += batchSize {
@@ -450,17 +450,17 @@ func (cm *ContractManager) ContractsForAppend() (good []Contract, err error) {
 		height := cm.chain.TipState().Index.Height
 
 		for _, c := range batch {
-			hostPrices, ok := hostsMap[c.HostKey]
+			hostSettings, ok := hostsMap[c.HostKey]
 			if !ok {
 				host, err := cm.hosts.Host(context.Background(), c.HostKey)
 				if err != nil {
 					return nil, fmt.Errorf("failed to fetch host %s: %w", c.HostKey.String(), err)
 				}
-				hostPrices = host.Settings.Prices
-				hostsMap[c.HostKey] = hostPrices
+				hostSettings = host.Settings
+				hostsMap[c.HostKey] = hostSettings
 			}
 
-			if c.GoodForAppend(hostPrices, settings.RenewWindow, height) == nil {
+			if c.GoodForAppend(hostSettings, settings.RenewWindow, height, settings.Period) == nil {
 				good = append(good, c)
 			}
 		}

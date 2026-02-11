@@ -18,7 +18,9 @@ import (
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/api/app"
+	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/geoip"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/slabs"
 	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/indexd/testutils"
@@ -587,6 +589,10 @@ func TestSharedObjects(t *testing.T) {
 	indexer := cluster.Indexer
 	adminClient := indexer.Admin
 
+	// create client
+	client := client.New(client.NewProvider(hosts.NewHostStore(cluster.Indexer.Store())))
+	defer client.Close()
+
 	// wait for contracts to be formed
 	cluster.WaitForContracts(t)
 
@@ -633,20 +639,31 @@ func TestSharedObjects(t *testing.T) {
 
 	// helper to generate slab pin parameters
 	randomSlab := func() slabs.SlabPinParams {
+		// prepare sectors
+		var sectors []slabs.PinnedSector
+		for _, h := range hosts {
+			// prepare sector data
+			var sector [proto.SectorSize]byte
+			frand.Read(sector[:])
+
+			// upload sector
+			hk := h.PublicKey
+			if result, err := client.WriteSector(ctx, sk1, hk, sector[:]); err != nil {
+				t.Fatal(err)
+			} else {
+				sectors = append(sectors, slabs.PinnedSector{
+					Root:    result.Root,
+					HostKey: hk,
+				})
+			}
+		}
 		return slabs.SlabPinParams{
 			EncryptionKey: frand.Entropy256(),
 			MinShards:     1,
-			Sectors: func() (s []slabs.PinnedSector) {
-				for _, h := range hosts {
-					s = append(s, slabs.PinnedSector{
-						Root:    frand.Entropy256(),
-						HostKey: h.PublicKey,
-					})
-				}
-				return s
-			}(),
+			Sectors:       sectors,
 		}
 	}
+
 	// generate and pin a slab
 	slab1Params := randomSlab()
 	_, err = client1.PinSlabs(ctx, sk1, slab1Params)

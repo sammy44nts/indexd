@@ -13,7 +13,7 @@ import (
 func (cm *ContractManager) performContractRenewals(ctx context.Context, period, renewWindow uint64, log *zap.Logger) error {
 	bh := cm.chain.TipState().Index.Height
 	minProofHeight := bh + renewWindow
-	newProofHeight := bh + period + renewWindow
+	newProofHeight := bh + period
 
 	batchSize := 50
 	for offset := 0; ; offset += batchSize {
