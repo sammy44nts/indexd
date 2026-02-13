@@ -11,11 +11,12 @@ func TestQuotas(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	// create a quota
+	fundTarget1 := uint64(1 << 30)
 	if err := store.PutQuota("test-quota", accounts.PutQuotaRequest{
 		Description:     "Test quota",
 		MaxPinnedData:   1000,
 		TotalUses:       10,
-		FundTargetBytes: 1 << 30,
+		FundTargetBytes: &fundTarget1,
 	}); err != nil {
 		t.Fatal("failed to create quota:", err)
 	}
@@ -74,11 +75,12 @@ func TestQuotas(t *testing.T) {
 	}
 
 	// update the test quota
+	fundTarget2 := uint64(2 << 30)
 	if err := store.PutQuota("test-quota", accounts.PutQuotaRequest{
 		Description:     "Updated description",
 		MaxPinnedData:   2000,
 		TotalUses:       20,
-		FundTargetBytes: 2 << 30,
+		FundTargetBytes: &fundTarget2,
 	}); err != nil {
 		t.Fatal("failed to update quota:", err)
 	}
@@ -117,10 +119,12 @@ func TestQuotaInUse(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
 	// create a quota
+	fundTarget := uint64(1 << 30)
 	err := store.PutQuota("in-use-quota", accounts.PutQuotaRequest{
-		Description:   "Quota that will be in use",
-		MaxPinnedData: 1000,
-		TotalUses:     10,
+		Description:     "Quota that will be in use",
+		MaxPinnedData:   1000,
+		TotalUses:       10,
+		FundTargetBytes: &fundTarget,
 	})
 	if err != nil {
 		t.Fatal("failed to create quota:", err)

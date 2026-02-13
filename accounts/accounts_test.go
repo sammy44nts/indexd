@@ -24,7 +24,7 @@ func TestAccountFunding(t *testing.T) {
 	store := indexer.Store()
 
 	// create two quotas with different fund targets
-	const (
+	var (
 		quota1Name       = "small"
 		quota1FundTarget = uint64(1 << 30) // 1 GiB
 		quota2Name       = "large"
@@ -37,7 +37,7 @@ func TestAccountFunding(t *testing.T) {
 		Description:     "Small quota",
 		MaxPinnedData:   uint64(1e12),
 		TotalUses:       10000,
-		FundTargetBytes: quota1FundTarget,
+		FundTargetBytes: &quota1FundTarget,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestAccountFunding(t *testing.T) {
 		Description:     "Large quota",
 		MaxPinnedData:   uint64(1e12),
 		TotalUses:       10000,
-		FundTargetBytes: quota2FundTarget,
+		FundTargetBytes: &quota2FundTarget,
 	}); err != nil {
 		t.Fatal(err)
 	}

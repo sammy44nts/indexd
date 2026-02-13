@@ -118,11 +118,15 @@ func (cm *ContractManager) ContractFundTarget(ctx context.Context, host hosts.Ho
 		return types.ZeroCurrency, err
 	}
 
+	// user accounts
 	var target types.Currency
 	for _, qi := range quotaInfos {
 		t := accounts.HostFundTarget(host, qi.FundTargetBytes).Mul64(qi.ActiveAccounts)
 		target = target.Add(t)
 	}
+
+	// service accounts
+	target = target.Add(accounts.HostFundTarget(host, serviceAccountFundTargetBytes).Mul64(uint64(len(cm.accounts.ServiceAccounts(host.PublicKey)))))
 
 	// ensure target is at least minAllowance
 	if target.Cmp(minAllowance) < 0 {

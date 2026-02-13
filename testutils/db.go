@@ -26,6 +26,9 @@ const (
 	TestQuotaName = "testing"
 )
 
+// TestQuotaFundTargetBytes is the fund target for the testing quota.
+var TestQuotaFundTargetBytes uint64 = 1 << 30 // 1 GiB
+
 // TestStore represents a postgres database for testing with some helpers for
 // common actions in testing like adding accounts and running SQL queries.
 type TestStore struct {
@@ -129,7 +132,7 @@ func (ts TestStore) AddTestAccount(t testing.TB, ak types.PublicKey) {
 			Description:     "Testing quota",
 			MaxPinnedData:   uint64(1e12),
 			TotalUses:       10000,
-			FundTargetBytes: 1 << 30, // 1 GiB
+			FundTargetBytes: &TestQuotaFundTargetBytes,
 		}); err != nil {
 			t.Fatal(err)
 		}

@@ -180,7 +180,7 @@ func TestQuotasAPI(t *testing.T) {
 		Description:     "Test quota",
 		MaxPinnedData:   1000,
 		TotalUses:       10,
-		FundTargetBytes: 1 << 30,
+		FundTargetBytes: &testutils.TestQuotaFundTargetBytes,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -211,11 +211,12 @@ func TestQuotasAPI(t *testing.T) {
 	}
 
 	// update the quota (upsert)
+	updatedTarget := 2 * testutils.TestQuotaFundTargetBytes
 	err = adminClient.PutQuota(context.Background(), "test-quota", accounts.PutQuotaRequest{
 		Description:     "Updated description",
 		MaxPinnedData:   2000,
 		TotalUses:       20,
-		FundTargetBytes: 2 << 30,
+		FundTargetBytes: &updatedTarget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -264,9 +265,10 @@ func TestQuotasAPI(t *testing.T) {
 	// test that a quota in use cannot be deleted
 	// first create a quota
 	err = adminClient.PutQuota(context.Background(), "in-use-quota", accounts.PutQuotaRequest{
-		Description:   "Quota in use",
-		MaxPinnedData: 1000,
-		TotalUses:     10,
+		Description:     "Quota in use",
+		MaxPinnedData:   1000,
+		TotalUses:       10,
+		FundTargetBytes: &testutils.TestQuotaFundTargetBytes,
 	})
 	if err != nil {
 		t.Fatal(err)

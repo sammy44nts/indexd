@@ -881,12 +881,12 @@ func TestAccountFundingInfo(t *testing.T) {
 	assertActive(1, threshold.Add(time.Second))
 
 	// create a second quota with a different fund target
-	const premiumFundTarget = uint64(32 << 30) // 32 GiB
+	var premiumFundTarget = uint64(32 << 30) // 32 GiB
 	if err := store.PutQuota("premium", accounts.PutQuotaRequest{
 		Description:     "premium quota",
 		MaxPinnedData:   1000,
 		TotalUses:       10,
-		FundTargetBytes: premiumFundTarget,
+		FundTargetBytes: &premiumFundTarget,
 	}); err != nil {
 		t.Fatal(err)
 	}

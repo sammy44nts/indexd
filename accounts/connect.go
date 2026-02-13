@@ -83,10 +83,10 @@ type (
 
 	// PutQuotaRequest is the request type for creating or updating a quota.
 	PutQuotaRequest struct {
-		Description     string `json:"description"`
-		MaxPinnedData   uint64 `json:"maxPinnedData"`
-		TotalUses       int    `json:"totalUses"`
-		FundTargetBytes uint64 `json:"fundTargetBytes"`
+		Description     string  `json:"description"`
+		MaxPinnedData   uint64  `json:"maxPinnedData"`
+		TotalUses       int     `json:"totalUses"`
+		FundTargetBytes *uint64 `json:"fundTargetBytes"`
 	}
 )
 
