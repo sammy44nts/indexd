@@ -814,10 +814,11 @@ func (s *Store) PrunableContractRoots(contractID types.FileContractID, roots []t
 		}
 
 		rows, err := tx.Query(ctx, `
-			SELECT s.sector_root, s.host_id, s.contract_sectors_map_id
+			SELECT s.sector_root
 			FROM sectors s
 			WHERE s.sector_root = ANY($1)
-		`, sqlRoots)
+			AND (s.contract_sectors_map_id = $2 OR (s.host_id = $3 AND s.contract_sectors_map_id IS NULL))
+       `, sqlRoots, wantedCSMID, wantedHostID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch prunable contract roots: %w", err)
 		}
@@ -826,18 +827,10 @@ func (s *Store) PrunableContractRoots(contractID types.FileContractID, roots []t
 		lookup := make(map[sqlHash256]struct{})
 		for rows.Next() {
 			var root sqlHash256
-			var hostID *int64
-			var csmID *int64
-			if err := rows.Scan(&root, &hostID, &csmID); err != nil {
+			if err := rows.Scan(&root); err != nil {
 				return fmt.Errorf("failed to scan root: %w", err)
 			}
-			rightContract := csmID != nil && wantedCSMID != nil && *csmID == *wantedCSMID
-			rightHost := hostID != nil && *hostID == wantedHostID
-			if rightContract || (rightHost && csmID == nil) {
-				// if the root is associated with the contract or no contract
-				// but the right host, then we should not prune it
-				lookup[root] = struct{}{}
-			}
+			lookup[root] = struct{}{}
 		}
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("failed to iterate over rows: %w", err)
