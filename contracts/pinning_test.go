@@ -81,13 +81,13 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 
 	// prepare client mock
 	mock := newClientMock()
-	h1Data := mock.host(hk1)
-	h2Data := mock.host(hk2)
-	h1Data.prices = h1.Settings.Prices
-	h2Data.prices = h2.Settings.Prices
+	h1Mock := mock.host(hk1)
+	h2Mock := mock.host(hk2)
+	h1Mock.prices = h1.Settings.Prices
+	h2Mock.prices = h2.Settings.Prices
 
 	// indicate that root 4 is missing
-	h1Data.missingSectors[roots[3]] = struct{}{}
+	h1Mock.missingSectors[roots[3]] = struct{}{}
 
 	// prepare contract manager
 	rev := contracts.NewRevisionManager(mock, cmMock, store, 1, zaptest.NewLogger(t))
@@ -127,13 +127,13 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 	err := cm.PerformSectorPinningOnHost(context.Background(), h1, log.Named("pin"))
 	if err != nil {
 		t.Fatal(err)
-	} else if len(h1Data.appendSectorCalls) != 1 {
-		t.Fatalf("expected one call, got %v", len(h1Data.appendSectorCalls))
+	} else if len(h1Mock.appendSectorCalls) != 1 {
+		t.Fatalf("expected one call, got %v", len(h1Mock.appendSectorCalls))
 	}
 
 	// assert sector pinning on h1
 	// both contracts should be attempted, but only fcid2 should have sectors pinned
-	assertAppendSectorCalled(h1Data.appendSectorCalls[0], fcid2, roots[:6]) // called with all stored roots
+	assertAppendSectorCalled(h1Mock.appendSectorCalls[0], fcid2, roots[:6]) // called with all stored roots
 	h1Pinned := append(slices.Clone(roots[:3]), roots[4:6]...)
 	assertSectorsContract(h1Pinned, &fcid2) // all but the missing root pinned to fcid2
 	assertSectorsContract(roots[3:4], nil)  // missing root remains unpinned
@@ -142,11 +142,11 @@ func TestPerformSectorPinningOnHost(t *testing.T) {
 	err = cm.PerformSectorPinningOnHost(context.Background(), h2, log.Named("pin"))
 	if err != nil {
 		t.Fatal(err)
-	} else if len(h2Data.appendSectorCalls) != 1 {
-		t.Fatalf("expected one calls, got %v", len(h2Data.appendSectorCalls))
+	} else if len(h2Mock.appendSectorCalls) != 1 {
+		t.Fatalf("expected one calls, got %v", len(h2Mock.appendSectorCalls))
 	}
 	// all h2 sectors pinned to fcid3
-	assertAppendSectorCalled(h2Data.appendSectorCalls[0], fcid3, roots[6:8])
+	assertAppendSectorCalled(h2Mock.appendSectorCalls[0], fcid3, roots[6:8])
 	assertSectorsContract(roots[6:8], &fcid3)
 }
 
@@ -197,9 +197,9 @@ func TestPerformSectorPinningOnHostOverflow(t *testing.T) {
 
 	// prepare client mock
 	mock := newClientMock()
-	h1Data := mock.host(hk1)
-	h1Data.prices = h1.Settings.Prices
-	h1Data.missingSectors[roots[3]] = struct{}{}
+	h1Mock := mock.host(hk1)
+	h1Mock.prices = h1.Settings.Prices
+	h1Mock.missingSectors[roots[3]] = struct{}{}
 
 	// prepare contract manager
 	rev := contracts.NewRevisionManager(mock, cmMock, store, 1, zaptest.NewLogger(t))
@@ -239,14 +239,14 @@ func TestPerformSectorPinningOnHostOverflow(t *testing.T) {
 	err := cm.PerformSectorPinningOnHost(context.Background(), h1, log.Named("pin"))
 	if err != nil {
 		t.Fatal(err)
-	} else if len(h1Data.appendSectorCalls) != 2 {
-		t.Fatalf("expected two calls, got %v", len(h1Data.appendSectorCalls))
+	} else if len(h1Mock.appendSectorCalls) != 2 {
+		t.Fatalf("expected two calls, got %v", len(h1Mock.appendSectorCalls))
 	}
 
 	// assert sector pinning on h1
 	// both contracts should be attempted, but only fcid2 should have sectors pinned
-	assertAppendSectorCalled(h1Data.appendSectorCalls[0], fcid2, roots[:4]) // called with first 4 roots (capacity limited)
-	assertAppendSectorCalled(h1Data.appendSectorCalls[1], fcid1, roots[4:]) // called again with remaining unpinned roots
+	assertAppendSectorCalled(h1Mock.appendSectorCalls[0], fcid2, roots[:4]) // called with first 4 roots (capacity limited)
+	assertAppendSectorCalled(h1Mock.appendSectorCalls[1], fcid1, roots[4:]) // called again with remaining unpinned roots
 
 	// the missing sector should not be pinned
 	assertSectorsContract(slices.Clone(roots[:3]), &fcid2) // the first half minus the missing root pinned to fcid2

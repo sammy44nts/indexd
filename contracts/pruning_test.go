@@ -119,27 +119,27 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 
 	// prepare client mock
 	mock := newClientMock()
-	h1Data := mock.host(hk1)
-	h2Data := mock.host(hk2)
+	h1Mock := mock.host(hk1)
+	h2Mock := mock.host(hk2)
 	mock.host(hk4) // just create it
-	h5Data := mock.host(hk5)
-	h5Data.failsRPCs = true
+	h5Mock := mock.host(hk5)
+	h5Mock.failsRPCs = true
 
 	// prepare roots
-	h1Data.sectorRoots[fcid1] = []types.Hash256{r1, r2, r3}
-	h1Data.sectorRoots[fcid2] = []types.Hash256{r4, r5, r6, r7, r8}
-	h2Data.sectorRoots[fcid3] = []types.Hash256{r9}
-	h5Data.sectorRoots[fcid4] = []types.Hash256{r10}
+	h1Mock.sectorRoots[fcid1] = []types.Hash256{r1, r2, r3}
+	h1Mock.sectorRoots[fcid2] = []types.Hash256{r4, r5, r6, r7, r8}
+	h2Mock.sectorRoots[fcid3] = []types.Hash256{r9}
+	h5Mock.sectorRoots[fcid4] = []types.Hash256{r10}
 
 	// set contract sizes and revision filesizes
-	store.setContractSize(t, fcid1, proto.SectorSize*uint64(len(h1Data.sectorRoots[fcid1])))
-	store.setRevisionFilesize(t, fcid1, proto.SectorSize*uint64(len(h1Data.sectorRoots[fcid1])))
-	store.setContractSize(t, fcid2, proto.SectorSize*uint64(len(h1Data.sectorRoots[fcid2])))
-	store.setRevisionFilesize(t, fcid2, proto.SectorSize*uint64(len(h1Data.sectorRoots[fcid2])))
-	store.setContractSize(t, fcid3, proto.SectorSize*uint64(len(h2Data.sectorRoots[fcid3])))
-	store.setRevisionFilesize(t, fcid3, proto.SectorSize*uint64(len(h2Data.sectorRoots[fcid3])))
-	store.setContractSize(t, fcid4, proto.SectorSize*uint64(len(h5Data.sectorRoots[fcid4])))
-	store.setRevisionFilesize(t, fcid4, proto.SectorSize*uint64(len(h5Data.sectorRoots[fcid4])))
+	store.setContractSize(t, fcid1, proto.SectorSize*uint64(len(h1Mock.sectorRoots[fcid1])))
+	store.setRevisionFilesize(t, fcid1, proto.SectorSize*uint64(len(h1Mock.sectorRoots[fcid1])))
+	store.setContractSize(t, fcid2, proto.SectorSize*uint64(len(h1Mock.sectorRoots[fcid2])))
+	store.setRevisionFilesize(t, fcid2, proto.SectorSize*uint64(len(h1Mock.sectorRoots[fcid2])))
+	store.setContractSize(t, fcid3, proto.SectorSize*uint64(len(h2Mock.sectorRoots[fcid3])))
+	store.setRevisionFilesize(t, fcid3, proto.SectorSize*uint64(len(h2Mock.sectorRoots[fcid3])))
+	store.setContractSize(t, fcid4, proto.SectorSize*uint64(len(h5Mock.sectorRoots[fcid4])))
+	store.setRevisionFilesize(t, fcid4, proto.SectorSize*uint64(len(h5Mock.sectorRoots[fcid4])))
 
 	// schedule contracts for pruning
 	store.scheduleContractsForPruningHelper(t)
@@ -155,25 +155,25 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	}
 
 	// assert rpc calls
-	if len(h1Data.sectorRootsCalls) != 2 {
-		t.Fatalf("expected 2 sector roots calls, got %d", len(h1Data.sectorRootsCalls))
-	} else if call := h1Data.sectorRootsCalls[0]; call.contractID != fcid2 {
+	if len(h1Mock.sectorRootsCalls) != 2 {
+		t.Fatalf("expected 2 sector roots calls, got %d", len(h1Mock.sectorRootsCalls))
+	} else if call := h1Mock.sectorRootsCalls[0]; call.contractID != fcid2 {
 		t.Fatalf("expected contract ID %v, got %v", fcid2, call.contractID)
 	} else if call.offset != 0 || call.length != 5 {
 		t.Fatalf("expected offset 0 and length 5, got offset %d and length %d", call.offset, call.length)
-	} else if call = h1Data.sectorRootsCalls[1]; call.contractID != fcid1 {
+	} else if call = h1Mock.sectorRootsCalls[1]; call.contractID != fcid1 {
 		t.Fatalf("expected contract ID %v, got %v", fcid1, call.contractID)
 	} else if call.offset != 0 || call.length != 3 {
 		t.Fatalf("expected offset 0 and length 3, got offset %d and length %d", call.offset, call.length)
-	} else if len(h1Data.freeSectorsCalls) != 2 {
-		t.Fatalf("expected 2 free sectors calls, got %d", len(h1Data.freeSectorsCalls))
-	} else if call := h1Data.freeSectorsCalls[0]; call.contractID != fcid2 {
+	} else if len(h1Mock.freeSectorsCalls) != 2 {
+		t.Fatalf("expected 2 free sectors calls, got %d", len(h1Mock.freeSectorsCalls))
+	} else if call := h1Mock.freeSectorsCalls[0]; call.contractID != fcid2 {
 		t.Fatalf("expected contract ID %v, got %v", fcid2, call.contractID)
 	} else if len(call.indices) != 2 {
 		t.Fatalf("expected 2 indices, got %d", len(call.indices))
 	} else if call.indices[0] != 1 || call.indices[1] != 2 {
 		t.Fatalf("expected indices [1, 2], got %v", call.indices)
-	} else if call = h1Data.freeSectorsCalls[1]; call.contractID != fcid1 {
+	} else if call = h1Mock.freeSectorsCalls[1]; call.contractID != fcid1 {
 		t.Fatalf("expected contract ID %v, got %v", fcid1, call.contractID)
 	} else if len(call.indices) != 1 {
 		t.Fatalf("expected 1 index, got %d", len(call.indices))
@@ -188,14 +188,14 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	}
 
 	// assert rpc calls
-	if len(h2Data.sectorRootsCalls) != 1 {
-		t.Fatalf("expected 1 sector roots calls, got %d", len(h2Data.sectorRootsCalls))
-	} else if call := h2Data.sectorRootsCalls[0]; call.contractID != fcid3 {
+	if len(h2Mock.sectorRootsCalls) != 1 {
+		t.Fatalf("expected 1 sector roots calls, got %d", len(h2Mock.sectorRootsCalls))
+	} else if call := h2Mock.sectorRootsCalls[0]; call.contractID != fcid3 {
 		t.Fatalf("expected contract ID %v, got %v", fcid3, call.contractID)
 	} else if call.offset != 0 || call.length != 1 {
 		t.Fatalf("expected offset 0 and length 1, got offset %d and length %d", call.offset, call.length)
-	} else if len(h2Data.freeSectorsCalls) != 0 {
-		t.Fatalf("expected 0 free sectors calls, got %d", len(h2Data.freeSectorsCalls))
+	} else if len(h2Mock.freeSectorsCalls) != 0 {
+		t.Fatalf("expected 0 free sectors calls, got %d", len(h2Mock.freeSectorsCalls))
 	}
 
 	// assert contracts are marked as pruned
@@ -289,10 +289,10 @@ func TestPruneContractBatchBoundary(t *testing.T) {
 	store.addPinnedSectors(t, hk, fcid, []types.Hash256{r1, r4})
 
 	mock := newClientMock()
-	hData := mock.host(hk)
+	hMock := mock.host(hk)
 
 	// host has all 7 sectors
-	hData.sectorRoots[fcid] = []types.Hash256{r1, r2, r3, r4, r5, r6, r7}
+	hMock.sectorRoots[fcid] = []types.Hash256{r1, r2, r3, r4, r5, r6, r7}
 
 	store.setContractSize(t, fcid, proto.SectorSize*7)
 	store.setRevisionFilesize(t, fcid, proto.SectorSize*7)
@@ -314,12 +314,12 @@ func TestPruneContractBatchBoundary(t *testing.T) {
 	// for batch 2 (r5); if the batch boundary bug is present, the second
 	// SectorRoots call requests an out-of-bounds range and fails, so only
 	// batch 1's sectors get freed
-	if len(hData.freeSectorsCalls) != 2 {
-		t.Fatalf("expected 2 FreeSectors calls, got %d", len(hData.freeSectorsCalls))
+	if len(hMock.freeSectorsCalls) != 2 {
+		t.Fatalf("expected 2 FreeSectors calls, got %d", len(hMock.freeSectorsCalls))
 	}
 	// 4 sectors should remain: r1, r4 (pinned) + r6, r7 (swapped into earlier
 	// positions by FreeSectors but not visited again in this pruning pass)
-	if len(hData.sectorRoots[fcid]) != 4 {
-		t.Fatalf("expected 4 remaining sectors, got %d", len(hData.sectorRoots[fcid]))
+	if len(hMock.sectorRoots[fcid]) != 4 {
+		t.Fatalf("expected 4 remaining sectors, got %d", len(hMock.sectorRoots[fcid]))
 	}
 }
