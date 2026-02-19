@@ -73,9 +73,9 @@ type (
 		FormContract(ctx context.Context, chain client.ChainManager, signer rhp.FormContractSigner, params client.FormContractParams) (rhp.RPCFormContractResult, error)
 		RefreshContract(ctx context.Context, chain client.ChainManager, signer rhp.FormContractSigner, params client.RefreshContractParams) (rhp.RPCRefreshContractResult, error)
 		RenewContract(ctx context.Context, chain client.ChainManager, signer rhp.FormContractSigner, params client.RenewContractParams) (rhp.RPCRenewContractResult, error)
-		AppendSectors(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, prices proto.HostPrices, revision rhp.ContractRevision, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error)
-		SectorRoots(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, prices proto.HostPrices, contract rhp.ContractRevision, offset, length uint64) (rhp.RPCSectorRootsResult, error)
-		FreeSectors(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, prices proto.HostPrices, contract rhp.ContractRevision, indices []uint64) (rhp.RPCFreeSectorsResult, error)
+		AppendSectors(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, revision rhp.ContractRevision, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error)
+		SectorRoots(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, contract rhp.ContractRevision, offset, length uint64) (rhp.RPCSectorRootsResult, error)
+		FreeSectors(ctx context.Context, signer rhp.ContractSigner, chain client.ChainManager, contract rhp.ContractRevision, indices []uint64) (rhp.RPCFreeSectorsResult, error)
 		LatestRevision(ctx context.Context, hostKey types.PublicKey, contractID types.FileContractID) (proto.RPCLatestRevisionResponse, error)
 		Prices(ctx context.Context, hostKey types.PublicKey) (proto.HostPrices, error)
 	}

@@ -134,7 +134,7 @@ func (c *Client) LatestRevision(ctx context.Context, hostKey types.PublicKey, co
 }
 
 // SectorRoots fetches the sector roots from the contract on the host.
-func (c *Client) SectorRoots(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, prices proto.HostPrices, contract rhp.ContractRevision, offset, length uint64) (result rhp.RPCSectorRootsResult, err error) {
+func (c *Client) SectorRoots(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, contract rhp.ContractRevision, offset, length uint64) (result rhp.RPCSectorRootsResult, err error) {
 	done, err := c.tg.Add()
 	if err != nil {
 		return rhp.RPCSectorRootsResult{}, err
@@ -142,6 +142,10 @@ func (c *Client) SectorRoots(ctx context.Context, signer rhp.ContractSigner, cha
 	defer done()
 
 	err = c.rpcFn(ctx, contract.Revision.HostPublicKey, func(ctx context.Context, transport rhp.TransportClient) error {
+		prices, err := c.Prices(ctx, contract.Revision.HostPublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to get host prices: %w", err)
+		}
 		result, err = rhp.RPCSectorRoots(ctx, transport, chain.TipState(), prices, signer, contract, offset, length)
 		return err
 	})
@@ -149,7 +153,7 @@ func (c *Client) SectorRoots(ctx context.Context, signer rhp.ContractSigner, cha
 }
 
 // FreeSectors frees the specified sectors from the contract on the host.
-func (c *Client) FreeSectors(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, prices proto.HostPrices, contract rhp.ContractRevision, indices []uint64) (result rhp.RPCFreeSectorsResult, err error) {
+func (c *Client) FreeSectors(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, contract rhp.ContractRevision, indices []uint64) (result rhp.RPCFreeSectorsResult, err error) {
 	done, err := c.tg.Add()
 	if err != nil {
 		return rhp.RPCFreeSectorsResult{}, err
@@ -157,6 +161,10 @@ func (c *Client) FreeSectors(ctx context.Context, signer rhp.ContractSigner, cha
 	defer done()
 
 	err = c.rpcFn(ctx, contract.Revision.HostPublicKey, func(ctx context.Context, transport rhp.TransportClient) error {
+		prices, err := c.Prices(ctx, contract.Revision.HostPublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to get host prices: %w", err)
+		}
 		result, err = rhp.RPCFreeSectors(ctx, transport, signer, chain.TipState(), prices, contract, indices)
 		return err
 	})
@@ -164,7 +172,7 @@ func (c *Client) FreeSectors(ctx context.Context, signer rhp.ContractSigner, cha
 }
 
 // AppendSectors appends sectors to the specified contract on the host.
-func (c *Client) AppendSectors(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, prices proto.HostPrices, revision rhp.ContractRevision, sectors []types.Hash256) (res rhp.RPCAppendSectorsResult, err error) {
+func (c *Client) AppendSectors(ctx context.Context, signer rhp.ContractSigner, chain ChainManager, revision rhp.ContractRevision, sectors []types.Hash256) (res rhp.RPCAppendSectorsResult, err error) {
 	done, err := c.tg.Add()
 	if err != nil {
 		return rhp.RPCAppendSectorsResult{}, err
@@ -172,7 +180,10 @@ func (c *Client) AppendSectors(ctx context.Context, signer rhp.ContractSigner, c
 	defer done()
 
 	err = c.rpcFn(ctx, revision.Revision.HostPublicKey, func(ctx context.Context, transport rhp.TransportClient) error {
-		var err error
+		prices, err := c.Prices(ctx, revision.Revision.HostPublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to get host prices: %w", err)
+		}
 		res, err = rhp.RPCAppendSectors(ctx, transport, signer, chain.TipState(), prices, revision, sectors)
 		return err
 	})

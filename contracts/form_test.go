@@ -224,7 +224,7 @@ func (c *clientMock) RenewContract(_ context.Context, _ client.ChainManager, _ r
 	}, nil
 }
 
-func (c *clientMock) AppendSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, revision rhp.ContractRevision, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
+func (c *clientMock) AppendSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, revision rhp.ContractRevision, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
 	hk := revision.Revision.HostPublicKey
 	h := c.host(hk)
 	h.mu.Lock()
@@ -259,7 +259,7 @@ func (c *clientMock) AppendSectors(_ context.Context, _ rhp.ContractSigner, _ cl
 	}, nil
 }
 
-func (c *clientMock) SectorRoots(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, contract rhp.ContractRevision, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
+func (c *clientMock) SectorRoots(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, contract rhp.ContractRevision, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
 	hk := contract.Revision.HostPublicKey
 	h := c.host(hk)
 	h.mu.Lock()
@@ -293,7 +293,7 @@ func (c *clientMock) SectorRoots(_ context.Context, _ rhp.ContractSigner, _ clie
 	}, nil
 }
 
-func (c *clientMock) FreeSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, contract rhp.ContractRevision, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
+func (c *clientMock) FreeSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, contract rhp.ContractRevision, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
 	hk := contract.Revision.HostPublicKey
 	h := c.host(hk)
 	h.mu.Lock()

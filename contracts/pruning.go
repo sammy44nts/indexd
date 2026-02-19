@@ -125,14 +125,9 @@ func (cm *ContractManager) pruneContract(ctx context.Context, contractID types.F
 	for offset := uint64(0); offset < contractSectors; offset += cm.sectorRootsBatchSize {
 		length := min(cm.sectorRootsBatchSize, contractSectors-offset)
 
-		prices, err := cm.client.Prices(ctx, contract.Revision.HostPublicKey)
-		if err != nil {
-			return pruned, fmt.Errorf("failed to get host prices: %w", err)
-		}
-
 		var roots []types.Hash256
 		err = cm.rev.WithRevision(ctx, contractID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
-			res, err := cm.client.SectorRoots(ctx, cm.signer, cm.chain, prices, rev, offset, length)
+			res, err := cm.client.SectorRoots(ctx, cm.signer, cm.chain, rev, offset, length)
 			if err != nil {
 				return rhp.ContractRevision{}, proto.Usage{}, err
 			}
@@ -168,13 +163,8 @@ func (cm *ContractManager) pruneContract(ctx context.Context, contractID types.F
 			continue
 		}
 
-		prices, err = cm.client.Prices(ctx, contract.Revision.HostPublicKey)
-		if err != nil {
-			return pruned, fmt.Errorf("failed to get host prices: %w", err)
-		}
-
 		err = cm.rev.WithRevision(ctx, contractID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
-			res, err := cm.client.FreeSectors(ctx, cm.signer, cm.chain, prices, rev, indices)
+			res, err := cm.client.FreeSectors(ctx, cm.signer, cm.chain, rev, indices)
 			if err != nil {
 				return rhp.ContractRevision{}, proto.Usage{}, err
 			}

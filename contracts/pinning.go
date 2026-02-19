@@ -176,7 +176,7 @@ func (cm *ContractManager) pinSectors(ctx context.Context, hostKey types.PublicK
 			if uint64(len(attemptedSectors)) > maxAppendSectors {
 				attemptedSectors = attemptedSectors[:maxAppendSectors]
 			}
-			res, err = cm.client.AppendSectors(ctx, cm.signer, cm.chain, prices, contract, attemptedSectors)
+			res, err = cm.client.AppendSectors(ctx, cm.signer, cm.chain, contract, attemptedSectors)
 			if err != nil {
 				return rhp.ContractRevision{}, proto.Usage{}, fmt.Errorf("failed to append sectors: %w", err)
 			}
