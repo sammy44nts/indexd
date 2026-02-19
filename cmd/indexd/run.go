@@ -26,7 +26,6 @@ import (
 	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
-	"go.sia.tech/indexd/client"
 	client2 "go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/config"
 	"go.sia.tech/indexd/contracts"
@@ -135,15 +134,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer hm.Close()
 
 	signer := contracts.NewFormContractSigner(wm, walletKey)
-	dialer := client.NewDialer(cm, signer, store, log)
 	am, err := accounts.NewManager(store, accounts.WithLogger(log.Named("accounts")))
 	if err != nil {
 		return fmt.Errorf("failed to create accounts manager: %w", err)
 	}
 	defer am.Close()
 
-	f := contracts.NewFunder(client2, signer, cm, store, log)
-	contracts, err := contracts.NewManager(walletKey, am, f, cm, store, dialer, hm, s, wm, contracts.WithLogger(log.Named("contracts")))
+	f := contracts.NewFunder(client2, client2, signer, cm, store, log.Named("funder"))
+	contracts, err := contracts.NewManager(walletKey, am, f, cm, store, client2, signer, hm, s, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}

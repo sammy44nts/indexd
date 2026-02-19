@@ -1,6 +1,3 @@
-// This is a temporary location for the new client implementation while
-// we transition from the old client to the new client. Once the new client
-// is integrated we will move it to the base client package.
 package client
 
 import (

@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/wallet"
+	client "go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -103,18 +104,17 @@ func (cm *ContractManager) formContract(ctx context.Context, host types.PublicKe
 		allowance, collateral := contractFunding(host.Settings, 0, fundTarget, period+proto.ProofWindow) // duration should be extended until expiration height
 		formationCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)                                  // note: broadcasting on the host-side can block for up to a minute by default
 		defer cancel()
-		hc, err := cm.dialer.DialHost(formationCtx, host.PublicKey, host.RHP4Addrs())
-		if err != nil {
-			return fmt.Errorf("failed to dial host: %w", err)
-		}
-		defer hc.Close()
 
-		res, err := hc.FormContract(formationCtx, host.Settings, proto.RPCFormContractParams{
-			RenterPublicKey: cm.renterKey,
-			RenterAddress:   cm.wallet.Address(),
-			Allowance:       allowance,
-			Collateral:      collateral,
-			ProofHeight:     cm.chain.TipState().Index.Height + period,
+		res, err := cm.client.FormContract(formationCtx, cm.chain, cm.signer, client.FormContractParams{
+			HostKey:     host.PublicKey,
+			HostAddress: host.Settings.WalletAddress,
+			RPCFormContractParams: proto.RPCFormContractParams{
+				RenterPublicKey: cm.renterKey,
+				RenterAddress:   cm.wallet.Address(),
+				Allowance:       allowance,
+				Collateral:      collateral,
+				ProofHeight:     cm.chain.TipState().Index.Height + period,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to form contract: %w", err)
@@ -156,16 +156,41 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 
 		duration := contract.ExpirationHeight - host.Settings.Prices.TipHeight
 		allowance, collateral := contractFunding(host.Settings, contract.Size, fundTarget, duration)
-		hc, err := cm.dialer.DialHost(refreshCtx, host.PublicKey, host.RHP4Addrs())
-		if err != nil {
-			return fmt.Errorf("failed to dial host: %w", err)
-		}
-		defer hc.Close()
 
-		res, err := hc.RefreshContract(refreshCtx, host.Settings, proto.RPCRefreshContractParams{
-			Allowance:  allowance,
-			Collateral: collateral,
-			ContractID: contract.ID,
+		var res rhp.RPCRefreshContractResult
+		err := cm.rev.withRevision(refreshCtx, contract.ID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
+			if host.Settings.ProtocolVersion.Cmp(rhp.ProtocolVersion500) < 0 {
+				return rhp.ContractRevision{}, proto.Usage{}, fmt.Errorf("host does not support contract refresh, protocol version %s < %s", host.Settings.ProtocolVersion, rhp.ProtocolVersion500)
+			}
+
+			cappedCollateral := collateral
+			var totalCollateral types.Currency
+			if host.Settings.ProtocolVersion.Cmp(rhp.ProtocolVersion502) >= 0 {
+				totalCollateral = rev.Revision.RiskedCollateral().Add(cappedCollateral)
+			} else {
+				totalCollateral = rev.Revision.TotalCollateral.Add(cappedCollateral)
+			}
+			if totalCollateral.Cmp(host.Settings.MaxCollateral) > 0 {
+				capped, underflow := host.Settings.MaxCollateral.SubWithUnderflow(rev.Revision.RiskedCollateral())
+				if underflow {
+					capped = types.ZeroCurrency
+				}
+				cappedCollateral = capped
+			}
+
+			var err error
+			res, err = cm.client.RefreshContract(refreshCtx, cm.chain, cm.signer, client.RefreshContractParams{
+				Contract:   rev,
+				Allowance:  allowance,
+				Collateral: cappedCollateral,
+			})
+			if err != nil {
+				return rhp.ContractRevision{}, proto.Usage{}, err
+			}
+			// renewals return the old (or 'renewed') revision, the revision of the
+			// renewal will be persisted in the database when the renewed contract
+			// is added
+			return rev, res.Usage, nil
 		})
 		if err != nil {
 			return fmt.Errorf("failed to refresh contract: %w", err)

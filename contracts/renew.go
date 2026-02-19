@@ -6,6 +6,9 @@ import (
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
+	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/rhp/v4"
+	client "go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
 )
@@ -61,23 +64,44 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 		renewCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
-		hc, err := cm.dialer.DialHost(renewCtx, host.PublicKey, host.RHP4Addrs())
-		if err != nil {
-			log.Debug("failed to dial host", zap.Error(err))
-			return nil
-		}
-		defer hc.Close()
+		var res rhp.RPCRenewContractResult
+		err = cm.rev.withRevision(renewCtx, contract.ID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
+			cappedCollateral := collateral
+			estimatedRenewal, _ := proto.RenewContract(rev.Revision, settings.Prices, proto.RPCRenewContractParams{
+				Allowance:   allowance,
+				Collateral:  cappedCollateral,
+				ContractID:  contract.ID,
+				ProofHeight: proofHeight,
+			})
+			if estimatedRenewal.NewContract.TotalCollateral.Cmp(settings.MaxCollateral) > 0 {
+				capped, underflow := settings.MaxCollateral.SubWithUnderflow(estimatedRenewal.NewContract.RiskedCollateral())
+				if underflow {
+					capped = types.ZeroCurrency
+				}
+				cappedCollateral = capped
+			}
 
-		res, err := hc.RenewContract(renewCtx, settings, proto.RPCRenewContractParams{
-			Allowance:   allowance,
-			Collateral:  collateral,
-			ContractID:  contract.ID,
-			ProofHeight: proofHeight,
+			var err error
+			res, err = cm.client.RenewContract(renewCtx, cm.chain, cm.signer, client.RenewContractParams{
+				Contract:    rev,
+				Allowance:   allowance,
+				Collateral:  cappedCollateral,
+				ProofHeight: proofHeight,
+			})
+			if err != nil {
+				return rhp.ContractRevision{}, proto.Usage{}, err
+			}
+
+			// renewals return the old (or 'renewed') revision, the revision of the
+			// renewal will be persisted in the database when the renewed contract
+			// is added
+			return rev, res.Usage, nil
 		})
 		if err != nil {
 			return fmt.Errorf("failed to renew contract: %w", err)
 		}
-		log := log.With(zap.Stringer("newContractID", res.Contract.ID))
+
+		log = log.With(zap.Stringer("newContractID", res.Contract.ID))
 		if err := cm.wallet.BroadcastV2TransactionSet(res.RenewalSet.Basis, res.RenewalSet.Transactions); err != nil {
 			// error is ignored as it is assumed the host has validated the transaction set.
 			// It will eventually be mined or rejected. This is to prevent minor synchronization

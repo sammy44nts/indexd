@@ -9,13 +9,9 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
-)
-
-const (
-	pruneIntervalSuccess = 24 * time.Hour
-	pruneIntervalFailure = 3 * time.Hour
 )
 
 func (cm *ContractManager) performContractPruning(ctx context.Context, force bool, log *zap.Logger) error {
@@ -75,13 +71,6 @@ loop:
 }
 
 func (cm *ContractManager) performContractPruningOnHost(ctx context.Context, host hosts.Host, hostLog *zap.Logger) error {
-	// dial the host
-	client, err := cm.dialer.DialHost(ctx, host.PublicKey, host.RHP4Addrs())
-	if err != nil {
-		return fmt.Errorf("failed to dial host: %w", err)
-	}
-	defer client.Close()
-
 	// fetch contract ids
 	contracts, err := cm.store.ContractsForPruning(host.PublicKey)
 	if err != nil {
@@ -100,9 +89,9 @@ loop:
 		default:
 		}
 
-		n, err := cm.pruneContract(ctx, client, host.Settings.Prices, contract)
+		n, err := cm.pruneContract(ctx, contract)
 		if err != nil {
-			if updateErr := cm.store.UpdateNextPrune(contract, time.Now().Add(pruneIntervalFailure)); updateErr != nil {
+			if updateErr := cm.store.UpdateNextPrune(contract, time.Now().Add(cm.pruneIntervalFailure)); updateErr != nil {
 				err = errors.Join(err, fmt.Errorf("failed to update contract: %w", updateErr))
 			}
 			hostLog.Debug("failed to prune contract", zap.Error(err))
@@ -111,7 +100,7 @@ loop:
 			hostLog.Debug("pruned contract", zap.Stringer("contractID", contract), zap.Int("sectors", n), zap.Int("bytes", n*proto.SectorSize))
 		}
 
-		err = cm.store.UpdateNextPrune(contract, time.Now().Add(pruneIntervalSuccess))
+		err = cm.store.UpdateNextPrune(contract, time.Now().Add(cm.pruneIntervalSuccess))
 		if err != nil {
 			hostLog.Debug("failed to update contract", zap.Error(err))
 		}
@@ -120,7 +109,7 @@ loop:
 	return nil
 }
 
-func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient, hostPrices proto.HostPrices, contractID types.FileContractID) (int, error) {
+func (cm *ContractManager) pruneContract(ctx context.Context, contractID types.FileContractID) (int, error) {
 	const dbRootsBatchSize = 10000
 
 	contract, renewed, err := cm.store.ContractRevision(contractID)
@@ -135,17 +124,32 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 	var pruned int
 	for offset := uint64(0); offset < contractSectors; offset += cm.sectorRootsBatchSize {
 		length := min(cm.sectorRootsBatchSize, contractSectors-offset)
-		res, err := client.SectorRoots(ctx, hostPrices, contractID, offset, length)
+
+		prices, err := cm.client.Prices(ctx, contract.Revision.HostPublicKey)
+		if err != nil {
+			return pruned, fmt.Errorf("failed to get host prices: %w", err)
+		}
+
+		var roots []types.Hash256
+		err = cm.rev.withRevision(ctx, contractID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
+			res, err := cm.client.SectorRoots(ctx, cm.signer, cm.chain, prices, rev, offset, length)
+			if err != nil {
+				return rhp.ContractRevision{}, proto.Usage{}, err
+			}
+			roots = res.Roots
+			rev.Revision = res.Revision
+			return rev, res.Usage, nil
+		})
 		if err != nil {
 			return pruned, fmt.Errorf("failed to fetch contract sectors: %w", err)
-		} else if len(res.Roots) == 0 {
+		} else if len(roots) == 0 {
 			continue
 		}
 
-		prunable := make(map[types.Hash256]struct{}, len(res.Roots))
-		for start := 0; start < len(res.Roots); start += dbRootsBatchSize {
-			end := min(start+dbRootsBatchSize, len(res.Roots))
-			batch, err := cm.store.PrunableContractRoots(contractID, res.Roots[start:end])
+		prunable := make(map[types.Hash256]struct{}, len(roots))
+		for start := 0; start < len(roots); start += dbRootsBatchSize {
+			end := min(start+dbRootsBatchSize, len(roots))
+			batch, err := cm.store.PrunableContractRoots(contractID, roots[start:end])
 			if err != nil {
 				return pruned, fmt.Errorf("failed to fetch prunable contract roots: %w", err)
 			}
@@ -155,7 +159,7 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 		}
 
 		var indices []uint64
-		for i, root := range res.Roots {
+		for i, root := range roots {
 			if _, found := prunable[root]; found {
 				indices = append(indices, offset+uint64(i))
 			}
@@ -164,7 +168,19 @@ func (cm *ContractManager) pruneContract(ctx context.Context, client HostClient,
 			continue
 		}
 
-		_, err = client.FreeSectors(ctx, hostPrices, contractID, indices)
+		prices, err = cm.client.Prices(ctx, contract.Revision.HostPublicKey)
+		if err != nil {
+			return pruned, fmt.Errorf("failed to get host prices: %w", err)
+		}
+
+		err = cm.rev.withRevision(ctx, contractID, func(rev rhp.ContractRevision) (rhp.ContractRevision, proto.Usage, error) {
+			res, err := cm.client.FreeSectors(ctx, cm.signer, cm.chain, prices, rev, indices)
+			if err != nil {
+				return rhp.ContractRevision{}, proto.Usage{}, err
+			}
+			rev.Revision = res.Revision
+			return rev, res.Usage, nil
+		})
 		if err != nil {
 			return pruned, fmt.Errorf("failed to prune contract sectors: %w", err)
 		}

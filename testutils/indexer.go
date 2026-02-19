@@ -12,20 +12,19 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	rhp "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/alerts"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/api/app"
+	client2 "go.sia.tech/indexd/client/v2"
+	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/geoip"
+	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/keys"
 	"go.sia.tech/indexd/pins"
 	"go.sia.tech/indexd/slabs"
-
-	"go.sia.tech/indexd/client"
-	client2 "go.sia.tech/indexd/client/v2"
-	"go.sia.tech/indexd/contracts"
-	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -58,7 +57,8 @@ type (
 		App   *app.Client
 
 		cm        *chain.Manager
-		dialer    *client.Dialer
+		client    *client2.Client
+		signer    rhp.FormContractSigner
 		accounts  *accounts.AccountManager
 		contracts *contracts.ContractManager
 		hosts     *hosts.HostManager
@@ -85,6 +85,7 @@ func defaultIndexerCfg(log *zap.Logger) *indexerCfg {
 			contracts.WithLogger(log.Named("contracts")),
 			contracts.WithMaintenanceFrequency(500 * time.Millisecond),
 			contracts.WithMinHostDistance(0), // disable location checks in tests
+			contracts.WithSubmissionBuffer(1),
 			contracts.WithSyncPollInterval(500 * time.Millisecond),
 			contracts.WithSectorRootsBatchSize(5), // small batch size for testing
 		},
@@ -169,14 +170,13 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 	}
 
 	signer := contracts.NewFormContractSigner(wm, walletKey)
-	dialer := client.NewDialer(c.cm, signer, store, log, client.WithRevisionSubmissionBuffer(1))
 	am, err := accounts.NewManager(store, accounts.WithPruneAccountsInterval(100*time.Millisecond), accounts.WithLogger(log.Named("accounts")))
 	if err != nil {
 		t.Fatalf("failed to create accounts manager: %v", err)
 	}
 
-	f := contracts.NewFunder(client2, signer, c.cm, store, log, contracts.WithRevisionSubmissionBuffer(1))
-	contracts, err := contracts.NewManager(walletKey, am, f, c.cm, store, dialer, hm, s, wm, cfg.contractOpts...)
+	f := contracts.NewFunder(client2, client2, signer, c.cm, store, log.Named("funder"), contracts.WithRevisionSubmissionBuffer(1))
+	contracts, err := contracts.NewManager(walletKey, am, f, c.cm, store, client2, signer, hm, s, wm, cfg.contractOpts...)
 	if err != nil {
 		t.Fatalf("failed to create contract manager: %v", err)
 	}
@@ -297,10 +297,11 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		App:   app.NewClient(appAPIAddr),
 
 		cm:        c.cm,
+		client:    client2,
+		signer:    signer,
 		accounts:  am,
 		hosts:     hm,
 		contracts: contracts,
-		dialer:    dialer,
 		alerter:   alerter,
 		store:     store,
 		syncer:    syncer,
@@ -318,18 +319,19 @@ func (idx *Indexer) AddTestAccount(t *testing.T, pk types.PublicKey) {
 	time.Sleep(50 * time.Millisecond) // wait for funding to complete
 }
 
-// HostClient returns a host client for the given host public key.
-func (idx *Indexer) HostClient(t *testing.T, hk types.PublicKey) *client.HostClient {
-	h, err := idx.store.Host(hk)
-	if err != nil {
-		t.Fatalf("failed to get host %s: %v", hk, err) // developer error
-	}
-	hc, err := idx.dialer.DialHost(context.Background(), hk, h.RHP4Addrs())
-	if err != nil {
-		t.Fatalf("failed to dial host %s: %v", hk, err) // developer error
-	}
-	t.Cleanup(func() { hc.Close() })
-	return hc
+// Client returns the underlying client/v2 client.
+func (idx *Indexer) Client() *client2.Client {
+	return idx.client
+}
+
+// Signer returns the contract signer.
+func (idx *Indexer) Signer() rhp.FormContractSigner {
+	return idx.signer
+}
+
+// ChainManager returns the underlying chain manager.
+func (idx *Indexer) ChainManager() *chain.Manager {
+	return idx.cm
 }
 
 // Alerter returns the underlying alert manager.

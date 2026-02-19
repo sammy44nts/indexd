@@ -1,6 +1,7 @@
 package contracts_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql/driver"
 	"errors"
@@ -152,22 +153,71 @@ func (ts testStore) setContractSize(t testing.TB, fcid types.FileContractID, siz
 	}
 }
 
-// setContractCapacity updates the capacity of a contract.
-func (ts testStore) setContractCapacity(t testing.TB, fcid types.FileContractID, capacity uint64) {
-	t.Helper()
-
-	_, err := ts.Exec(t.Context(), `UPDATE contracts SET capacity = $1 WHERE contract_id = $2`, capacity, sqlHash256(fcid))
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // setContractRemainingAllowance updates the remaining allowance of a contract.
 func (ts testStore) setContractRemainingAllowance(t testing.TB, fcid types.FileContractID, allowance types.Currency) {
 	t.Helper()
 
 	_, err := ts.Exec(t.Context(), `UPDATE contracts SET remaining_allowance = $1 WHERE contract_id = $2`, sqlCurrency(allowance), sqlHash256(fcid))
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setRevisionCapacity updates the Capacity field in the raw_revision of a contract.
+func (ts testStore) setRevisionCapacity(t testing.TB, fcid types.FileContractID, capacity uint64) {
+	t.Helper()
+
+	// read the raw revision
+	rev, _, err := ts.ContractRevision(fcid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev.Revision.Capacity = capacity
+
+	// encode
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	rev.Revision.EncodeTo(e)
+	if err := e.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ts.Exec(t.Context(), `UPDATE contracts SET raw_revision = $1, capacity = $2 WHERE contract_id = $3`, buf.Bytes(), capacity, sqlHash256(fcid))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setRevisionRemainingAllowance updates the RenterOutput.Value in the raw_revision of a contract
+// to match the given allowance value. This is necessary because withRevision reads from raw_revision.
+func (ts testStore) setRevisionRemainingAllowance(t testing.TB, fcid types.FileContractID, allowance types.Currency) {
+	t.Helper()
+
+	rev, _, err := ts.ContractRevision(fcid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev.Revision.RenterOutput.Value = allowance
+	rev.Revision.RevisionNumber++
+
+	if err := ts.UpdateContractRevision(rev, proto.Usage{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setRevisionRemainingCollateral updates the MissedHostValue in the raw_revision of a contract
+// to match the given collateral value. This is necessary because withRevision reads from raw_revision.
+func (ts testStore) setRevisionRemainingCollateral(t testing.TB, fcid types.FileContractID, collateral types.Currency) {
+	t.Helper()
+
+	rev, _, err := ts.ContractRevision(fcid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev.Revision.MissedHostValue = collateral
+	rev.Revision.RevisionNumber++
+
+	if err := ts.UpdateContractRevision(rev, proto.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -598,7 +648,7 @@ func (w *walletMock) ReleaseInputs(txns []types.Transaction, v2txns []types.V2Tr
 func (w *walletMock) SignV2Inputs(txn *types.V2Transaction, toSign []int)                  {}
 
 func TestApplyRevertDiff(t *testing.T) {
-	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, nil, nil, nil, nil, nil, nil)
+	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// create a contract
 	contractID := types.FileContractID{1, 2, 3}
@@ -747,7 +797,7 @@ func TestProcessActions(t *testing.T) {
 	cmMock := newChainManagerMock()
 	syncerMock := &syncerMock{}
 	walletMock := &walletMock{}
-	cm := contracts.NewTestContractManager(types.PublicKey{}, amMock, nil, cmMock, store, nil, nil, syncerMock, walletMock)
+	cm := contracts.NewTestContractManager(types.PublicKey{}, amMock, nil, cmMock, store, nil, nil, nil, syncerMock, walletMock)
 
 	contract := types.V2FileContractElement{
 		ID: types.FileContractID{1},
@@ -810,7 +860,7 @@ func TestProcessActions(t *testing.T) {
 }
 
 func TestApplyRevertRenewedTo(t *testing.T) {
-	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, nil, nil, nil, nil, nil, nil)
+	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// create a contract
 	contractID := types.FileContractID{1, 2, 3}

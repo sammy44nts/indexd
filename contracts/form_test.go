@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
+	client "go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/geoip"
 	"go.sia.tech/indexd/hosts"
@@ -57,56 +58,38 @@ func goodHost(i int) hosts.Host {
 }
 
 type formContractCall struct {
-	settings proto.HostSettings
-	params   proto.RPCFormContractParams
+	params client.FormContractParams
 }
 
-type dialerMock struct {
-	mu      sync.Mutex
-	clients map[types.PublicKey]*hostClientMock
+type refreshContractCall struct {
+	params client.RefreshContractParams
 }
 
-func newDialerMock() *dialerMock {
-	return &dialerMock{
-		clients: make(map[types.PublicKey]*hostClientMock),
-	}
+type appendSectorCall struct {
+	contractID types.FileContractID
+	sectors    []types.Hash256
 }
 
-func (d *dialerMock) HostClient(hostKey types.PublicKey) *hostClientMock {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, ok := d.clients[hostKey]; !ok {
-		d.clients[hostKey] = newHostClientMock(hostKey)
-	}
-	return d.clients[hostKey]
+type freeSectorsCall struct {
+	contractID types.FileContractID
+	indices    []uint64
 }
 
-func (d *dialerMock) DialHost(ctx context.Context, hostKey types.PublicKey, addrs []chain.NetAddress) (contracts.HostClient, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if _, ok := d.clients[hostKey]; !ok {
-		d.clients[hostKey] = newHostClientMock(hostKey)
-	}
-	return d.clients[hostKey], nil
+type renewContractCall struct {
+	params client.RenewContractParams
 }
 
-func (d *dialerMock) TotalFormations() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	var nCalls int
-	for _, calls := range d.clients {
-		nCalls += len(calls.formCalls)
-	}
-	return nCalls
+type sectorRootsCall struct {
+	contractID types.FileContractID
+	offset     uint64
+	length     uint64
 }
 
-type hostClientMock struct {
-	mu        sync.Mutex
-	failsRPCs bool
-	hostKey   types.PublicKey
-
+type hostMockData struct {
+	mu              sync.Mutex
+	hostKey         types.PublicKey
+	failsRPCs       bool
+	prices          proto.HostPrices
 	formedContracts map[types.FileContractID]types.V2FileContract
 
 	appendSectorCalls []appendSectorCall
@@ -116,51 +99,78 @@ type hostClientMock struct {
 	renewCalls        []renewContractCall
 	sectorRootsCalls  []sectorRootsCall
 
-	maxPinnedPerAppend int
-	sectorRoots        map[types.FileContractID][]types.Hash256
-	missingSectors     map[types.Hash256]struct{}
+	sectorRoots    map[types.FileContractID][]types.Hash256
+	missingSectors map[types.Hash256]struct{}
 }
 
-func newHostClientMock(hostKey types.PublicKey) *hostClientMock {
-	return &hostClientMock{
-		hostKey:         hostKey,
-		sectorRoots:     make(map[types.FileContractID][]types.Hash256),
-		missingSectors:  make(map[types.Hash256]struct{}),
-		formedContracts: make(map[types.FileContractID]types.V2FileContract),
+type clientMock struct {
+	mu    sync.Mutex
+	hosts map[types.PublicKey]*hostMockData
+}
+
+func newClientMock() *clientMock {
+	return &clientMock{
+		hosts: make(map[types.PublicKey]*hostMockData),
 	}
 }
 
-func (c *hostClientMock) Close() error {
-	return nil
-}
-
-func (c *hostClientMock) Calls() []formContractCall {
-	return slices.Clone(c.formCalls)
-}
-
-type refreshContractCall struct {
-	settings proto.HostSettings
-	params   proto.RPCRefreshContractParams
-}
-
-func (c *hostClientMock) RefreshContract(ctx context.Context, settings proto.HostSettings, params proto.RPCRefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+func (c *clientMock) host(hk types.PublicKey) *hostMockData {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if _, ok := c.hosts[hk]; !ok {
+		c.hosts[hk] = &hostMockData{
+			hostKey:         hk,
+			sectorRoots:     make(map[types.FileContractID][]types.Hash256),
+			missingSectors:  make(map[types.Hash256]struct{}),
+			formedContracts: make(map[types.FileContractID]types.V2FileContract),
+		}
+	}
+	return c.hosts[hk]
+}
 
-	c.refreshCalls = append(c.refreshCalls, refreshContractCall{
-		settings: settings,
-		params:   params,
-	})
+func (c *clientMock) FormContract(_ context.Context, _ client.ChainManager, _ rhp.FormContractSigner, params client.FormContractParams) (rhp.RPCFormContractResult, error) {
+	h := c.host(params.HostKey)
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	revision, ok := c.formedContracts[params.ContractID]
-	if !ok {
-		return rhp.RPCRefreshContractResult{}, proto.ErrInvalidSignature // simulate contract not found
+	if h.failsRPCs {
+		return rhp.RPCFormContractResult{}, fmt.Errorf("mocked error")
 	}
 
-	// NOTE: not quite correct since it doesn't take into account
-	// the existing allowance and collateral of the contract but we
-	// just want to make sure that some value is returned and stored
-	// in the store mock during testing.
+	h.formCalls = append(h.formCalls, formContractCall{params: params})
+
+	revision := rhp.ContractRevision{
+		ID: frand.Entropy256(),
+		Revision: types.V2FileContract{
+			HostPublicKey:    params.HostKey,
+			ExpirationHeight: params.ProofHeight + proto.ProofWindow,
+			ProofHeight:      params.ProofHeight,
+			TotalCollateral:  params.Collateral,
+			RenterOutput:     types.SiacoinOutput{Value: params.Allowance},
+		},
+	}
+	h.formedContracts[revision.ID] = revision.Revision
+	return rhp.RPCFormContractResult{
+		Contract: revision,
+		FormationSet: rhp.TransactionSet{
+			Transactions: []types.V2Transaction{
+				{
+					MinerFee: types.Siacoins(1),
+				},
+			},
+		},
+	}, nil
+}
+
+func (c *clientMock) RefreshContract(_ context.Context, _ client.ChainManager, _ rhp.FormContractSigner, params client.RefreshContractParams) (rhp.RPCRefreshContractResult, error) {
+	hk := params.Contract.Revision.HostPublicKey
+	h := c.host(hk)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.refreshCalls = append(h.refreshCalls, refreshContractCall{params: params})
+
+	revision := params.Contract.Revision
 	revision.RenterOutput.Value = params.Allowance
 	revision.TotalCollateral = params.Collateral
 	revision.HostOutput.Value = params.Collateral
@@ -169,8 +179,7 @@ func (c *hostClientMock) RefreshContract(ctx context.Context, settings proto.Hos
 		ID:       frand.Entropy256(),
 		Revision: revision,
 	}
-
-	c.formedContracts[cr.ID] = revision
+	h.formedContracts[cr.ID] = revision
 
 	return rhp.RPCRefreshContractResult{
 		Contract: cr,
@@ -184,32 +193,28 @@ func (c *hostClientMock) RefreshContract(ctx context.Context, settings proto.Hos
 	}, nil
 }
 
-func (c *hostClientMock) FormContract(ctx context.Context, settings proto.HostSettings, params proto.RPCFormContractParams) (rhp.RPCFormContractResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *clientMock) RenewContract(_ context.Context, _ client.ChainManager, _ rhp.FormContractSigner, params client.RenewContractParams) (rhp.RPCRenewContractResult, error) {
+	hk := params.Contract.Revision.HostPublicKey
+	h := c.host(hk)
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	if c.failsRPCs {
-		return rhp.RPCFormContractResult{}, fmt.Errorf("mocked error")
+	h.renewCalls = append(h.renewCalls, renewContractCall{params: params})
+
+	revision := types.V2FileContract{
+		HostPublicKey:    hk,
+		ExpirationHeight: params.ProofHeight + proto.ProofWindow,
+		ProofHeight:      params.ProofHeight,
+		TotalCollateral:  params.Collateral,
+		RenterOutput:     types.SiacoinOutput{Value: params.Allowance},
 	}
 
-	c.formCalls = append(c.formCalls, formContractCall{
-		settings: settings,
-		params:   params,
-	})
-
-	revision := rhp.ContractRevision{
-		ID: frand.Entropy256(),
-		Revision: types.V2FileContract{
-			HostPublicKey:    c.hostKey,
-			ExpirationHeight: params.ProofHeight + proto.ProofWindow,
-			ProofHeight:      params.ProofHeight,
-			TotalCollateral:  params.Collateral,
+	return rhp.RPCRenewContractResult{
+		Contract: rhp.ContractRevision{
+			ID:       frand.Entropy256(),
+			Revision: revision,
 		},
-	}
-	c.formedContracts[revision.ID] = revision.Revision
-	return rhp.RPCFormContractResult{
-		Contract: revision,
-		FormationSet: rhp.TransactionSet{
+		RenewalSet: rhp.TransactionSet{
 			Transactions: []types.V2Transaction{
 				{
 					MinerFee: types.Siacoins(1),
@@ -217,6 +222,127 @@ func (c *hostClientMock) FormContract(ctx context.Context, settings proto.HostSe
 			},
 		},
 	}, nil
+}
+
+func (c *clientMock) AppendSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, revision rhp.ContractRevision, sectors []types.Hash256) (rhp.RPCAppendSectorsResult, error) {
+	hk := revision.Revision.HostPublicKey
+	h := c.host(hk)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.failsRPCs {
+		return rhp.RPCAppendSectorsResult{}, fmt.Errorf("mocked error")
+	}
+
+	h.appendSectorCalls = append(h.appendSectorCalls, appendSectorCall{
+		contractID: revision.ID,
+		sectors:    slices.Clone(sectors),
+	})
+
+	appended := make([]types.Hash256, 0, len(sectors))
+	for _, sector := range sectors {
+		if _, ok := h.missingSectors[sector]; !ok {
+			appended = append(appended, sector)
+		}
+	}
+
+	newRevision := revision.Revision
+	newRevision.Filesize += uint64(len(appended)) * proto.SectorSize
+	if newRevision.Capacity < newRevision.Filesize {
+		newRevision.Capacity = newRevision.Filesize
+	}
+	newRevision.RevisionNumber++
+
+	return rhp.RPCAppendSectorsResult{
+		Revision: newRevision,
+		Sectors:  appended,
+	}, nil
+}
+
+func (c *clientMock) SectorRoots(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, contract rhp.ContractRevision, offset, length uint64) (rhp.RPCSectorRootsResult, error) {
+	hk := contract.Revision.HostPublicKey
+	h := c.host(hk)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.failsRPCs {
+		return rhp.RPCSectorRootsResult{}, fmt.Errorf("mocked error")
+	}
+
+	h.sectorRootsCalls = append(h.sectorRootsCalls, sectorRootsCall{
+		contractID: contract.ID,
+		offset:     offset,
+		length:     length,
+	})
+
+	roots, ok := h.sectorRoots[contract.ID]
+	if !ok || offset > uint64(len(roots)) {
+		return rhp.RPCSectorRootsResult{}, nil
+	}
+	roots = roots[offset:]
+	if length > uint64(len(roots)) {
+		return rhp.RPCSectorRootsResult{}, fmt.Errorf("out of bounds")
+	}
+
+	newRevision := contract.Revision
+	newRevision.RevisionNumber++
+
+	return rhp.RPCSectorRootsResult{
+		Roots:    roots[:length],
+		Revision: newRevision,
+	}, nil
+}
+
+func (c *clientMock) FreeSectors(_ context.Context, _ rhp.ContractSigner, _ client.ChainManager, _ proto.HostPrices, contract rhp.ContractRevision, indices []uint64) (rhp.RPCFreeSectorsResult, error) {
+	hk := contract.Revision.HostPublicKey
+	h := c.host(hk)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.failsRPCs {
+		return rhp.RPCFreeSectorsResult{}, fmt.Errorf("mocked error")
+	}
+
+	h.freeSectorsCalls = append(h.freeSectorsCalls, freeSectorsCall{
+		contractID: contract.ID,
+		indices:    indices,
+	})
+
+	// swap removed sectors with sectors from the end like the host would
+	roots := h.sectorRoots[contract.ID]
+	sortedIndices := append([]uint64{}, indices...)
+	slices.SortFunc(sortedIndices, func(a, b uint64) int {
+		if a > b {
+			return -1
+		} else if a < b {
+			return 1
+		}
+		return 0
+	})
+	for _, idx := range sortedIndices {
+		roots[idx] = roots[len(roots)-1]
+		roots = roots[:len(roots)-1]
+	}
+	h.sectorRoots[contract.ID] = roots
+
+	newRevision := contract.Revision
+	newRevision.Filesize -= uint64(len(indices)) * proto.SectorSize
+	newRevision.RevisionNumber++
+
+	return rhp.RPCFreeSectorsResult{
+		Revision: newRevision,
+	}, nil
+}
+
+func (c *clientMock) LatestRevision(_ context.Context, _ types.PublicKey, _ types.FileContractID) (proto.RPCLatestRevisionResponse, error) {
+	return proto.RPCLatestRevisionResponse{}, nil
+}
+
+func (c *clientMock) Prices(_ context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+	h := c.host(hostKey)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.prices, nil
 }
 
 type hostManagerMock struct {
@@ -350,10 +476,10 @@ func TestPerformContractFormation(t *testing.T) {
 	store.addTestHost(t, badPriceLeeway)
 	bad = append(bad, badPriceLeeway)
 
-	dialer := newDialerMock()
+	mock := newClientMock()
 	renterKey := types.PublicKey{1, 2, 3, 4, 5}
 	wallet := &walletMock{}
-	cm := contracts.NewTestContractManager(renterKey, amMock, nil, cmMock, store, dialer, hm, syncerMock, wallet)
+	cm := contracts.NewTestContractManager(renterKey, amMock, nil, cmMock, store, mock, nil, hm, syncerMock, wallet, contracts.WithSubmissionBuffer(1))
 
 	assertGoodContracts := func(goodCount, formations, refreshes int) {
 		t.Helper()
@@ -399,9 +525,9 @@ func TestPerformContractFormation(t *testing.T) {
 		// assert that we attempted to form contracts with the right hosts,
 		// settings and params
 		var formCalls, refreshCalls int
-		for _, calls := range dialer.clients {
-			formCalls += len(calls.formCalls)
-			refreshCalls += len(calls.refreshCalls)
+		for _, data := range mock.hosts {
+			formCalls += len(data.formCalls)
+			refreshCalls += len(data.refreshCalls)
 		}
 		switch {
 		case formCalls != formations:
@@ -555,6 +681,9 @@ func newTestRevision(hk types.PublicKey) types.V2FileContract {
 		ProofHeight:      400,
 		ExpirationHeight: 800,
 		RevisionNumber:   1,
+		RenterOutput:     types.SiacoinOutput{Value: types.Siacoins(10)},
+		HostOutput:       types.SiacoinOutput{Value: types.Siacoins(110)},
+		MissedHostValue:  types.Siacoins(5),
 		TotalCollateral:  types.Siacoins(100),
 	}
 }
