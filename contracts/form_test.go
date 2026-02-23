@@ -526,9 +526,9 @@ func TestPerformContractFormation(t *testing.T) {
 		// assert that we attempted to form contracts with the right hosts,
 		// settings and params
 		var formCalls, refreshCalls int
-		for _, data := range mock.hosts {
-			formCalls += len(data.formCalls)
-			refreshCalls += len(data.refreshCalls)
+		for _, calls := range mock.hosts {
+			formCalls += len(calls.formCalls)
+			refreshCalls += len(calls.refreshCalls)
 		}
 		switch {
 		case formCalls != formations:
