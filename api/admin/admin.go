@@ -113,6 +113,7 @@ type (
 	Store interface {
 		AccountStats() (AccountStatsResponse, error)
 		AggregatedHostStats() (AggregatedHostStatsResponse, error)
+		AppStats(types.Hash256) (AppStatsResponse, error)
 		ContractsStats() (ContractsStatsResponse, error)
 		HostStats(offset, limit int) ([]hosts.HostStats, error)
 		SectorStats() (SectorsStatsResponse, error)
@@ -266,6 +267,7 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 
 		// stats endpoints
 		"GET /stats/accounts":       a.handleGETStatsAccounts,
+		"GET /stats/apps/:id":       a.handleGETStatsApp,
 		"GET /stats/contracts":      a.handleGETStatsContracts,
 		"GET /stats/hosts":          a.handleGETStatsHostsAggregated,
 		"GET /stats/hosts/detailed": a.handleGETStatsHostsDetailed,
@@ -1078,6 +1080,18 @@ func (a *admin) handlePOSTWalletSend(jc jape.Context) {
 func (a *admin) handleGETStatsAccounts(jc jape.Context) {
 	stats, err := a.store.AccountStats()
 	if jc.Check("failed to retrieve account stats", err) != nil {
+		return
+	}
+	writeResponse(jc, stats)
+}
+
+func (a *admin) handleGETStatsApp(jc jape.Context) {
+	var id types.Hash256
+	if jc.DecodeParam("id", &id) != nil {
+		return
+	}
+	stats, err := a.store.AppStats(id)
+	if jc.Check("failed to retrieve app stats", err) != nil {
 		return
 	}
 	writeResponse(jc, stats)

@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.sia.tech/core/types"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/hosts"
 )
@@ -107,6 +109,26 @@ func (s *Store) SectorStats() (admin.SectorsStatsResponse, error) {
 	return stats, err
 }
 
+// AppStats reports per-app statistics including total accounts, active
+// accounts, and total pinned data.
+func (s *Store) AppStats(appID types.Hash256) (admin.AppStatsResponse, error) {
+	stats := admin.AppStatsResponse{
+		AppID: appID,
+	}
+	err := s.transaction(func(ctx context.Context, tx *txn) error {
+		return tx.QueryRow(ctx, `
+SELECT
+	COUNT(*) AS total,
+	COUNT(*) FILTER (WHERE last_used >= $2) AS active,
+	COALESCE(SUM(pinned_data), 0) AS pinned_data
+FROM accounts
+WHERE app_id = $1 AND deleted_at IS NULL`,
+			sqlHash256(appID), time.Now().Add(-accounts.AccountActivityThreshold),
+		).Scan(&stats.Accounts, &stats.Active, &stats.PinnedData)
+	})
+	return stats, err
+}
+
 // AccountStats reports statistics about the accounts stored in the database.
 func (s *Store) AccountStats() (admin.AccountStatsResponse, error) {
 	var stats admin.AccountStatsResponse
@@ -116,8 +138,7 @@ func (s *Store) AccountStats() (admin.AccountStatsResponse, error) {
 			return fmt.Errorf("failed to get number of registered accounts: %w", err)
 		}
 
-		const activeAccountThreshold = 7 * 24 * time.Hour
-		stats.Active, err = activeAccounts(ctx, tx, time.Now().Add(-activeAccountThreshold))
+		stats.Active, err = activeAccounts(ctx, tx, time.Now().Add(-accounts.AccountActivityThreshold))
 		if err != nil {
 			return fmt.Errorf("failed to get active accounts: %w", err)
 		}

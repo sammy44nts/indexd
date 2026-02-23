@@ -1505,6 +1505,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/AccountStatsResponse"
 
+  /stats/apps/{id}:
+    get:
+      tags:
+        - stats
+      summary: Get stats for a specific app
+      description: Get per-app statistics including total accounts, active accounts, and total pinned data
+      operationId: getStatsApp
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The app ID
+          schema:
+            $ref: "#/components/schemas/Hash256"
+      responses:
+        "200":
+          description: Stats for the specified app
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppStatsResponse"
+
   /stats/contracts:
     get:
       tags:
@@ -1907,6 +1929,8 @@ components:
       $ref: "./components.yml#/components/schemas/ConnectKey"
     AccountStatsResponse:
       $ref: "./components.yml#/components/schemas/AccountStatsResponse"
+    AppStatsResponse:
+      $ref: "./components.yml#/components/schemas/AppStatsResponse"
     UpdateAppConnectKey:
       $ref: "./components.yml#/components/schemas/UpdateAppConnectKey"
     AddConnectKeyRequest:

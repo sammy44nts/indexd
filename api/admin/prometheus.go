@@ -23,6 +23,31 @@ func (s AccountStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 }
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
+// app stats response.
+func (s AppStatsResponse) PrometheusMetric() []prometheus.Metric {
+	labels := map[string]any{
+		"app_id": s.AppID.String(),
+	}
+	return []prometheus.Metric{
+		{
+			Name:   "indexd_app_num_accounts",
+			Labels: labels,
+			Value:  float64(s.Accounts),
+		},
+		{
+			Name:   "indexd_app_num_active_accounts",
+			Labels: labels,
+			Value:  float64(s.Active),
+		},
+		{
+			Name:   "indexd_app_pinned_data_bytes",
+			Labels: labels,
+			Value:  float64(s.PinnedData),
+		},
+	}
+}
+
+// PrometheusMetric implements the prometheus.Marshaller interface for the
 // aggregated hosts stats response.
 func (s AggregatedHostStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 	return []prometheus.Metric{
