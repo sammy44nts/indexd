@@ -128,9 +128,8 @@ func (s *Store) AccountStats() (admin.AccountStatsResponse, error) {
 
 // ConnectKeyStats reports statistics about connect keys, including the total
 // number of keys and the breakdown by quota.
-func (s *Store) ConnectKeyStats() (admin.ConnectKeyStatsResponse, error) {
-	var stats admin.ConnectKeyStatsResponse
-	err := s.transaction(func(ctx context.Context, tx *txn) error {
+func (s *Store) ConnectKeyStats() (stats admin.ConnectKeyStatsResponse, err error) {
+	err = s.transaction(func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `
 			SELECT quota_name, COUNT(*)
 			FROM app_connect_keys
@@ -151,7 +150,7 @@ func (s *Store) ConnectKeyStats() (admin.ConnectKeyStatsResponse, error) {
 		}
 		return rows.Err()
 	})
-	return stats, err
+	return
 }
 
 // AggregatedHostStats reports aggregated statistics about all hosts, including the
