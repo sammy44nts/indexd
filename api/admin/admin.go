@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/hex"
 	"net/http"
 	"regexp"
 
@@ -29,7 +28,6 @@ import (
 	"go.sia.tech/indexd/pins"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 )
 
 const (
@@ -97,8 +95,8 @@ type (
 		Accounts(ctx context.Context, offset, limit int, opts ...accounts.QueryAccountsOpt) ([]accounts.Account, error)
 		DeleteAccount(ctx context.Context, acc proto.Account) error
 
-		AddAppConnectKey(context.Context, accounts.UpdateAppConnectKey) (accounts.ConnectKey, error)
-		UpdateAppConnectKey(context.Context, accounts.UpdateAppConnectKey) (accounts.ConnectKey, error)
+		AddAppConnectKey(context.Context, accounts.AppConnectKeyRequest) (accounts.ConnectKey, error)
+		UpdateAppConnectKey(context.Context, accounts.AppConnectKeyRequest) (accounts.ConnectKey, error)
 		DeleteAppConnectKey(context.Context, string) error
 		AppConnectKey(ctx context.Context, key string) (accounts.ConnectKey, error)
 		AppConnectKeys(ctx context.Context, offset, limit int) ([]accounts.ConnectKey, error)
@@ -359,22 +357,20 @@ func (a *admin) handleGETAppConnectKeys(jc jape.Context) {
 }
 
 func (a *admin) handlePOSTAppConnectKeys(jc jape.Context) {
-	var req accounts.AddConnectKeyRequest
+	var req accounts.AppConnectKeyRequest
 	if jc.Decode(&req) != nil {
 		return
 	}
-	if req.Quota == "" {
-		jc.Error(errors.New("quota is required"), http.StatusBadRequest)
-		return
-	}
 
-	created, err := a.accounts.AddAppConnectKey(jc.Request.Context(), accounts.UpdateAppConnectKey{
-		Key:         hex.EncodeToString(frand.Bytes(32)),
-		Description: req.Description,
-		Quota:       req.Quota,
-	})
-	if errors.Is(err, accounts.ErrQuotaNotFound) {
+	created, err := a.accounts.AddAppConnectKey(jc.Request.Context(), req)
+	if errors.Is(err, accounts.ErrKeyAlreadyExists) {
+		jc.Error(err, http.StatusConflict)
+		return
+	} else if errors.Is(err, accounts.ErrQuotaNotFound) {
 		jc.Error(err, http.StatusNotFound)
+		return
+	} else if errors.Is(err, accounts.ErrNoQuota) {
+		jc.Error(err, http.StatusBadRequest)
 		return
 	} else if jc.Check("failed to add app connect key", err) != nil {
 		return
@@ -383,12 +379,8 @@ func (a *admin) handlePOSTAppConnectKeys(jc jape.Context) {
 }
 
 func (a *admin) handlePUTAppConnectKeys(jc jape.Context) {
-	var key accounts.UpdateAppConnectKey
+	var key accounts.AppConnectKeyRequest
 	if jc.Decode(&key) != nil {
-		return
-	}
-	if key.Quota == "" {
-		jc.Error(errors.New("quota is required"), http.StatusBadRequest)
 		return
 	}
 
@@ -398,6 +390,9 @@ func (a *admin) handlePUTAppConnectKeys(jc jape.Context) {
 		return
 	} else if errors.Is(err, accounts.ErrQuotaNotFound) {
 		jc.Error(err, http.StatusNotFound)
+		return
+	} else if errors.Is(err, accounts.ErrNoQuota) {
+		jc.Error(err, http.StatusBadRequest)
 		return
 	} else if jc.Check("failed to update app connect key", err) != nil {
 		return
@@ -485,9 +480,11 @@ func (a *admin) handlePUTQuota(jc jape.Context) {
 	var req accounts.PutQuotaRequest
 	if jc.Decode(&req) != nil {
 		return
-	}
-	if req.TotalUses < 0 {
+	} else if req.TotalUses < 0 {
 		jc.Error(errors.New("totalUses must be non-negative"), http.StatusBadRequest)
+		return
+	} else if req.FundTargetBytes == nil {
+		jc.Error(errors.New("fundTargetBytes is required"), http.StatusBadRequest)
 		return
 	}
 

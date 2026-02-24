@@ -995,6 +995,10 @@ components:
         totalUses:
           type: integer
           description: Total number of accounts that can be created using connect keys with this quota
+        fundTargetBytes:
+          type: integer
+          format: uint64
+          description: Funding target in bytes per host used to calculate how much data equivalent funds to fund accounts with. 0 means no funding.
 
     PutQuotaRequest:
       type: object
@@ -1010,6 +1014,11 @@ components:
           type: integer
           minimum: 0
           description: Total number of accounts that can be created using connect keys with this quota
+        fundTargetBytes:
+          type: integer
+          format: uint64
+          minimum: 0
+          description: Funding target in bytes per host used to calculate how much data equivalent funds to fund accounts with. 0 means no funding.
 
     ConnectKey:
       type: object
@@ -1042,7 +1051,7 @@ components:
           format: uint64
           description: Sum of all the pinned data of the accounts associated with this key
 
-    UpdateAppConnectKey:
+    AppConnectKeyRequest:
       type: object
       required:
         - quota
@@ -1050,17 +1059,6 @@ components:
         key:
           type: string
           description: App key/ID
-        description:
-          type: string
-          description: App description
-        quota:
-          $ref: "#/components/schemas/QuotaKey"
-
-    AddConnectKeyRequest:
-      type: object
-      required:
-        - quota
-      properties:
         description:
           type: string
           description: App description

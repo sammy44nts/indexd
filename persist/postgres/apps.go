@@ -32,19 +32,20 @@ func scanConnectKey(s scanner) (key accounts.ConnectKey, err error) {
 }
 
 // AddAppConnectKey adds or updates an application connection key in the database.
-func (s *Store) AddAppConnectKey(meta accounts.UpdateAppConnectKey) (key accounts.ConnectKey, err error) {
-	if meta.Quota == "" {
-		return accounts.ConnectKey{}, fmt.Errorf("quota is required")
-	}
+func (s *Store) AddAppConnectKey(meta accounts.AppConnectKeyRequest) (key accounts.ConnectKey, err error) {
 	err = s.transaction(func(ctx context.Context, tx *txn) error {
 		userSecret := frand.Bytes(32)
 		key, err = scanConnectKey(tx.QueryRow(ctx, `
 			INSERT INTO app_connect_keys (app_key, user_secret, use_description, quota_name)
 			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (app_key) DO NOTHING
 			RETURNING app_key, use_description, created_at, updated_at, last_used, pinned_data,
 				quota_name,
 				(SELECT total_uses FROM quotas WHERE name = quota_name)
 		`, meta.Key, userSecret, meta.Description, meta.Quota))
+		if errors.Is(err, sql.ErrNoRows) {
+			return accounts.ErrKeyAlreadyExists
+		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
@@ -61,11 +62,16 @@ func (s *Store) AddAppConnectKey(meta accounts.UpdateAppConnectKey) (key account
 
 // UpdateAppConnectKey updates an existing application connection key in the database.
 // If the key does not exist, it returns [app.ErrKeyNotFound].
-func (s *Store) UpdateAppConnectKey(meta accounts.UpdateAppConnectKey) (key accounts.ConnectKey, err error) {
-	if meta.Quota == "" {
-		return accounts.ConnectKey{}, fmt.Errorf("quota is required")
-	}
+func (s *Store) UpdateAppConnectKey(meta accounts.AppConnectKeyRequest) (key accounts.ConnectKey, err error) {
 	err = s.transaction(func(ctx context.Context, tx *txn) error {
+		// verify quota exists
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM quotas WHERE name = $1)`, meta.Quota).Scan(&exists); err != nil {
+			return fmt.Errorf("failed to check quota: %w", err)
+		} else if !exists {
+			return accounts.ErrQuotaNotFound
+		}
+
 		key, err = scanConnectKey(tx.QueryRow(ctx, `
 			UPDATE app_connect_keys ack SET (use_description, quota_name) = ($2, $3) WHERE app_key = $1
 			RETURNING app_key, use_description, created_at, updated_at, last_used, pinned_data,

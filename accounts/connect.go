@@ -2,12 +2,14 @@ package accounts
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/keys"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -43,10 +45,11 @@ var (
 type (
 	// Quota represents a usage quota for connect keys.
 	Quota struct {
-		Key           string `json:"key"`
-		Description   string `json:"description"`
-		MaxPinnedData uint64 `json:"maxPinnedData"`
-		TotalUses     int    `json:"totalUses"`
+		Key             string `json:"key"`
+		Description     string `json:"description"`
+		MaxPinnedData   uint64 `json:"maxPinnedData"`
+		TotalUses       int    `json:"totalUses"`
+		FundTargetBytes uint64 `json:"fundTargetBytes"`
 	}
 
 	// A ConnectKey represents a key used to authenticate
@@ -62,15 +65,9 @@ type (
 		PinnedData    uint64    `json:"pinnedData"`
 	}
 
-	// AddConnectKeyRequest is the request type for adding a new app connect key.
-	AddConnectKeyRequest struct {
-		Description string `json:"description"`
-		Quota       string `json:"quota"`
-	}
-
-	// UpdateAppConnectKey represents a request to add or update
+	// AppConnectKeyRequest represents a request to add or update
 	// an app connect key.
-	UpdateAppConnectKey struct {
+	AppConnectKeyRequest struct {
 		Key         string `json:"key"`
 		Description string `json:"description"`
 		Quota       string `json:"quota"`
@@ -86,20 +83,31 @@ type (
 
 	// PutQuotaRequest is the request type for creating or updating a quota.
 	PutQuotaRequest struct {
-		Description   string `json:"description"`
-		MaxPinnedData uint64 `json:"maxPinnedData"`
-		TotalUses     int    `json:"totalUses"`
+		Description     string  `json:"description"`
+		MaxPinnedData   uint64  `json:"maxPinnedData"`
+		TotalUses       int     `json:"totalUses"`
+		FundTargetBytes *uint64 `json:"fundTargetBytes"`
 	}
 )
 
-// AddAppConnectKey adds a new app connect key.
-func (m *AccountManager) AddAppConnectKey(ctx context.Context, key UpdateAppConnectKey) (ConnectKey, error) {
+// AddAppConnectKey adds a new app connect key. If the key field in the
+// request is empty, a random key will be generated.
+func (m *AccountManager) AddAppConnectKey(ctx context.Context, key AppConnectKeyRequest) (ConnectKey, error) {
+	if key.Quota == "" {
+		return ConnectKey{}, ErrNoQuota
+	}
+	if key.Key == "" {
+		key.Key = hex.EncodeToString(frand.Bytes(32))
+	}
 	return m.store.AddAppConnectKey(key)
 }
 
 // UpdateAppConnectKey updates an existing app connect key.
 // If the key does not exist, it returns [ErrKeyNotFound].
-func (m *AccountManager) UpdateAppConnectKey(ctx context.Context, key UpdateAppConnectKey) (ConnectKey, error) {
+func (m *AccountManager) UpdateAppConnectKey(ctx context.Context, key AppConnectKeyRequest) (ConnectKey, error) {
+	if key.Quota == "" {
+		return ConnectKey{}, ErrNoQuota
+	}
 	return m.store.UpdateAppConnectKey(key)
 }
 
