@@ -1243,6 +1243,35 @@ func TestAccountStatsAPI(t *testing.T) {
 	} else if stats.Registered != 1 {
 		t.Fatalf("expected 1 registered accounts, got %d", stats.Registered)
 	}
+
+	appID := types.Hash256{1}
+	connectKey, err := adminClient.AddAppConnectKey(t.Context(), accounts.AddConnectKeyRequest{
+		Description: "app stats test key",
+		Quota:       "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appAccount := types.GeneratePrivateKey().PublicKey()
+	if err := indexer.Store().RegisterAppKey(connectKey.Key, appAccount, accounts.AppMeta{ID: appID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stats, err := adminClient.StatsApp(t.Context(), appID); err != nil {
+		t.Fatal(err)
+	} else if stats.AppID != appID {
+		t.Fatalf("expected app id %s, got %s", appID, stats.AppID)
+	} else if stats.Accounts != 1 {
+		t.Fatalf("expected 1 app account, got %d", stats.Accounts)
+	} else if stats.Active != 1 {
+		t.Fatalf("expected 1 active app account, got %d", stats.Active)
+	}
+
+	if stats, err := adminClient.StatsApp(t.Context(), types.Hash256{2}); err != nil {
+		t.Fatal(err)
+	} else if stats.Accounts != 0 {
+		t.Fatalf("expected 0 app accounts, got %d", stats.Accounts)
+	}
 }
 
 // newTestLogger creates a console logger used for testing.
