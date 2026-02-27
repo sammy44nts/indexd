@@ -30,7 +30,7 @@ func (m *SlabManager) migrationCandidates() ([]hosts.Host, []contracts.Contract,
 			return nil, nil, fmt.Errorf("failed to fetch hosts: %w", err)
 		}
 
-		slices.DeleteFunc(batch, func(h hosts.Host) bool {
+		batch = slices.DeleteFunc(batch, func(h hosts.Host) bool {
 			return h.Settings.RemainingStorage == 0
 		})
 
