@@ -2015,6 +2015,8 @@ components:
       $ref: "./components.yml#/components/schemas/Quota"
     PutQuotaRequest:
       $ref: "./components.yml#/components/schemas/PutQuotaRequest"
+    UpdateMaxPinnedDataRequest:
+      $ref: "./components.yml#/components/schemas/UpdateMaxPinnedDataRequest"
     ContractsStatsResponse:
       $ref: "./components.yml#/components/schemas/ContractsStatsResponse"
     HostsStatsResponse:
