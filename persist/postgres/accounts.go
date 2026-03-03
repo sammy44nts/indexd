@@ -128,6 +128,20 @@ func (s *Store) UpdateAccount(oldAK, newAK types.PublicKey) error {
 	})
 }
 
+// UpdateMaxPinnedData updates the max_pinned_data for the account with the
+// given public key.
+func (s *Store) UpdateMaxPinnedData(ak types.PublicKey, maxPinnedData uint64) error {
+	return s.transaction(func(ctx context.Context, tx *txn) error {
+		res, err := tx.Exec(ctx, `UPDATE accounts SET max_pinned_data = $1 WHERE public_key = $2 AND deleted_at IS NULL`, maxPinnedData, sqlPublicKey(ak))
+		if err != nil {
+			return fmt.Errorf("failed to update max pinned data: %w", err)
+		} else if res.RowsAffected() != 1 {
+			return accounts.ErrNotFound
+		}
+		return nil
+	})
+}
+
 // PruneAccounts deletes up to `limit` combined slabs and objects from an
 // account that has been soft deleted.  If there are no objects left on the
 // account to delete, it will prune the associated slabs and sectors.  If there

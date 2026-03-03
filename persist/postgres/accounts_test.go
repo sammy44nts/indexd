@@ -97,8 +97,8 @@ func TestAccounts(t *testing.T) {
 	} else if len(accs) != 2 {
 		t.Fatal("unexpected accounts", accs)
 	}
-	assertAccount(t, accs[0], pk4, 100)
-	assertAccount(t, accs[1], pk5, 100)
+	assertAccount(t, accs[0], pk4, math.MaxInt64)
+	assertAccount(t, accs[1], pk5, math.MaxInt64)
 
 	_, err = store.Accounts(0, 10, accounts.WithConnectKey("invalidkey"))
 	if !errors.Is(err, accounts.ErrKeyNotFound) {

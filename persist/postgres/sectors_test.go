@@ -933,15 +933,20 @@ func TestPinSlabsStorageLimit(t *testing.T) {
 		return slab.Digest(), slab
 	}
 
-	// these accounts will have the same MaxPinnedData as the connect key
-	// which is the size of 2 sectors
+	// register accounts then set per-account limit to 2 sectors
 	acc1 := proto.Account(types.GeneratePrivateKey().PublicKey())
 	if err := store.RegisterAppKey(connectKey, types.PublicKey(acc1), accounts.AppMeta{}); err != nil {
 		t.Fatal("failed to use app connect key:", err)
 	}
+	if err := store.UpdateMaxPinnedData(types.PublicKey(acc1), 2*proto.SectorSize); err != nil {
+		t.Fatal("failed to update max pinned data:", err)
+	}
 	acc2 := proto.Account(types.GeneratePrivateKey().PublicKey())
 	if err := store.RegisterAppKey(connectKey, types.PublicKey(acc2), accounts.AppMeta{}); err != nil {
 		t.Fatal("failed to use app connect key:", err)
+	}
+	if err := store.UpdateMaxPinnedData(types.PublicKey(acc2), 2*proto.SectorSize); err != nil {
+		t.Fatal("failed to update max pinned data:", err)
 	}
 	nextCheck := time.Now().Round(time.Microsecond).Add(time.Hour)
 

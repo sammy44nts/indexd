@@ -514,6 +514,31 @@ paths:
               })
               await admin.accountDelete("ed25519:your-public-key")
 
+  /account/{accountkey}/limit:
+    put:
+      tags:
+        - accounts
+      summary: Update account max pinned data
+      description: Update the maximum amount of data that can be pinned by an account.
+      operationId: updateAccountMaxPinnedData
+      parameters:
+        - name: accountkey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMaxPinnedDataRequest"
+      responses:
+        "200":
+          description: Max pinned data updated successfully
+        "404":
+          description: Account not found
+
   /alerts:
     get:
       tags:
