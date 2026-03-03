@@ -207,8 +207,8 @@ func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, ho
 		"GET /consensus/network": a.handleGETConsensusNetwork,
 
 		// accounts endpoints
-		"GET    /accounts":            a.handleGETAccounts,
-		"GET    /account/:accountkey": a.handleGETAccount,
+		"GET    /accounts":                  a.handleGETAccounts,
+		"GET    /account/:accountkey":       a.handleGETAccount,
 		"DELETE /account/:accountkey":       a.handleDELETEAccount,
 		"PUT    /account/:accountkey/limit": a.handlePUTAccountMaxPinnedData,
 
