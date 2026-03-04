@@ -141,9 +141,9 @@ func (c *Client) DeleteAccount(ctx context.Context, acc proto.Account) (err erro
 	return
 }
 
-// UpdateAccountMaxPinnedData updates the max pinned data limit for the given account.
-func (c *Client) UpdateAccountMaxPinnedData(ctx context.Context, ak types.PublicKey, maxPinnedData uint64) error {
-	return c.c.PATCH(ctx, fmt.Sprintf("/account/%s", ak), accounts.UpdateMaxPinnedDataRequest{MaxPinnedData: maxPinnedData}, nil)
+// UpdateAccount updates the max pinned data limit for the given account.
+func (c *Client) UpdateAccount(ctx context.Context, ak types.PublicKey, updates accounts.UpdateAccountRequest) error {
+	return c.c.PATCH(ctx, fmt.Sprintf("/account/%s", ak), updates, nil)
 }
 
 // Accounts returns all accounts registered in the indexer.

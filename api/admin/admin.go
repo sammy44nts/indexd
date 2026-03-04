@@ -100,7 +100,7 @@ type (
 		Account(ctx context.Context, ak types.PublicKey) (accounts.Account, error)
 		Accounts(ctx context.Context, offset, limit int, opts ...accounts.QueryAccountsOpt) ([]accounts.Account, error)
 		DeleteAccount(ctx context.Context, acc proto.Account) error
-		UpdateMaxPinnedData(ctx context.Context, ak types.PublicKey, maxPinnedData uint64) error
+		UpdateAccount(ctx context.Context, ak types.PublicKey, updates accounts.UpdateAccountRequest) error
 
 		AddAppConnectKey(context.Context, accounts.AppConnectKeyRequest) (accounts.ConnectKey, error)
 		UpdateAppConnectKey(context.Context, accounts.AppConnectKeyRequest) (accounts.ConnectKey, error)
@@ -614,11 +614,11 @@ func (a *admin) handlePATCHAccount(jc jape.Context) {
 	if jc.DecodeParam("accountkey", &ak) != nil {
 		return
 	}
-	var req accounts.UpdateMaxPinnedDataRequest
+	var req accounts.UpdateAccountRequest
 	if jc.Decode(&req) != nil {
 		return
 	}
-	err := a.accounts.UpdateMaxPinnedData(jc.Request.Context(), ak, req.MaxPinnedData)
+	err := a.accounts.UpdateAccount(jc.Request.Context(), ak, req)
 	if errors.Is(err, accounts.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return

@@ -62,7 +62,7 @@ type (
 		Accounts(offset, limit int, opts ...QueryAccountsOpt) ([]Account, error)
 		HasAccount(types.PublicKey) (bool, error)
 		DeleteAccount(acc proto.Account) error
-		UpdateMaxPinnedData(types.PublicKey, uint64) error
+		UpdateAccount(types.PublicKey, UpdateAccountRequest) error
 	}
 
 	// AccountManager manages accounts.
@@ -117,9 +117,9 @@ func (m *AccountManager) Accounts(ctx context.Context, offset, limit int, opts .
 	return m.store.Accounts(offset, limit, opts...)
 }
 
-// UpdateMaxPinnedData updates the max pinned data limit for the given account.
-func (m *AccountManager) UpdateMaxPinnedData(ctx context.Context, ak types.PublicKey, maxPinnedData uint64) error {
-	return m.store.UpdateMaxPinnedData(ak, maxPinnedData)
+// UpdateAccount updates the given account.
+func (m *AccountManager) UpdateAccount(ctx context.Context, ak types.PublicKey, updates UpdateAccountRequest) error {
+	return m.store.UpdateAccount(ak, updates)
 }
 
 // DeleteAccount soft deletes the account with the given public key.

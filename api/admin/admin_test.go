@@ -490,7 +490,9 @@ func TestUpdateAccountMaxPinnedData(t *testing.T) {
 
 	// update the limit
 	newLimit := uint64(2 * proto.SectorSize)
-	err = adminClient.UpdateAccountMaxPinnedData(context.Background(), appKey, newLimit)
+	err = adminClient.UpdateAccount(context.Background(), appKey, accounts.UpdateAccountRequest{
+		MaxPinnedData: &newLimit,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +507,9 @@ func TestUpdateAccountMaxPinnedData(t *testing.T) {
 
 	// verify 404 for non-existent account
 	nonExistent := types.GeneratePrivateKey().PublicKey()
-	err = adminClient.UpdateAccountMaxPinnedData(context.Background(), nonExistent, 1000)
+	err = adminClient.UpdateAccount(context.Background(), nonExistent, accounts.UpdateAccountRequest{
+		MaxPinnedData: new(uint64),
+	})
 	if err == nil || !strings.Contains(err.Error(), accounts.ErrNotFound.Error()) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}

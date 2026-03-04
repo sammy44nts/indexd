@@ -1025,7 +1025,7 @@ components:
           format: uint64
           description: Funding target in bytes per host used to calculate how much data equivalent funds to fund accounts with. 0 means no funding.
 
-    UpdateMaxPinnedDataRequest:
+    UpdateAccountRequest:
       type: object
       properties:
         maxPinnedData:

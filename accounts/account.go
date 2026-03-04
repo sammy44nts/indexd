@@ -83,10 +83,10 @@ type (
 		NextFund               time.Time
 	}
 
-	// UpdateMaxPinnedDataRequest is the request body for the
+	// UpdateAccountRequest is the request body for the
 	// [PUT] /account/:accountkey/limit endpoint.
-	UpdateMaxPinnedDataRequest struct {
-		MaxPinnedData uint64 `json:"maxPinnedData"`
+	UpdateAccountRequest struct {
+		MaxPinnedData *uint64 `json:"maxPinnedData"`
 	}
 
 	// QuotaFundInfo contains funding info for a quota including the number
