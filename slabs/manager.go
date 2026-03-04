@@ -363,6 +363,8 @@ func (m *SlabManager) performSlabMigrations(ctx context.Context) error {
 		// update the candidates for every batch
 		allHosts, goodContracts, err := m.migrationCandidates()
 		if err != nil {
+			close(slabCh)
+			wg.Wait()
 			return err
 		}
 
