@@ -61,7 +61,7 @@ func (cm *ContractManager) renewContract(ctx context.Context, contract Contract,
 
 		// allowance is doubled to allow for two account funding cycles before next refresh
 		allowance, collateral := contractFunding(settings, contract.Size, minAllowance.Mul64(2), duration)
-		renewCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		renewCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 
 		var res rhp.RPCRenewContractResult

@@ -31,7 +31,14 @@ func (m *SlabManager) DownloadShards(ctx context.Context, slab Slab, log *zap.Lo
 }
 
 func (m *SlabManager) MigrateSlabs(ctx context.Context, slabIDs []SlabID, log *zap.Logger) error {
-	return m.migrateSlabs(ctx, slabIDs, log)
+	allHosts, goodContracts, err := m.migrationCandidates()
+	if err != nil {
+		return err
+	}
+	for _, slabID := range slabIDs {
+		m.migrateSlab(ctx, slabID, allHosts, goodContracts, log.With(zap.Stringer("slab", slabID)))
+	}
+	return nil
 }
 
 func (m *SlabManager) PerformIntegrityChecksForHost(ctx context.Context, hostKey types.PublicKey, logger *zap.Logger) {

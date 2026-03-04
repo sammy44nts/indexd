@@ -14,6 +14,7 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/mux/v2"
 	"go.uber.org/zap"
 )
@@ -28,7 +29,12 @@ type slabDownload struct {
 // downloadShards downloads at least the minimum number of shards required to
 // recover the slab.
 func (m *SlabManager) downloadShards(ctx context.Context, slab Slab, log *zap.Logger) ([][]byte, error) {
-	ctx, cancel := context.WithCancel(ctx)
+	initialCtx, initialCancel := context.WithCancel(ctx)
+	overdriveCtx, overdriveCancel := context.WithCancelCause(ctx)
+	cancel := func() {
+		initialCancel()
+		overdriveCancel(client.ErrAbortedRPC)
+	}
 	defer cancel()
 
 	shards := make([][]byte, len(slab.Sectors))
@@ -114,7 +120,7 @@ initialLoop:
 		sector := slabHosts[hostKey]
 		log := log.With(zap.Stringer("hostKey", hostKey), zap.Stringer("sectorRoot", sector.root))
 		wg.Go(func() {
-			if err := downloadShard(ctx, hostKey, slabHosts[hostKey], log); err != nil {
+			if err := downloadShard(initialCtx, hostKey, slabHosts[hostKey], log); err != nil {
 				log.Debug("shard download failed", zap.Error(err))
 				// non-blocking send to indicate a failure
 				select {
@@ -146,9 +152,13 @@ raceLoop:
 			sector := slabHosts[hostKey]
 			log := log.With(zap.Stringer("hostKey", hostKey), zap.Stringer("sectorRoot", sector.root))
 			wg.Go(func() {
-				if err := downloadShard(ctx, hostKey, slabHosts[hostKey], log); err != nil {
+				if err := downloadShard(overdriveCtx, hostKey, slabHosts[hostKey], log); err != nil {
 					log.Debug("shard download failed", zap.Error(err))
-					failedCh <- struct{}{}
+					// non-blocking send to indicate a failure
+					select {
+					case failedCh <- struct{}{}:
+					default:
+					}
 				}
 			})
 		case <-ctx.Done():
@@ -173,4 +183,8 @@ func (m *SlabManager) downloadShard(ctx context.Context, hostKey types.PublicKey
 
 func isErrLostSector(err error) bool {
 	return err != nil && strings.Contains(err.Error(), proto.ErrSectorNotFound.Error())
+}
+
+func isErrNotEnoughFunds(err error) bool {
+	return err != nil && strings.Contains(err.Error(), proto.ErrNotEnoughFunds.Error())
 }

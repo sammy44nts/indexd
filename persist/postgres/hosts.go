@@ -129,7 +129,8 @@ WITH `+sqlGlobalsCTE+`, hosts AS (
 		settings_collateral, settings_storage_price, settings_ingress_price,
 		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until, settings_signature,
 		last_successful_scan IS NOT NULL as has_settings,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		stuck_since
 	FROM hosts
 	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
 	WHERE hosts.public_key = $1
@@ -191,7 +192,8 @@ WITH `+sqlGlobalsCTE+`, hosts AS (
 		settings_collateral, settings_storage_price, settings_ingress_price,
 		settings_egress_price, settings_free_sector_price, settings_tip_height, settings_valid_until, settings_signature,
 		last_successful_scan IS NOT NULL as has_settings,
-		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version
+		(get_byte(settings_protocol_version, 0) << 16) + (get_byte(settings_protocol_version, 1) << 8) + (get_byte(settings_protocol_version, 2)) as settings_version,
+		stuck_since
 	FROM hosts
 	LEFT JOIN hosts_blocklist hb ON hosts.public_key = hb.public_key
 ) SELECT
@@ -746,7 +748,7 @@ func decorateHostAddresses(ctx context.Context, tx *txn, hosts ...*dbHost) error
 func scanHost(s scanner) (dbHost, error) {
 	var host dbHost
 	var point pgtype.Point
-	var lastFailedScan, lastSuccessfulScan, validUntil sql.NullTime
+	var lastFailedScan, lastSuccessfulScan, stuckSince, validUntil sql.NullTime
 	var ignore any
 	if err := s.Scan(
 		&host.id,
@@ -784,6 +786,7 @@ func scanHost(s scanner) (dbHost, error) {
 		(*sqlSignature)(&host.Settings.Prices.Signature),
 		&ignore,
 		&ignore,
+		&stuckSince,
 		&host.Usability.Uptime,
 		&host.Usability.MaxContractDuration,
 		&host.Usability.MaxCollateral,
@@ -807,6 +810,9 @@ func scanHost(s scanner) (dbHost, error) {
 	}
 	if lastSuccessfulScan.Valid {
 		host.LastSuccessfulScan = lastSuccessfulScan.Time
+	}
+	if stuckSince.Valid {
+		host.StuckSince = stuckSince.Time
 	}
 	if validUntil.Valid {
 		host.Settings.Prices.ValidUntil = validUntil.Time

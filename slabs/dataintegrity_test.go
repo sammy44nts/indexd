@@ -2,6 +2,7 @@ package slabs_test
 
 import (
 	"context"
+	"errors"
 	"math"
 	"reflect"
 	"testing"
@@ -14,6 +15,13 @@ import (
 	"go.sia.tech/indexd/slabs"
 	"go.uber.org/zap"
 )
+
+// wrapRPCErr is a helper to wrap RPC errors in a way that they can be compared
+// by value but not with errors.Is. To simulate errors that are deserialized
+// over the RPC boundary.
+func wrapRPCErr(err error) error {
+	return errors.New(err.Error())
+}
 
 func TestPerformIntegrityChecksForHost(t *testing.T) {
 	oneSC := types.Siacoins(1)
@@ -96,8 +104,8 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 
 	// perform the checks once
 	resetBalance()
-	client.integrityErrors[roots[1]] = proto.ErrSectorNotFound // simulate lost sector
-	client.integrityErrors[roots[2]] = proto.ErrNotEnoughFunds // simulate bad sector
+	client.integrityErrors[roots[1]] = wrapRPCErr(proto.ErrSectorNotFound) // simulate lost sector
+	client.integrityErrors[roots[2]] = wrapRPCErr(proto.ErrNotEnoughFunds) // simulate bad sector
 	sm.PerformIntegrityChecksForHost(context.Background(), host.PublicKey, zap.NewNop())
 	assertLostAndFailed(roots[2:3], roots[1:2])
 

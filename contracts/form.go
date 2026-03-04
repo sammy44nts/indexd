@@ -147,7 +147,7 @@ func (cm *ContractManager) refreshContract(ctx context.Context, contract Contrac
 		if !host.IsGood() {
 			return errors.New("host is not good")
 		}
-		refreshCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 
 		if contract.ProofHeight <= host.Settings.Prices.TipHeight {

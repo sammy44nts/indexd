@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,6 +196,12 @@ func (c *Client) rpcFn(ctx context.Context, hostKey types.PublicKey, fn func(ctx
 	} else if shouldResetTransport(err) {
 		c.resetTransport(hostKey)
 	}
+
+	// decorate ErrClosedStream with the context error if it exists since
+	// ErrClosedStream is usually a consequence of context cancellation or timeout
+	if errors.Is(err, mux.ErrClosedStream) && context.Cause(ctx) != nil {
+		err = fmt.Errorf("%w: %w", err, context.Cause(ctx))
+	}
 	return err
 }
 
@@ -270,7 +277,7 @@ func (c *Client) WriteSector(ctx context.Context, accountKey types.PrivateKey, h
 		return err
 	})
 	if err != nil {
-		c.hosts.AddFailedRPC(hostKey)
+		c.hosts.AddFailedRPC(hostKey, err)
 	} else {
 		c.hosts.AddWriteSample(hostKey, time.Since(start))
 	}
@@ -296,8 +303,12 @@ func (c *Client) ReadSector(ctx context.Context, accountKey types.PrivateKey, ho
 		result, err = rhp.RPCReadSector(ctx, transport, prices, token, w, root, offset, length)
 		return err
 	})
-	if err != nil {
-		c.hosts.AddFailedRPC(hostKey)
+	if err != nil && strings.Contains(err.Error(), proto.ErrSectorNotFound.Error()) {
+		// a ErrSectorNotFound error is neither a failed RPC nor do we want to
+		// record its latency since no data was served
+		return
+	} else if err != nil {
+		c.hosts.AddFailedRPC(hostKey, err)
 	} else {
 		c.hosts.AddReadSample(hostKey, time.Since(start))
 	}

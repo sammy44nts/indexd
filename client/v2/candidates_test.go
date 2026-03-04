@@ -100,7 +100,7 @@ func TestProviderPriority(t *testing.T) {
 	}
 
 	// simulate a failed RPC
-	provider.AddFailedRPC(usable[0])
+	provider.AddFailedRPC(usable[0], nil)
 
 	// ensure the first host is now the worst candidate
 	sorted = provider.Prioritize(slices.Clone(usable))
@@ -111,8 +111,8 @@ func TestProviderPriority(t *testing.T) {
 	}
 
 	// simulate multiple failed RPCs to the second host
-	provider.AddFailedRPC(usable[1])
-	provider.AddFailedRPC(usable[1])
+	provider.AddFailedRPC(usable[1], nil)
+	provider.AddFailedRPC(usable[1], nil)
 
 	// ensure the second host is now the worst candidate
 	sorted = provider.Prioritize(slices.Clone(usable))

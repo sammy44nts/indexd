@@ -22,7 +22,9 @@ const (
 	minRemainingStorage = (10 * 1 << 30) / uint64(proto.SectorSize) // 10GB
 	maxContractSize     = 10 * 1 << 40                              // 10TB
 
-	fundTimeout = 2 * time.Minute
+	fundTimeout  = 2 * time.Minute
+	pinTimeout   = 2 * time.Minute
+	pruneTimeout = 2 * time.Minute
 
 	unpinnableSectorThreshold = 3 * 24 * time.Hour
 

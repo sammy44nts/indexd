@@ -94,15 +94,15 @@ func TestSectorVerifier(t *testing.T) {
 
 	// case 1: successfully verify a lost and a good sector, should debit the
 	// account balance
-	client.integrityErrors[roots[0]] = proto.ErrSectorNotFound // lost
-	client.integrityErrors[roots[1]] = nil                     // good
+	client.integrityErrors[roots[0]] = wrapRPCErr(proto.ErrSectorNotFound) // lost
+	client.integrityErrors[roots[1]] = nil                                 // good
 	assertResults(roots[:2], []slabs.CheckSectorsResult{slabs.SectorLost, slabs.SectorSuccess}, nil)
 	assertBalance(oneSC.Mul64(8))
 
 	// case 2: running out of funds unexpectedly (malicious host) should reset the balance but
 	// should continue to verify sectors
-	client.integrityErrors[roots[0]] = proto.ErrNotEnoughFunds // unexpected OOF
-	client.integrityErrors[roots[1]] = nil                     // good
+	client.integrityErrors[roots[0]] = wrapRPCErr(proto.ErrNotEnoughFunds) // unexpected OOF
+	client.integrityErrors[roots[1]] = nil                                 // good
 	assertResults(roots[:2], []slabs.CheckSectorsResult{slabs.SectorFailed, slabs.SectorSuccess}, nil)
 	assertBalance(types.ZeroCurrency)
 

@@ -43,9 +43,11 @@ loop:
 
 		wg.Add(1)
 		go func(ctx context.Context, hostKey types.PublicKey, hostLog *zap.Logger) {
+			ctx, cancel := context.WithTimeout(ctx, pinTimeout)
 			defer func() {
 				<-sema
 				wg.Done()
+				cancel()
 			}()
 
 			if err := cm.hosts.WithScannedHost(ctx, hostKey, func(host hosts.Host) error {

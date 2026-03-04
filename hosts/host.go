@@ -126,6 +126,7 @@ type (
 		UnpinnedSectors        uint64              `json:"unpinnedSectors"`
 		AccountFunding         types.Currency      `json:"accountFunding"`
 		TotalSpent             types.Currency      `json:"totalSpent"`
+		StuckSince             time.Time           `json:"stuckSince,omitempty"`
 	}
 
 	// HostInfo is a subset of the Host struct that contains only the public

@@ -131,7 +131,7 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 		// potentially lost sector
 		if err == nil {
 			results = append(results, SectorSuccess)
-		} else if errors.Is(err, proto.ErrSectorNotFound) {
+		} else if isErrLostSector(err) {
 			results = append(results, SectorLost)
 		} else {
 			log.Debug("failed to verify sector",
@@ -142,7 +142,7 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 		}
 
 		// if the host returned an insufficient balance error, reset the account
-		if errors.Is(err, proto.ErrNotEnoughFunds) {
+		if isErrNotEnoughFunds(err) {
 			resetOnce.Do(func() { v.ResetBalance(ctx, hostKey) })
 
 			// NOTE: when this happens we don't interrupt on purpose and

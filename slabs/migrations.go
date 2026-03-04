@@ -3,7 +3,6 @@ package slabs
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/klauspost/reedsolomon"
@@ -14,40 +13,31 @@ import (
 	"golang.org/x/crypto/chacha20"
 )
 
-func (m *SlabManager) migrateSlabs(ctx context.Context, slabIDs []SlabID, log *zap.Logger) error {
-	// return early if there are no slabs to migrate
-	if len(slabIDs) == 0 {
-		return nil
-	}
-
-	// fetch all available contracts
+// migrationCandidates fetches all available hosts and contracts that can be
+// used for slab migrations.
+func (m *SlabManager) migrationCandidates() ([]hosts.Host, []contracts.Contract, error) {
 	goodContracts, err := m.cm.ContractsForAppend()
 	if err != nil {
-		return fmt.Errorf("failed to fetch contracts: %w", err)
+		return nil, nil, fmt.Errorf("failed to fetch contracts: %w", err)
 	}
 
-	// fetch all available hosts with contracts
 	const batchSize = 500
 	var allHosts []hosts.Host
 	for offset := 0; ; offset += batchSize {
-		batch, err := m.store.Hosts(offset, batchSize, hosts.WithBlocked(false), hosts.WithActiveContracts(true))
+		batch, err := m.store.Hosts(offset, batchSize,
+			hosts.WithBlocked(false),
+			hosts.WithActiveContracts(true))
 		if err != nil {
-			return fmt.Errorf("failed to fetch hosts: %w", err)
+			return nil, nil, fmt.Errorf("failed to fetch hosts: %w", err)
 		}
+
 		allHosts = append(allHosts, batch...)
 		if len(batch) < batchSize {
 			break
 		}
 	}
 
-	var wg sync.WaitGroup
-	for _, slabID := range slabIDs {
-		wg.Go(func() {
-			m.migrateSlab(ctx, slabID, allHosts, goodContracts, log.With(zap.Stringer("slab", slabID)))
-		})
-	}
-	wg.Wait()
-	return nil
+	return allHosts, goodContracts, nil
 }
 
 func (m *SlabManager) migrateSlab(ctx context.Context, slabID SlabID, allHosts []hosts.Host, goodContracts []contracts.Contract, log *zap.Logger) {
@@ -209,8 +199,19 @@ func sectorsToMigrate(slab Slab, allHosts []hosts.Host, goodContracts []contract
 	}
 	var candidates []types.PublicKey
 	for _, host := range hostsMap {
-		// must have a good contract and be sufficiently far apart
-		if _, ok := hasGoodContract[host.PublicKey]; ok && set.Add(host) {
+		if _, ok := hasGoodContract[host.PublicKey]; !ok {
+			// must have a good contract
+			continue
+		} else if !host.StuckSince.IsZero() {
+			// can't migrate to stuck hosts
+			continue
+		} else if host.Settings.RemainingStorage == 0 {
+			// can't migrate to hosts without storage
+			continue
+		}
+
+		// must be sufficiently far apart
+		if set.Add(host) {
 			candidates = append(candidates, host.PublicKey)
 		}
 	}

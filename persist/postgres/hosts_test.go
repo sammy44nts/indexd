@@ -604,6 +604,56 @@ func TestHosts(t *testing.T) {
 	assertHosts([]types.PublicKey{hk2}, 1, 1, hosts.WithActiveContracts(true))
 	assertHosts([]types.PublicKey{hk3}, 1, 1, hosts.WithPublicKeys([]types.PublicKey{hk2, hk3, hk4}))
 
+	// mark hk1 and hk3 as stuck
+	if err := db.UpdateStuckHosts([]types.PublicKey{hk1, hk3}); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify StuckSince is populated on stuck hosts via Hosts()
+	allHosts, err := db.Hosts(0, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range allHosts {
+		switch h.PublicKey {
+		case hk1, hk3:
+			if h.StuckSince.IsZero() {
+				t.Fatalf("expected StuckSince to be set for host %v", h.PublicKey)
+			}
+		case hk2, hk4:
+			if !h.StuckSince.IsZero() {
+				t.Fatalf("expected StuckSince to be zero for host %v", h.PublicKey)
+			}
+		}
+	}
+
+	// verify StuckSince is populated via Host() single-host query
+	h1, err := db.Host(hk1)
+	if err != nil {
+		t.Fatal(err)
+	} else if h1.StuckSince.IsZero() {
+		t.Fatal("expected StuckSince to be set for hk1")
+	}
+	h2, err := db.Host(hk2)
+	if err != nil {
+		t.Fatal(err)
+	} else if !h2.StuckSince.IsZero() {
+		t.Fatal("expected StuckSince to be zero for hk2")
+	}
+
+	// clear stuck hosts
+	if err := db.UpdateStuckHosts(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify StuckSince is cleared
+	h1, err = db.Host(hk1)
+	if err != nil {
+		t.Fatal(err)
+	} else if !h1.StuckSince.IsZero() {
+		t.Fatal("expected StuckSince to be zero after clearing")
+	}
+
 	// helper to update hosts
 	updateHost := func(hk types.PublicKey, column string, value any) {
 		t.Helper()
