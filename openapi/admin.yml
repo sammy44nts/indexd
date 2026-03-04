@@ -2028,15 +2028,12 @@ components:
       $ref: "./components.yml#/components/schemas/Quota"
     PutQuotaRequest:
       $ref: "./components.yml#/components/schemas/PutQuotaRequest"
-<<<<<<< HEAD
     UpdateMaxPinnedDataRequest:
       $ref: "./components.yml#/components/schemas/UpdateMaxPinnedDataRequest"
-=======
     ConnectKeyQuotaStats:
       $ref: "./components.yml#/components/schemas/ConnectKeyQuotaStats"
     ConnectKeyStatsResponse:
       $ref: "./components.yml#/components/schemas/ConnectKeyStatsResponse"
->>>>>>> origin/master
     ContractsStatsResponse:
       $ref: "./components.yml#/components/schemas/ContractsStatsResponse"
     HostsStatsResponse:
