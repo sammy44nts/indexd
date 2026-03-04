@@ -103,7 +103,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 
 	// account funding loop
 	wg.Go(func() {
-		t := time.NewTimer(cm.maintenanceFrequency)
+		t := time.NewTicker(cm.maintenanceFrequency)
 		defer t.Stop()
 		for {
 			if !cm.waitUntilSynced(ctx, log) {
@@ -125,7 +125,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 
 	// contract maintenance loop
 	wg.Go(func() {
-		t := time.NewTimer(cm.maintenanceFrequency)
+		t := time.NewTicker(cm.maintenanceFrequency)
 		defer t.Stop()
 		for {
 			if !cm.waitUntilSynced(ctx, log) {
@@ -146,7 +146,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 
 	// remaining maintenance loop
 	wg.Go(func() {
-		t := time.NewTimer(cm.maintenanceFrequency)
+		t := time.NewTicker(cm.maintenanceFrequency)
 		defer t.Stop()
 		for {
 			if !cm.waitUntilSynced(ctx, log) {
