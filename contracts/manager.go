@@ -128,7 +128,6 @@ type (
 		PruneContractSectorsMap(maxBlocksSinceExpiry uint64) error
 		RejectPendingContracts(maxFormation time.Time) error
 		ScheduleAccountForFunding(hostKey types.PublicKey, account proto.Account) error
-		ScheduleContractsForPruning() error
 		UnpinnedSectors(hostKey types.PublicKey, limit int) ([]types.Hash256, error)
 		UpdateContractRevision(contract rhp.ContractRevision, usage proto.Usage) error
 		UpdateNextPrune(contractID types.FileContractID, nextPrune time.Time) error
@@ -256,6 +255,14 @@ func WithMaxAccountFundingBackoff(backoff time.Duration) ContractManagerOpt {
 func WithMinHostDistance(km float64) ContractManagerOpt {
 	return func(cm *ContractManager) {
 		cm.minHostDistanceKm = km
+	}
+}
+
+// WithPruneIntervalSuccess sets the interval for retrying contract pruning
+// after a successful prune. The default is 24 hours.
+func WithPruneIntervalSuccess(interval time.Duration) ContractManagerOpt {
+	return func(cm *ContractManager) {
+		cm.pruneIntervalSuccess = interval
 	}
 }
 

@@ -142,7 +142,7 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 	store.setRevisionFilesize(t, fcid4, proto.SectorSize*uint64(len(h5Mock.sectorRoots[fcid4])))
 
 	// schedule contracts for pruning
-	store.scheduleContractsForPruningHelper(t)
+	store.scheduleContractsForPruning(t)
 
 	// prepare contract manager
 	rev := contracts.NewRevisionManager(mock, cmMock, store, 1, zaptest.NewLogger(t))
@@ -296,7 +296,7 @@ func TestPruneContractBatchBoundary(t *testing.T) {
 
 	store.setContractSize(t, fcid, proto.SectorSize*7)
 	store.setRevisionFilesize(t, fcid, proto.SectorSize*7)
-	store.scheduleContractsForPruningHelper(t)
+	store.scheduleContractsForPruning(t)
 
 	// use batch size 3 so the contract spans multiple batches; after
 	// FreeSectors removes sectors in the first batch, subsequent batches must

@@ -162,7 +162,7 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			}
 
 			pruningLog := log.Named("pruning")
-			logError(cm.performContractPruning(ctx, false, pruningLog), pruningLog)
+			logError(cm.performContractPruning(ctx, pruningLog), pruningLog)
 			pinningLog := log.Named("pinning")
 			logError(cm.performSectorPinning(ctx, pinningLog), pinningLog)
 

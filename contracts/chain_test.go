@@ -406,8 +406,8 @@ func (ts testStore) hostAccounts(t testing.TB) (result []accounts.HostAccount) {
 	return
 }
 
-// scheduleContractsForPruningHelper marks all contracts as ready for pruning (test helper).
-func (ts testStore) scheduleContractsForPruningHelper(t testing.TB) {
+// scheduleContractsForPruning marks all contracts as ready for pruning.
+func (ts testStore) scheduleContractsForPruning(t testing.TB) {
 	t.Helper()
 
 	// set next_prune to past so ContractsForPruning (next_prune < NOW()) returns them

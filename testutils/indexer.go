@@ -91,6 +91,7 @@ func defaultIndexerCfg(log *zap.Logger) *indexerCfg {
 			contracts.WithSyncPollInterval(500 * time.Millisecond),
 			contracts.WithSectorRootsBatchSize(5),     // small batch size for testing
 			contracts.WithMaxAccountFundingBackoff(0), // retry immediately
+			contracts.WithPruneIntervalSuccess(500 * time.Millisecond),
 		},
 		slabOpts: []slabs.Option{
 			slabs.WithLogger(log.Named("slabs")),
