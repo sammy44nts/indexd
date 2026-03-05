@@ -157,14 +157,6 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-cm.triggerPruningChan:
-				log.Debug("triggering contract pruning")
-				if err := cm.performContractPruning(ctx, true, log); err != nil {
-					log.Error("contract pruning failed", zap.Error(err))
-				}
-				continue
-			case <-cm.triggerMaintenanceChan:
-				log.Debug("triggering maintenance")
 			case <-t.C:
 				log.Debug("starting scheduled maintenance")
 			}

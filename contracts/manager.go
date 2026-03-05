@@ -207,9 +207,7 @@ type (
 		rev       *RevisionManager
 		renterKey types.PublicKey
 
-		triggerFundingChan     chan bool
-		triggerMaintenanceChan chan struct{}
-		triggerPruningChan     chan struct{}
+		triggerFundingChan chan bool
 
 		log *zap.Logger
 		tg  *threadgroup.ThreadGroup
@@ -367,32 +365,6 @@ func (cm *ContractManager) TriggerAccountFunding(force bool) error {
 	return nil
 }
 
-// TriggerContractPruning triggers contract pruning for all active contracts
-// that are marked good.
-func (cm *ContractManager) TriggerContractPruning() error {
-	ctx, cancel, err := cm.tg.AddContext(context.Background())
-	if err != nil {
-		return err
-	}
-	go func() {
-		defer cancel()
-
-		select {
-		case <-ctx.Done():
-		case cm.triggerPruningChan <- struct{}{}:
-		}
-	}()
-	return nil
-}
-
-// TriggerMaintenance triggers the maintenance loop to run immediately.
-func (cm *ContractManager) TriggerMaintenance() {
-	select {
-	case cm.triggerMaintenanceChan <- struct{}{}:
-	default:
-	}
-}
-
 // Contract retrieves a contract by its ID.
 func (cm *ContractManager) Contract(ctx context.Context, id types.FileContractID) (Contract, error) {
 	return cm.store.Contract(id)
@@ -488,9 +460,7 @@ func newContractManager(renterKey types.PublicKey, accounts AccountManager, acco
 
 		renterKey: renterKey,
 
-		triggerFundingChan:     make(chan bool, 1),
-		triggerMaintenanceChan: make(chan struct{}, 1),
-		triggerPruningChan:     make(chan struct{}, 1),
+		triggerFundingChan: make(chan bool, 1),
 
 		log: zap.NewNop(),
 		tg:  threadgroup.New(),

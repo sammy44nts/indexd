@@ -71,7 +71,6 @@ func TestWalletMaintenance(t *testing.T) {
 	if err := sub.Sync(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	contracts.TriggerMaintenance()
 	time.Sleep(time.Second) // wait for maintenance to run
 
 	events, err := w.UnconfirmedEvents()
@@ -94,8 +93,7 @@ func TestWalletMaintenance(t *testing.T) {
 		t.Fatalf("expected 100 UTXOs, got %d", len(utxos))
 	}
 
-	// trigger maintenance again and ensure no new split is created
-	contracts.TriggerMaintenance()
+	// wait for maintenance and ensure no new split is created
 	time.Sleep(time.Second)
 
 	events, err = w.UnconfirmedEvents()

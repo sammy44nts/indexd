@@ -173,12 +173,11 @@ func TestContractPruning(t *testing.T) {
 	time.Sleep(time.Second)
 	assertRoots()
 
-	// unpin the 3rd slab and trigger pruning
+	// unpin the 3rd slab
 	if err := indexer.App.UnpinSlab(t.Context(), sk, slabIDs[2]); err != nil {
 		t.Fatal(err)
-	} else if err = indexer.Contracts().TriggerContractPruning(); err != nil {
-		t.Fatal(err)
 	}
+	time.Sleep(time.Second)
 
 	// remove the 3rd slab's roots from the expected roots (swap and pop)
 	for hk := range expectedRoots {
