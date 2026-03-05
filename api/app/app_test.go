@@ -26,6 +26,7 @@ import (
 	"go.sia.tech/indexd/subscriber"
 	"go.sia.tech/indexd/testutils"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -142,7 +143,7 @@ func uploadRandomSlab(t testing.TB, client *client.Client, sk types.PrivateKey, 
 func TestApplicationAPI(t *testing.T) {
 	ctx := t.Context()
 	// create cluster with three hosts
-	logger := zap.NewNop()
+	logger := zaptest.NewLogger(t)
 	cluster := testutils.NewCluster(t, testutils.WithHosts(10), testutils.WithLogger(logger))
 	indexer := cluster.Indexer
 	adminClient := indexer.Admin
