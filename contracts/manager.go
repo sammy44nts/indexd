@@ -470,7 +470,7 @@ func (cm *ContractManager) Close() error {
 	return nil
 }
 
-func newContractManager(renterKey types.PublicKey, accounts AccountManager, accountFunder AccountFunder, chain ChainManager, store Store, client HostClient, signer rhp.FormContractSigner, rev *RevisionManager, hosts HostManager, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
+func newContractManager(renterKey types.PublicKey, accounts AccountManager, accountFunder AccountFunder, chain ChainManager, store Store, client HostClient, signer rhp.FormContractSigner, rev *RevisionManager, cl *ContractLocker, hosts HostManager, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) *ContractManager {
 	cm := &ContractManager{
 		accounts:      accounts,
 		accountFunder: accountFunder,
@@ -482,7 +482,7 @@ func newContractManager(renterKey types.PublicKey, accounts AccountManager, acco
 		store:  store,
 
 		client: client,
-		cl:     NewContractLocker(),
+		cl:     cl,
 		signer: signer,
 		rev:    rev,
 
@@ -516,8 +516,8 @@ func newContractManager(renterKey types.PublicKey, accounts AccountManager, acco
 // NewManager creates a new contract manager. It is responsible for forming and
 // renewing contracts as well as any interactions with hosts that require
 // contracts.
-func NewManager(renterKey types.PrivateKey, accountManager AccountManager, accountFunder AccountFunder, chainManager ChainManager, store Store, client HostClient, signer rhp.FormContractSigner, rev *RevisionManager, hm HostManager, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
-	cm := newContractManager(renterKey.PublicKey(), accountManager, accountFunder, chainManager, store, client, signer, rev, hm, syncer, wallet, opts...)
+func NewManager(renterKey types.PrivateKey, accountManager AccountManager, accountFunder AccountFunder, chainManager ChainManager, store Store, client HostClient, signer rhp.FormContractSigner, rev *RevisionManager, cl *ContractLocker, hm HostManager, syncer Syncer, wallet Wallet, opts ...ContractManagerOpt) (*ContractManager, error) {
+	cm := newContractManager(renterKey.PublicKey(), accountManager, accountFunder, chainManager, store, client, signer, rev, cl, hm, syncer, wallet, opts...)
 
 	ctx, cancel, err := cm.tg.AddContext(context.Background())
 	if err != nil {

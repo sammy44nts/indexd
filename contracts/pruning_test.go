@@ -146,7 +146,7 @@ func TestPerformContractPruningOnHost(t *testing.T) {
 
 	// prepare contract manager
 	rev := contracts.NewRevisionManager(mock, cmMock, store, 1, zaptest.NewLogger(t))
-	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, cmMock, store, mock, nil, rev, hmMock, nil, nil)
+	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, cmMock, store, mock, nil, rev, contracts.NewContractLocker(), hmMock, nil, nil)
 
 	// prune contracts on h1
 	err := cm.PerformContractPruningOnHost(context.Background(), h1, zap.NewNop())
@@ -303,7 +303,7 @@ func TestPruneContractBatchBoundary(t *testing.T) {
 	// account for the reduced sector count to avoid requesting out-of-bounds
 	// ranges from the host
 	rev := contracts.NewRevisionManager(mock, cmMock, store, 1, zaptest.NewLogger(t))
-	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, cmMock, store, mock, nil, rev, hmMock, nil, nil, contracts.WithSectorRootsBatchSize(3))
+	cm := contracts.NewTestContractManager(types.PublicKey{}, nil, nil, cmMock, store, mock, nil, rev, contracts.NewContractLocker(), hmMock, nil, nil, contracts.WithSectorRootsBatchSize(3))
 
 	err := cm.PerformContractPruningOnHost(context.Background(), h, zap.NewNop())
 	if err != nil {

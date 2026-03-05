@@ -144,7 +144,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	rev := contracts.NewRevisionManager(client, cm, store, contracts.DefaultRevisionSubmissionBuffer, log.Named("revision"))
 	cl := contracts.NewContractLocker()
 	f := contracts.NewFunder(client, cl, rev, signer, cm, log.Named("funder"))
-	contracts, err := contracts.NewManager(walletKey, am, f, cm, store, client, signer, rev, hm, s, wm, contracts.WithLogger(log.Named("contracts")))
+	contracts, err := contracts.NewManager(walletKey, am, f, cm, store, client, signer, rev, cl, hm, s, wm, contracts.WithLogger(log.Named("contracts")))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}

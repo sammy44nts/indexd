@@ -137,6 +137,10 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			case <-t.C:
 				log.Debug("starting scheduled contract maintenance")
 			}
+			walletLog := log.Named("wallet")
+			if err := cm.performWalletMaintenance(ctx, walletLog); err != nil {
+				log.Debug("maintenance failed", zap.Error(err)) // wallet maintenance is best-effort
+			}
 			maintenanceLog := log.Named("contracts")
 			logError(cm.performContractMaintenance(ctx, maintenanceLog), maintenanceLog)
 		}
@@ -165,13 +169,6 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 				log.Debug("starting scheduled maintenance")
 			}
 
-			// this is done first so that fragmenting the wallet can be prioritized before
-			// being used for other maintenance tasks
-			walletLog := log.Named("wallet")
-			if err := cm.performWalletMaintenance(ctx, walletLog); err != nil {
-				log.Debug("maintenance failed", zap.Error(err)) // wallet maintenance is best-effort
-			}
-
 			pruningLog := log.Named("pruning")
 			logError(cm.performContractPruning(ctx, false, pruningLog), pruningLog)
 			pinningLog := log.Named("pinning")
@@ -180,7 +177,6 @@ func (cm *ContractManager) maintenanceLoop(ctx context.Context) {
 			unpinnableLog := log.Named("unpinnable")
 			threshold := time.Now().Add(-unpinnableSectorThreshold)
 			logError(cm.store.MarkSectorsUnpinnable(threshold), unpinnableLog)
-			t.Reset(cm.maintenanceFrequency)
 			log.Debug("maintenance complete")
 		}
 	})
