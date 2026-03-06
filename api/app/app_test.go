@@ -186,8 +186,9 @@ func TestApplicationAPI(t *testing.T) {
 		}
 	}
 
-	// allow time for account funding to complete
-	time.Sleep(time.Second)
+	// wait for account funding to complete
+	cluster.WaitForFunding(t, sk.PublicKey())
+	cluster.WaitForFunding(t, sk2.PublicKey())
 
 	// pin the slab
 	slabIDs, err := client.PinSlabs(context.Background(), sk, uploadRandomSlab(t, hc, sk, hosts))

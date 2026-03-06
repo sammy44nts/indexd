@@ -189,6 +189,28 @@ func (c *Cluster) NewHosts(t testing.TB, n int) []*Host {
 	return hosts
 }
 
+// WaitForFunding waits until the given account has been funded on all hosts in
+// the cluster.
+func (c *Cluster) WaitForFunding(t *testing.T, accountKey types.PublicKey) {
+	t.Helper()
+
+	for {
+		var funded int
+		err := c.Indexer.Store().QueryRow(t.Context(), `
+			SELECT COUNT(*)
+			FROM account_hosts ah
+			INNER JOIN accounts a ON a.id = ah.account_id
+			WHERE a.public_key = $1`, accountKey[:]).Scan(&funded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if funded >= len(c.Hosts) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // WaitForContracts waits until a contract is formed with every host in the cluster
 func (c *Cluster) WaitForContracts(t *testing.T) {
 	t.Helper()
