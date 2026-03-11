@@ -83,12 +83,12 @@ func (s *Store) Account(ak types.PublicKey) (accounts.Account, error) {
 		account, err = scanAccount(tx.QueryRow(ctx, `SELECT a.public_key, ak.app_key, a.max_pinned_data, a.pinned_data, COALESCE(ahr.ready_hosts, 0) >= $2, a.app_id, a.description, a.logo_url, a.service_url, a.last_used
 FROM accounts a
 INNER JOIN app_connect_keys ak ON ak.id = a.connect_key_id
-LEFT JOIN (
-	SELECT account_id, COUNT(*) AS ready_hosts
-	FROM account_hosts
-	WHERE consecutive_failed_funds = 0
-	GROUP BY account_id
-) ahr ON ahr.account_id = a.id
+LEFT JOIN LATERAL (
+	SELECT COUNT(*) AS ready_hosts
+	FROM account_hosts ah
+	WHERE ah.account_id = a.id
+	  AND ah.consecutive_failed_funds = 0
+) ahr ON TRUE
 WHERE public_key = $1`, sqlPublicKey(ak), accounts.ReadyHostThreshold))
 		return err
 	})
