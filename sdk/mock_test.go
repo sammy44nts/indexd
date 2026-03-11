@@ -13,6 +13,7 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/hosts"
@@ -162,6 +163,11 @@ type mockAppClient struct {
 	mu      sync.Mutex
 	pinned  map[slabs.SlabID]slabs.PinnedSlab
 	objects map[types.Hash256]slabs.SealedObject
+}
+
+// Account implements the [AppClient] interface.
+func (mc *mockAppClient) Account(ctx context.Context, appKey types.PrivateKey) (resp accounts.Account, err error) {
+	return accounts.Account{}, nil
 }
 
 // PinSlab implements the [AppClient] interface.

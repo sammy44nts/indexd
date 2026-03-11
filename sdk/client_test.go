@@ -246,6 +246,15 @@ func TestE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	acc, err := client.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	} else if types.PublicKey(acc.AccountKey) != privateKey.PublicKey() {
+		t.Fatal("account app key mismatch")
+	} else if acc.PinnedData != 0 {
+		t.Fatalf("unexpected pinned data %d", acc.PinnedData)
+	}
+
 	data := frand.Bytes(4096)
 	obj := NewEmptyObject()
 	err = client.Upload(t.Context(), &obj, bytes.NewReader(data), WithRedundancy(2, 8))
@@ -266,6 +275,13 @@ func TestE2E(t *testing.T) {
 		t.Log(data[:64])
 		t.Log(buf.Bytes()[:64])
 		t.Fatal("data mismatch")
+	}
+
+	acc, err = client.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	} else if acc.PinnedData == 0 {
+		t.Fatalf("unexpected pinned data %d", acc.PinnedData)
 	}
 }
 
