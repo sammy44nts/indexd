@@ -246,6 +246,15 @@ func TestE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	acc, err := client.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	} else if types.PublicKey(acc.AccountKey) != privateKey.PublicKey() {
+		t.Fatal("account app key mismatch")
+	} else if acc.PinnedData != 0 {
+		t.Fatalf("unexpected pinned data %d", acc.PinnedData)
+	}
+
 	assertShareable := func(obj Object, data []byte) {
 		t.Helper()
 
@@ -306,6 +315,13 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("failed to finalize packed upload: %v", err)
 	} else if len(objects) != 2 {
 		t.Fatalf("expected 2 objects, got %d", len(objects))
+	}
+
+	acc, err = client.Account(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	} else if acc.PinnedData == 0 {
+		t.Fatalf("unexpected pinned data %d", acc.PinnedData)
 	}
 
 	assertShareable(objects[0], data1)

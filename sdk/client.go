@@ -15,6 +15,7 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/api"
 	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/hosts"
@@ -36,6 +37,8 @@ type (
 
 	// An appClient is an interface for the application API of the indexer.
 	appClient interface {
+		Account(ctx context.Context, appKey types.PrivateKey) (resp accounts.Account, err error)
+
 		Hosts(context.Context, types.PrivateKey, ...api.URLQueryParameterOption) ([]hosts.HostInfo, error)
 
 		CreateSharedObjectURL(ctx context.Context, appKey types.PrivateKey, objectID types.Hash256, encryptionKey []byte, validUntil time.Time) (string, error)
@@ -211,6 +214,11 @@ func (s *SDK) downloadSlab(ctx context.Context, slab slabs.SlabSlice, maxInfligh
 // the indexer.
 func (s *SDK) AppKey() types.PrivateKey {
 	return s.appKey
+}
+
+// Account retrieves account information for the current app key.
+func (s *SDK) Account(ctx context.Context) (accounts.Account, error) {
+	return s.client.Account(ctx, s.appKey)
 }
 
 // PruneSlabs removes all slabs on the account that are not associated with
