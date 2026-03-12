@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/keys"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
@@ -126,7 +127,7 @@ func (b *Builder) SDK(appKey types.PrivateKey, opts ...Option) (*SDK, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host store: %w", err)
 	}
-	return initSDK(appKey, b.client, client.New(client.NewProvider(hostStore)), opts...), nil
+	return initSDK(appKey, b.client, client.New(client.NewProvider(hostStore), zap.NewNop()), opts...), nil
 }
 
 func deriveAppKey(mnemonic string, appID types.Hash256, sharedSecret types.Hash256) (types.PrivateKey, error) {

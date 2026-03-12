@@ -20,6 +20,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/mux/v2"
+	"go.uber.org/zap"
 )
 
 type transport struct {
@@ -149,7 +150,9 @@ top:
 
 // A Client is used to interact with Sia hosts over RHP4.
 type Client struct {
-	tg    *threadgroup.ThreadGroup
+	log *zap.Logger
+	tg  *threadgroup.ThreadGroup
+
 	hosts *Provider
 
 	mu           sync.Mutex // protects the fields below
@@ -194,7 +197,7 @@ func (c *Client) rpcFn(ctx context.Context, hostKey types.PublicKey, fn func(ctx
 	err = fn(ctx, transport)
 	if err == nil {
 		return nil
-	} else if shouldResetTransport(err) {
+	} else if c.shouldResetTransport(err) {
 		c.resetTransport(hostKey)
 	}
 
@@ -346,7 +349,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func shouldResetTransport(err error) bool {
+func (c *Client) shouldResetTransport(err error) bool {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return false
@@ -365,13 +368,18 @@ func shouldResetTransport(err error) bool {
 		// transport.
 		return false
 	default:
-		return proto.ErrorCode(err) == proto.ErrorCodeTransport
+		if proto.ErrorCode(err) == proto.ErrorCodeTransport {
+			c.log.Debug("resetting transport due to transport related error", zap.Error(err))
+			return true
+		}
+		return false
 	}
 }
 
 // New creates a new Client.
-func New(hosts *Provider) *Client {
+func New(hosts *Provider, log *zap.Logger) *Client {
 	return &Client{
+		log:          log.Named("client"),
 		tg:           threadgroup.New(),
 		hosts:        hosts,
 		cachedPrices: make(map[types.PublicKey]proto.HostPrices),
