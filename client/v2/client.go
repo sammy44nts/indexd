@@ -359,9 +359,9 @@ func shouldResetTransport(err error) bool {
 		// os.ErrDeadlineExceeded indicates that the stream hit a timeout which was set
 		// using SetDeadline. In this case, the mux is still healthy.
 		return false
-	case errors.As(err, new(*quicgo.ApplicationError)):
-		// application errors in quic indicate that the stream was closed but
-		// the connection is still healthy, so we should not reset the
+	case errors.As(err, new(*quicgo.StreamError)):
+		// A quic.StreamError indicates that a stream was closed but the
+		// underlying connection is still healthy, so we should not reset the
 		// transport.
 		return false
 	default:
