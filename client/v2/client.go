@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	quicgo "github.com/quic-go/quic-go"
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -197,9 +198,9 @@ func (c *Client) rpcFn(ctx context.Context, hostKey types.PublicKey, fn func(ctx
 		c.resetTransport(hostKey)
 	}
 
-	// decorate ErrClosedStream with the context error if it exists since
-	// ErrClosedStream is usually a consequence of context cancellation or timeout
-	if errors.Is(err, mux.ErrClosedStream) && context.Cause(ctx) != nil {
+	// if the RPC failed and the context was cancelled or timed out, wrap the
+	// error to preserve the context cancellation as the root cause
+	if err != nil && context.Cause(ctx) != nil {
 		err = fmt.Errorf("%w: %w", err, context.Cause(ctx))
 	}
 	return err
@@ -357,6 +358,11 @@ func shouldResetTransport(err error) bool {
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		// os.ErrDeadlineExceeded indicates that the stream hit a timeout which was set
 		// using SetDeadline. In this case, the mux is still healthy.
+		return false
+	case errors.As(err, new(*quicgo.ApplicationError)):
+		// application errors in quic indicate that the stream was closed but
+		// the connection is still healthy, so we should not reset the
+		// transport.
 		return false
 	default:
 		return proto.ErrorCode(err) == proto.ErrorCodeTransport
