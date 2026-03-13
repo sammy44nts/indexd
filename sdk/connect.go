@@ -127,7 +127,18 @@ func (b *Builder) SDK(appKey types.PrivateKey, opts ...Option) (*SDK, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host store: %w", err)
 	}
-	return initSDK(appKey, b.client, client.New(client.NewProvider(hostStore), zap.NewNop()), opts...), nil
+
+	sdk := &SDK{
+		appKey: appKey,
+
+		log:    zap.NewNop(),
+		client: b.client,
+	}
+	for _, opt := range opts {
+		opt(sdk)
+	}
+	sdk.hosts = client.New(client.NewProvider(hostStore), sdk.log)
+	return sdk, nil
 }
 
 func deriveAppKey(mnemonic string, appID types.Hash256, sharedSecret types.Hash256) (types.PrivateKey, error) {
