@@ -94,9 +94,8 @@ func (t *transport) dial(ctx context.Context, hostKey types.PublicKey, addresses
 	var dialCtx, dialCancel = context.WithCancel(ctx)
 	defer dialCancel()
 
-	connectErrs := make([]error, len(addresses))
-
 	dialProtocol := func(proto chain.Protocol) (rhp.TransportClient, error) {
+		connectErrs := make([]error, len(addresses))
 		var attempts int
 	top:
 		for i, addr := range addresses {
