@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -75,5 +77,53 @@ func TestSealedObjectRoundtrip(t *testing.T) {
 	obj2.updatedAt = obj.updatedAt
 	if !reflect.DeepEqual(obj, obj2) {
 		t.Fatalf("object mismatch: expected %+v, got %+v", obj, obj2)
+	}
+}
+
+func TestObjectEquivalency(t *testing.T) {
+	sk := types.GeneratePrivateKey()
+	obj := Object{
+		dataKey: frand.Bytes(32),
+		slabs: func() []slabs.SlabSlice {
+			ss := make([]slabs.SlabSlice, 30)
+			for i := range ss {
+				ss[i] = slabs.SlabSlice{
+					EncryptionKey: frand.Entropy256(),
+					MinShards:     10,
+					Sectors: func() []slabs.PinnedSector {
+						sectors := make([]slabs.PinnedSector, 30)
+						for j := range sectors {
+							sectors[j] = slabs.PinnedSector{
+								Root:    frand.Entropy256(),
+								HostKey: frand.Entropy256(),
+							}
+						}
+						return sectors
+					}(),
+					Offset: uint32(frand.Uint64n(math.MaxUint32)),
+					Length: uint32(frand.Uint64n(math.MaxUint32)),
+				}
+			}
+			return ss
+		}(),
+		metadata: json.RawMessage([]byte("{\"hello\": \"world\"}")),
+	}
+	objectID := obj.ID()
+	so := obj.Seal(sk)
+	if so.ID() != objectID {
+		t.Fatalf("unexpected ID: got %v, want %v", so.ID(), objectID)
+	} else if err := so.VerifySignatures(sk.PublicKey()); err != nil {
+		t.Fatalf("unexpected error verifying signatures: %v", err)
+	}
+
+	pr := so.PinRequest()
+	if pr.ID() != objectID {
+		t.Fatalf("unexpected ID: got %v, want %v", pr.ID(), objectID)
+	} else if pr.DataSigHash() != so.DataSigHash() {
+		t.Fatalf("unexpected data sig hash: got %v, want %v", pr.DataSigHash(), so.DataSigHash())
+	} else if pr.MetaSigHash() != so.MetaSigHash() {
+		t.Fatalf("unexpected metadata sig hash: got %v, want %v", pr.MetaSigHash(), so.MetaSigHash())
+	} else if err := pr.VerifySignatures(sk.PublicKey()); err != nil {
+		t.Fatalf("unexpected error verifying signatures: %v", err)
 	}
 }

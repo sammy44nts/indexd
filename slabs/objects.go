@@ -78,7 +78,88 @@ type (
 		After time.Time
 		Key   types.Hash256
 	}
+
+	// ObjectSlab represents a slab that should be associated with an object. It should already be pinned to the indexer.
+	ObjectSlab struct {
+		ID     SlabID `json:"id"`
+		Offset uint32 `json:"offset"`
+		Length uint32 `json:"length"`
+	}
+
+	// A PinObjectRequest is the minimal fields for pinning an object to the indexer. It should be created using [SealedObject.PinRequest].
+	PinObjectRequest struct {
+		EncryptedDataKey []byte       `json:"encryptedDataKey"`
+		Slabs            []ObjectSlab `json:"slabs"`
+		// DataSignature is a signature of the blake2b(object ID, encrypted_data_key)
+		// to attest that the object data has not been tampered with. This attestation
+		// is separate from the metadata attestation to allow for validating the
+		// encryption key when sharing the object which does not include the metadata.
+		DataSignature types.Signature `json:"dataSignature"`
+
+		EncryptedMetadataKey []byte `json:"encryptedMetadataKey,omitempty"`
+		EncryptedMetadata    []byte `json:"encryptedMetadata,omitempty"`
+		// MetadataSignature is a signature of the blake2b(object ID, metadata
+		// key, and encrypted_metadata) to attest that the object has not been
+		// tampered with.
+		MetadataSignature types.Signature `json:"metadataSignature"`
+	}
 )
+
+// ID returns the object's ID, which is a hash of its slabs. The
+// object ID is used to identify the object and retrieve it from
+// the indexer.
+func (pr *PinObjectRequest) ID() types.Hash256 {
+	h := types.NewHasher()
+	for _, slab := range pr.Slabs {
+		slab.ID.EncodeTo(h.E)
+		h.E.WriteUint64(uint64(slab.Offset)<<32 | uint64(slab.Length))
+	}
+	return h.Sum()
+}
+
+// DataSigHash returns the hash used for signing/verifying the data signature.
+// It covers the slabs through the object ID and the encrypted data key.
+func (pr *PinObjectRequest) DataSigHash() types.Hash256 {
+	h := types.NewHasher()
+	pr.ID().EncodeTo(h.E)
+	h.E.Write(pr.EncryptedDataKey)
+	return h.Sum()
+}
+
+// MetaSigHash returns the hash used for signing/verifying the metadata
+// signature. It covers the slabs through the object ID, the encrypted metadata
+// key, and the encrypted metadata.
+func (pr *PinObjectRequest) MetaSigHash() types.Hash256 {
+	h := types.NewHasher()
+	pr.ID().EncodeTo(h.E)
+	h.E.Write(pr.EncryptedMetadataKey)
+	h.E.Write(pr.EncryptedMetadata)
+	return h.Sum()
+}
+
+// VerifyDataSignature verifies the object's data signature using the given
+// public key.
+func (pr *PinObjectRequest) VerifyDataSignature(pk types.PublicKey) error {
+	if !pk.VerifyHash(pr.DataSigHash(), pr.DataSignature) {
+		return fmt.Errorf("%w: invalid data signature", ErrInvalidObjectSignature)
+	}
+	return nil
+}
+
+// VerifyMetadataSignature verifies the object's metadata signature using the
+// given public key.
+func (pr *PinObjectRequest) VerifyMetadataSignature(pk types.PublicKey) error {
+	if !pk.VerifyHash(pr.MetaSigHash(), pr.MetadataSignature) {
+		return fmt.Errorf("%w: invalid metadata signature", ErrInvalidObjectSignature)
+	}
+	return nil
+}
+
+// VerifySignatures verifies both the data and metadata signatures using the
+// given public key.
+func (pr *PinObjectRequest) VerifySignatures(pk types.PublicKey) error {
+	return errors.Join(pr.VerifyDataSignature(pk), pr.VerifyMetadataSignature(pk))
+}
 
 // Size returns the total size of the object in bytes.
 func (o *SharedObject) Size() uint64 {
@@ -110,6 +191,26 @@ var (
 // ID returns the object's ID, which is a hash of its slabs.
 func (so *SealedObject) ID() types.Hash256 {
 	return ObjectID(so.Slabs)
+}
+
+// PinRequest converts the SealedObject to a PinObjectRequest.
+func (so *SealedObject) PinRequest() PinObjectRequest {
+	os := make([]ObjectSlab, len(so.Slabs))
+	for i, slab := range so.Slabs {
+		os[i] = ObjectSlab{
+			ID:     slab.Digest(),
+			Offset: slab.Offset,
+			Length: slab.Length,
+		}
+	}
+	return PinObjectRequest{
+		EncryptedDataKey:     so.EncryptedDataKey,
+		Slabs:                os,
+		DataSignature:        so.DataSignature,
+		EncryptedMetadataKey: so.EncryptedMetadataKey,
+		EncryptedMetadata:    so.EncryptedMetadata,
+		MetadataSignature:    so.MetadataSignature,
+	}
 }
 
 // Sign signs the object's data and metadata signatures using the given private
@@ -186,7 +287,7 @@ func (m *SlabManager) DeleteObject(ctx context.Context, account proto.Account, o
 
 // SaveObject saves the given object for the given account. If an object with
 // the given key exists for an account, it is overwritten.
-func (m *SlabManager) SaveObject(ctx context.Context, account proto.Account, obj SealedObject) error {
+func (m *SlabManager) SaveObject(ctx context.Context, account proto.Account, obj PinObjectRequest) error {
 	if len(obj.Slabs) == 0 {
 		return ErrObjectMinimumSlabs
 	} else if len(obj.EncryptedMetadata) > metadataLimit {

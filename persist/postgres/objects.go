@@ -282,7 +282,7 @@ func (s *Store) DeleteObject(account proto.Account, objectKey types.Hash256) err
 
 // SaveObject saves the given object for the given account. If an object with
 // the given key exists for an account, it is overwritten.
-func (s *Store) SaveObject(account proto.Account, obj slabs.SealedObject) error {
+func (s *Store) SaveObject(account proto.Account, obj slabs.PinObjectRequest) error {
 	return s.transaction(func(ctx context.Context, tx *txn) error {
 		accountID, deleted, err := accountID(ctx, tx, account)
 		if err != nil {
@@ -321,7 +321,7 @@ func (s *Store) SaveObject(account proto.Account, obj slabs.SealedObject) error 
 
 		slabIDs := make([]slabs.SlabID, 0, len(obj.Slabs))
 		for _, slab := range obj.Slabs {
-			slabIDs = append(slabIDs, slab.Digest())
+			slabIDs = append(slabIDs, slab.ID)
 		}
 
 		// check that this account has pinned these slabs

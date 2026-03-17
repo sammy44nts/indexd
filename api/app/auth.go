@@ -16,9 +16,8 @@ import (
 )
 
 // maxRequestSize determines the maximum size of an incoming
-// HTTP request body. 1MB is quite generous. A Slab with the
-// maximum 255 sectors is < 50KiB
-const maxRequestSize = 1 << 20 // 1 MB
+// HTTP request body.
+const maxRequestSize = 10 << 20 // 10 MB
 
 type authedHandler func(jape.Context, types.PublicKey)
 
