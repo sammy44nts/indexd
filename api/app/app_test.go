@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -816,5 +817,20 @@ func TestSharedObjects(t *testing.T) {
 	_, _, err = appClient.SharedObject(ctx, shareURL)
 	if err == nil {
 		t.Fatal("expected error when creating shared URL with past expiry")
+	}
+}
+
+func TestMaxRequestSize(t *testing.T) {
+	// create cluster with three hosts
+	logger := zap.NewNop()
+	cluster := testutils.NewCluster(t, testutils.WithHosts(14), testutils.WithLogger(logger))
+	indexer := cluster.Indexer
+
+	// create client
+	resp, err := http.Post(fmt.Sprintf("%s/objects", indexer.AppURL), "application/json", io.LimitReader(frand.Reader, (1<<20)+1))
+	if err != nil {
+		t.Fatal("failed to send request:", err)
+	} else if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, resp.StatusCode)
 	}
 }

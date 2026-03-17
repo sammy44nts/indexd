@@ -452,7 +452,7 @@ func (a *app) handleDELETESlab(jc jape.Context, pk types.PublicKey) {
 func (a *app) handleAuthRequest(jc jape.Context) {
 	// the request is required to be signed with an ephemeral key to provide authentication
 	// for future steps.
-	ephemeralKey, ok := validateURLSignature(jc, a.hostname)
+	ephemeralKey, ok := ValidateURLSignature(jc.Request, jc.ResponseWriter, a.hostname)
 	if !ok {
 		return
 	}
@@ -612,7 +612,7 @@ func (a *app) handleGETAuthConnectStatus(jc jape.Context) {
 	if !ok || time.Now().After(authReq.Expiration) {
 		jc.Error(fmt.Errorf("request invalid or expired"), http.StatusNotFound)
 		return
-	} else if signerKey, ok := validateURLSignature(jc, a.hostname); !ok {
+	} else if signerKey, ok := ValidateURLSignature(jc.Request, jc.ResponseWriter, a.hostname); !ok {
 		return
 	} else if authReq.EphemeralKey != signerKey {
 		jc.Error(fmt.Errorf("invalid request signature"), http.StatusUnauthorized)
@@ -649,7 +649,7 @@ func (a *app) handleAuthRegister(jc jape.Context) {
 	}
 
 	// check whether the request is signed with the ephemeral key
-	ephemeralKey, ok := validateURLSignature(jc, a.hostname)
+	ephemeralKey, ok := ValidateURLSignature(jc.Request, jc.ResponseWriter, a.hostname)
 	if !ok {
 		return
 	} else if authReq.EphemeralKey != ephemeralKey {

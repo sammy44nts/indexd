@@ -27,14 +27,6 @@ var (
 	// because of an unexpected issue.
 	ErrInternalError = errors.New("internal error")
 
-	// ErrSignatureExpired is returned when a signed URL can not be
-	// authenticated because the valid until timestamp is in the past.
-	ErrSignatureExpired = errors.New("signature expired")
-
-	// ErrSignatureInvalid is returned when a signed URL can not be
-	// authenticated because the signature was invalid.
-	ErrSignatureInvalid = errors.New("invalid signature")
-
 	// ErrUnknownAccount is returned when a signed URL can not be authenticated
 	// because the account does not exist in the account store.
 	ErrUnknownAccount = errors.New("unknown account")
@@ -47,59 +39,56 @@ const (
 )
 
 // ValidateURLSignature extracts the signed public key from the request
-// and verifies the signature and expiration.
+// and verifies the signature and expiration. The caller must check the boolean
+// return value before proceeding with the request. The response header is written
+// if the signature is invalid, expired, or the request is malformed. The request
+// body is limited to 1 MiB
 //
 // NOTE: This function does not check if the account exists, it only validates
 // the signature and expiration. If you need to check for account existence, use
 // validateSignedURLAuth instead.
-func ValidateURLSignature(req *http.Request, hostname string) (types.PublicKey, error) {
-	defer req.Body.Close()
-
-	buf, err := io.ReadAll(io.LimitReader(req.Body, maxRequestSize))
-	if err != nil {
-		return types.PublicKey{}, fmt.Errorf("failed to read request body: %w", err)
+func ValidateURLSignature(r *http.Request, w http.ResponseWriter, hostname string) (types.PublicKey, bool) {
+	body := http.MaxBytesReader(w, r.Body, maxRequestSize)
+	buf, err := io.ReadAll(body)
+	body.Close()
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return types.PublicKey{}, false
+	} else if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return types.PublicKey{}, false
 	}
-	req.Body = io.NopCloser(bytes.NewReader(buf))
+	r.Body = io.NopCloser(bytes.NewReader(buf))
 
 	// validate presence of required parameters
-	if !isSignedRequest(req) {
-		return types.PublicKey{}, fmt.Errorf("missing required query parameters: %q, %q, %q", queryParamCredential, queryParamSignature, queryParamValidUntil)
+	if !isSignedRequest(r) {
+		http.Error(w, fmt.Sprintf("missing required query parameters: %q, %q, %q", queryParamCredential, queryParamSignature, queryParamValidUntil), http.StatusBadRequest)
+		return types.PublicKey{}, false
 	}
 
 	// extract query string parameters
-	ts, err := parseValidUntil(req)
+	ts, err := parseValidUntil(r)
 	if err != nil {
-		return types.PublicKey{}, err
+		http.Error(w, fmt.Sprintf("invalid %q parameter: %v", queryParamValidUntil, err), http.StatusBadRequest)
+		return types.PublicKey{}, false
 	}
-	pk, err := parseCredential(req)
+	pk, err := parseCredential(r)
 	if err != nil {
-		return types.PublicKey{}, err
+		http.Error(w, fmt.Sprintf("invalid %q parameter: %v", queryParamCredential, err), http.StatusBadRequest)
+		return types.PublicKey{}, false
 	}
-	sig, err := parseSignature(req)
+	sig, err := parseSignature(r)
 	if err != nil {
-		return types.PublicKey{}, err
+		http.Error(w, fmt.Sprintf("invalid %q parameter: %v", queryParamSignature, err), http.StatusBadRequest)
+		return types.PublicKey{}, false
 	}
 
 	// check for expiration and verify the signature
-	if ts.Before(time.Now().UTC()) {
-		return types.PublicKey{}, ErrSignatureExpired
-	} else if !pk.VerifyHash(requestHash(req.Method, hostname, req.URL.Path, ts, buf), sig) {
-		return types.PublicKey{}, fmt.Errorf("failed to authenticate for %q host %q: %w", req.Method, filepath.Join(hostname, req.URL.Path), ErrSignatureInvalid)
-	}
-	return pk, nil
-}
-
-// validateURLSignature extracts the signed public key from the request and
-// verifies the signature and expiration. If successful, it returns the public
-// key and true, otherwise it writes an error to the context and returns an
-// empty public key and false.
-func validateURLSignature(jc jape.Context, hostname string) (types.PublicKey, bool) {
-	acc, err := ValidateURLSignature(jc.Request, hostname)
-	if err != nil {
-		jc.Error(err, http.StatusUnauthorized)
+	if ts.Before(time.Now().UTC()) || !pk.VerifyHash(requestHash(r.Method, hostname, r.URL.Path, ts, buf), sig) {
+		http.Error(w, fmt.Sprintf("invalid signature for %q host %q", r.Method, filepath.Join(hostname, r.URL.Path)), http.StatusUnauthorized)
 		return types.PublicKey{}, false
 	}
-	return acc, true
+	return pk, true
 }
 
 // validateSignedURLAuth validates a signed URL by checking its required query
@@ -109,7 +98,7 @@ func validateURLSignature(jc jape.Context, hostname string) (types.PublicKey, bo
 func validateSignedURLAuth(jc jape.Context, hostname string, store Accounts) (types.PublicKey, bool) {
 	req := jc.Request
 
-	pk, ok := validateURLSignature(jc, hostname)
+	pk, ok := ValidateURLSignature(jc.Request, jc.ResponseWriter, hostname)
 	if !ok {
 		return types.PublicKey{}, false
 	}
