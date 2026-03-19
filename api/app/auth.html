@@ -324,12 +324,13 @@
       passwordInput.addEventListener("input", () => setPasswordError(""));
 
       async function respondToRequest(approve) {
+        const headers = { "Content-Type": "application/json" };
+        if (approve) {
+          headers["Authorization"] = `Basic ${btoa(":" + passwordInput.value)}`;
+        }
         const response = await fetch(window.location.href, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Basic ${btoa(":" + passwordInput.value)}`,
-          },
+          headers,
           body: JSON.stringify({ approve }),
         });
         if (response.status !== 204) {

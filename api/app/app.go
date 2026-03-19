@@ -560,18 +560,26 @@ func (a *app) handlePOSTAuthConnect(jc jape.Context) {
 		return
 	}
 
+	if !approveReq.Approve {
+		// user rejected the request, no password needed
+		a.mu.Lock()
+		delete(a.authRequests, requestID)
+		a.mu.Unlock()
+		jc.Encode(nil)
+		return
+	}
+
 	_, connectKey, ok := jc.Request.BasicAuth()
 	if !ok || connectKey == "" {
 		jc.Error(fmt.Errorf("missing basic auth password"), http.StatusBadRequest)
 		return
 	}
 
-	if !approveReq.Approve {
-		// user rejected the request
-		a.mu.Lock()
-		delete(a.authRequests, requestID)
-		a.mu.Unlock()
-		jc.Encode(nil)
+	if err := a.accounts.ValidAppConnectKey(jc.Request.Context(), connectKey); errors.Is(err, accounts.ErrKeyNotFound) {
+		jc.Error(errors.New("invalid app connect key"), http.StatusUnauthorized)
+		return
+	} else if err != nil {
+		jc.Error(ErrInternalError, http.StatusInternalServerError)
 		return
 	}
 
@@ -763,26 +771,6 @@ func NewAPI(advertiseURL string, store Store, am Accounts, contracts Contracts, 
 		}
 	}
 
-	wrapBasicAuth := func(h jape.Handler) jape.Handler {
-		return func(jc jape.Context) {
-			_, password, ok := jc.Request.BasicAuth()
-			if !ok {
-				jc.Error(errors.New("missing basic auth credentials"), http.StatusUnauthorized)
-				return
-			}
-
-			if err := am.ValidAppConnectKey(jc.Request.Context(), password); errors.Is(err, accounts.ErrKeyNotFound) {
-				jc.Error(errors.New("invalid app connect key"), http.StatusUnauthorized)
-				return
-			} else if err != nil {
-				jc.Error(ErrInternalError, http.StatusInternalServerError)
-				return
-			}
-
-			h(jc)
-		}
-	}
-
 	return maxBytesMiddleware(corsMux(map[string]jape.Handler{
 		"GET /account": wrapSignedAuth(a.handleGETAccount),
 
@@ -816,7 +804,7 @@ func NewAPI(advertiseURL string, store Store, am Accounts, contracts Contracts, 
 	}, map[string]jape.Handler{
 		// CORS is disabled on these routes because we don't want to encourage programmatic access. It can't be
 		// blocked entirely, but it's less convenient without CORS support.
-		"GET /auth/connect/:requestID":  a.handleGETAuthConnectUI,               // UI for accept/reject connection requests
-		"POST /auth/connect/:requestID": wrapBasicAuth(a.handlePOSTAuthConnect), // API for accept/reject connection requests
+		"GET /auth/connect/:requestID":  a.handleGETAuthConnectUI, // UI for accept/reject connection requests
+		"POST /auth/connect/:requestID": a.handlePOSTAuthConnect,  // API for accept/reject connection requests
 	})), nil
 }
