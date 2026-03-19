@@ -584,7 +584,7 @@ paths:
     post:
       tags:
         - auth
-      summary: Approve or reject an application connection request.  Requires HTTP Basic authentication.
+      summary: Approve or reject an application connection request.  Approving requires HTTP Basic authentication.
       operationId: approveAppRequest
       parameters:
         - name: requestID

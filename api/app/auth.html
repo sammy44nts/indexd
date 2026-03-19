@@ -393,8 +393,7 @@
             await respondToRequest(false);
             renderResult(false);
           } catch (err) {
-            setPasswordError("invalid password");
-            passwordInput.focus();
+            setPasswordError("failed to reject request");
           }
         });
     </script>

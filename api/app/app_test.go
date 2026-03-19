@@ -44,7 +44,9 @@ func respondToAppConnection(t *testing.T, responseURL string, connectKey string,
 	if err != nil {
 		t.Fatal("failed to create request:", err)
 	}
-	req.SetBasicAuth("", connectKey)
+	if approve {
+		req.SetBasicAuth("", connectKey)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
