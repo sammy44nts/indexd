@@ -571,7 +571,7 @@ func (a *app) handlePOSTAuthConnect(jc jape.Context) {
 
 	_, connectKey, ok := jc.Request.BasicAuth()
 	if !ok || connectKey == "" {
-		jc.Error(fmt.Errorf("missing basic auth password"), http.StatusBadRequest)
+		jc.Error(fmt.Errorf("missing basic auth password"), http.StatusUnauthorized)
 		return
 	}
 
