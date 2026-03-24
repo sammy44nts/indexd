@@ -103,16 +103,10 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 	var results []CheckSectorsResult
 	var resetOnce sync.Once
 	for _, root := range roots {
-		select {
-		case <-verifyCtx.Done():
-			return results, context.Cause(verifyCtx)
-		default:
-		}
-
 		prices, err := v.hosts.Prices(verifyCtx, hostKey)
 		if err != nil {
 			if verifyCtx.Err() != nil {
-				return results, context.Cause(verifyCtx)
+				return results, verifyCtx.Err() // interrupted
 			}
 			log.Debug("failed to fetch host prices", zap.Error(err))
 			return results, errHostUnreachable
