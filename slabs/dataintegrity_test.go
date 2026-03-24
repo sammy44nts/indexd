@@ -45,7 +45,10 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	acc := proto.Account(sk.PublicKey())
 
 	// prepare slab manager
-	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
+	sm, err := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// prepare helper to reset balance to 3SC to avoid running out of funds
 	resetBalance := func() {
@@ -131,10 +134,79 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	}
 }
 
+func TestIntegrityChecksVerifyTimeout(t *testing.T) {
+	oneSC := types.Siacoins(1)
+
+	// prepare host
+	client := newMockHostClient()
+	hostKey := types.GeneratePrivateKey()
+	host := client.addTestHost(hostKey)
+
+	// prepare managers
+	store := newMockStore(t)
+	chain := newMockChainManager()
+	am := newMockAccountManager()
+	cm := newMockContractManager()
+	hm := newMockHostManager()
+	host.Usability = hosts.GoodUsability
+	hm.hosts[host.PublicKey] = host
+
+	// prepare account
+	sk := types.GeneratePrivateKey()
+	acc := proto.Account(sk.PublicKey())
+
+	// prepare slab manager with a short verify timeout
+	sm, err := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm.SetVerifySectorsTimeout(200 * time.Millisecond)
+
+	// prepare sectors
+	roots := make([]types.Hash256, 3)
+	for i := range roots {
+		root, err := client.WriteSector(t.Context(), types.GeneratePrivateKey(), host.PublicKey, []byte{byte(i + 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots[i] = root.Root
+	}
+	store.setSectorsForCheck(t, host.PublicKey, roots)
+
+	// fund the account
+	if err := am.UpdateServiceAccountBalance(t.Context(), hostKey.PublicKey(), acc, oneSC.Mul64(10)); err != nil {
+		t.Fatal(err)
+	}
+
+	// make the host slow — 2s per sector, much longer than the 200ms timeout
+	client.setSlowHost(host.PublicKey, 2*time.Second)
+
+	// perform integrity checks — should be interrupted by the timeout
+	start := time.Now()
+	sm.PerformIntegrityChecksForHost(t.Context(), host.PublicKey, zap.NewNop())
+	elapsed := time.Since(start)
+
+	// should have returned much faster than 6s (3 sectors × 2s)
+	if elapsed > time.Second {
+		t.Fatalf("expected fast return due to timeout, took %v", elapsed)
+	}
+
+	// sectors shouldn't have been recorded as failed
+	failedChecks := store.failedChecks(t, host.PublicKey)
+	for root, n := range failedChecks {
+		if n > 0 {
+			t.Fatalf("sector %v was incorrectly marked as failed due to timeout", root)
+		}
+	}
+}
+
 func TestIntegrityChecksAlert(t *testing.T) {
 	store := newMockStore(t)
 	alerter := alerts.NewManager()
-	sm := slabs.NewSlabManager(newMockChainManager(), newMockAccountManager(), nil, nil, store, nil, alerter, types.GeneratePrivateKey(), types.GeneratePrivateKey())
+	sm, err := slabs.NewSlabManager(newMockChainManager(), newMockAccountManager(), nil, nil, store, nil, alerter, types.GeneratePrivateKey(), types.GeneratePrivateKey())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// assert there are no alerts
 	if alerts, err := alerter.Alerts(0, math.MaxInt64); err != nil {
@@ -146,7 +218,7 @@ func TestIntegrityChecksAlert(t *testing.T) {
 	// mock a lost sector
 	hk := types.PublicKey{1}
 	store.AddTestHost(t, hosts.Host{PublicKey: hk})
-	_, err := store.Exec(context.Background(), "UPDATE hosts SET lost_sectors = 1 WHERE public_key = $1", hk[:])
+	_, err = store.Exec(context.Background(), "UPDATE hosts SET lost_sectors = 1 WHERE public_key = $1", hk[:])
 	if err != nil {
 		t.Fatal(err)
 	}

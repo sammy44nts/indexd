@@ -90,7 +90,10 @@ func TestMigrateSlab(t *testing.T) {
 	msk := types.GeneratePrivateKey()
 	ssk := types.GeneratePrivateKey()
 	alerter := alerts.NewManager()
-	mgr := slabs.NewSlabManager(chain, am, contractsMgr, hm, db, client, alerter, msk, ssk, slabs.WithLogger(log.Named("slabs")), slabs.WithMinHostDistance(0))
+	mgr, err := slabs.NewSlabManager(chain, am, contractsMgr, hm, db, client, alerter, msk, ssk, slabs.WithLogger(log.Named("slabs")), slabs.WithMinHostDistance(0))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, h := range hostsList {
 		if err := am.UpdateServiceAccountBalance(context.Background(), h.PublicKey, mgr.MigrationAccount(), types.Siacoins(10)); err != nil {

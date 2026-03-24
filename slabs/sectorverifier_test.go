@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -46,7 +47,10 @@ func TestSectorVerifier(t *testing.T) {
 	}
 
 	// prepare verifier
-	verifier := slabs.NewSectorVerifier(am, client, sk, log)
+	verifier, err := slabs.NewSectorVerifier(am, client, sk, 500*time.Millisecond, log)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// prepare helper to assert account balance
 	assertBalance := func(want types.Currency) {
@@ -84,7 +88,7 @@ func TestSectorVerifier(t *testing.T) {
 	}
 
 	// assert [errInsufficientServiceAccountBalance] is returned
-	_, err := verifier.VerifySectors(context.Background(), hostKey.PublicKey(), roots[:1])
+	_, err = verifier.VerifySectors(context.Background(), hostKey.PublicKey(), roots[:1])
 	if !errors.Is(err, slabs.ErrInsufficientServiceAccountBalance) {
 		t.Fatal("unexpected err", err)
 	}
@@ -124,4 +128,26 @@ func TestSectorVerifier(t *testing.T) {
 	client.integrityErrors[roots[0]] = nil                 // good sector
 	client.integrityErrors[roots[1]] = mux.ErrClosedStream // verification interrupted
 	assertResults(roots[:2], []slabs.CheckSectorsResult{slabs.SectorSuccess}, mux.ErrClosedStream)
+
+	// case 6: interruption via deadline exceeded on second sector
+	updateBalance(types.Siacoins(10))
+	client.integrityErrors[roots[0]] = nil                      // good sector
+	client.integrityErrors[roots[1]] = context.DeadlineExceeded // deadline fires during ReadSector
+	assertResults(roots[:2], []slabs.CheckSectorsResult{slabs.SectorSuccess}, context.DeadlineExceeded)
+
+	// case 7: interruption via deadline exceeded on first sector
+	updateBalance(types.Siacoins(10))
+	client.integrityErrors[roots[0]] = context.DeadlineExceeded // deadline fires immediately
+	assertResults(roots[:1], nil, context.DeadlineExceeded)
+
+	// case 8: verify timeout fires on a slow host
+	updateBalance(types.Siacoins(10))
+	client.integrityErrors = make(map[types.Hash256]error)
+	client.slowHosts[hostKey.PublicKey()] = 2 * time.Second
+	assertResults(roots[:1], nil, context.DeadlineExceeded)
+
+	// case 9: fast host completes within verify timeout
+	updateBalance(types.Siacoins(10))
+	client.setSlowHost(hostKey.PublicKey(), 0)
+	assertResults(roots, []slabs.CheckSectorsResult{slabs.SectorSuccess, slabs.SectorSuccess, slabs.SectorSuccess}, nil)
 }

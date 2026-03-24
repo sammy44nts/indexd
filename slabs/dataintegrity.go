@@ -28,9 +28,7 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 		// perform integrity checks
 		results := make([]CheckSectorsResult, 0, len(toCheck))
 		for len(results) < len(toCheck) {
-			usableCtx, usableCancel := context.WithTimeout(ctx, time.Minute)
-			usable, err := m.hm.Usable(usableCtx, hostKey)
-			usableCancel()
+			usable, err := m.hm.Usable(ctx, hostKey)
 			if err != nil {
 				logger.Error("failed to check if host is usable", zap.Error(err))
 				return
@@ -41,7 +39,8 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 			}
 
 			batch, err := m.verifier.VerifySectors(ctx, hostKey, toCheck[len(results):])
-			if errors.Is(err, context.Canceled) || errors.Is(err, mux.ErrClosedStream) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
+			results = append(results, batch...)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, mux.ErrClosedStream) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
 				logger.Debug("integrity checks got interrupted", zap.Error(err))
 				if errors.Is(err, errInsufficientServiceAccountBalance) {
 					if err := m.cm.TriggerAccountRefill(ctx, hostKey, m.verifier.account()); err != nil {
@@ -55,7 +54,6 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 				logger.Error("failed to check sectors", zap.Error(err))
 				return
 			}
-			results = append(results, batch...)
 		}
 		if len(results) == 0 {
 			return

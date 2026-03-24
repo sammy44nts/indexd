@@ -34,8 +34,10 @@ type (
 		migrationAccount    proto.Account
 		migrationAccountKey types.PrivateKey
 
-		numMigrationGoroutines int
-		shardTimeout           time.Duration
+		numIntegrityCheckGoroutines int
+		numMigrationGoroutines      int
+		shardTimeout                time.Duration
+		verifyTimeout               time.Duration
 
 		alerter AlertsManager
 		chain   ChainManager
@@ -147,6 +149,20 @@ func WithIntegrityCheckIntervals(success, failure time.Duration) Option {
 	}
 }
 
+// WithNumIntegrityCheckGoroutines sets the number of hosts to check in
+// parallel during integrity checks. This directly impacts the number of
+// concurrent ReadSector RPCs performed when verifying sector integrity.
+//
+// The default is runtime.NumCPU().
+func WithNumIntegrityCheckGoroutines(n int) Option {
+	return func(m *SlabManager) {
+		if n <= 0 {
+			panic("integrity check goroutines must be positive") // developer error
+		}
+		m.numIntegrityCheckGoroutines = n
+	}
+}
+
 // WithNumMigrationGoroutines sets the number of slabs to migrate in parallel.
 // This directly impacts the number of concurrent downloads/uploads the contract
 // manager will perform when repairing slabs and the number of slabs held in
@@ -171,6 +187,14 @@ func WithMinHostDistance(km float64) Option {
 	}
 }
 
+// WithVerifyTimeout sets the maximum time allowed for verifying all sectors
+// on a single host. The default is 3 minutes.
+func WithVerifyTimeout(d time.Duration) Option {
+	return func(m *SlabManager) {
+		m.verifyTimeout = d
+	}
+}
+
 // WithLogger sets the logger for the SlabManager.
 func WithLogger(l *zap.Logger) Option {
 	return func(m *SlabManager) {
@@ -180,7 +204,10 @@ func WithLogger(l *zap.Logger) Option {
 
 // NewManager creates a new slab manager.
 func NewManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	sm := newSlabManager(chain, am, cm, hm, store, hosts, alerter, migrationAccount, integrityAccount, opts...)
+	sm, err := newSlabManager(chain, am, cm, hm, store, hosts, alerter, migrationAccount, integrityAccount, opts...)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel, err := sm.tg.AddContext(context.Background())
 	if err != nil {
 		return nil, err
@@ -194,7 +221,7 @@ func NewManager(chain ChainManager, am AccountManager, cm ContractManager, hm Ho
 	return sm, nil
 }
 
-func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) *SlabManager {
+func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
 	m := &SlabManager{
 		healthCheckInterval: 10 * time.Minute,
 
@@ -206,8 +233,10 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 		migrationAccount:    proto.Account(migrationAccount.PublicKey()),
 		migrationAccountKey: migrationAccount,
 
-		shardTimeout:           2 * time.Minute,
-		numMigrationGoroutines: runtime.NumCPU(),
+		shardTimeout:                2 * time.Minute,
+		verifyTimeout:               3 * time.Minute,
+		numIntegrityCheckGoroutines: runtime.NumCPU(),
+		numMigrationGoroutines:      runtime.NumCPU(),
 
 		chain:   chain,
 		am:      am,
@@ -222,10 +251,14 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 	for _, opt := range opts {
 		opt(m)
 	}
-	m.verifier = NewSectorVerifier(am, hosts, integrityAccount, m.log)
+	var err error
+	m.verifier, err = NewSectorVerifier(am, hosts, integrityAccount, m.verifyTimeout, m.log)
+	if err != nil {
+		return nil, err
+	}
 
 	m.initServiceAccounts(migrationAccount.PublicKey(), integrityAccount.PublicKey())
-	return m
+	return m, nil
 }
 
 // Close closes the manager.
@@ -295,35 +328,43 @@ func (m *SlabManager) performIntegrityChecks(ctx context.Context) error {
 	logger := m.log.Named("integrity")
 	logger.Debug("starting integrity checks", zap.Time("start", start))
 
+	// start a worker pool that pulls hosts from a channel
+	hostCh := make(chan types.PublicKey, m.numIntegrityCheckGoroutines)
+	var wg sync.WaitGroup
+	for range m.numIntegrityCheckGoroutines {
+		wg.Go(func() {
+			for hostKey := range hostCh {
+				m.performIntegrityChecksForHost(ctx, hostKey, logger)
+			}
+		})
+	}
+
+	// fetch hosts and feed them to the workers
+	const batchSize = 100
 	for {
-		usedHosts, err := m.store.HostsForIntegrityChecks(start, 100)
+		batch, err := m.store.HostsForIntegrityChecks(start, batchSize)
 		if err != nil {
-			return fmt.Errorf("failed to fetch hosts to block: %w", err)
-		} else if len(usedHosts) == 0 {
+			close(hostCh)
+			wg.Wait()
+			return fmt.Errorf("failed to fetch hosts: %w", err)
+		}
+
+		for _, host := range batch {
+			select {
+			case hostCh <- host:
+			case <-ctx.Done():
+				close(hostCh)
+				wg.Wait()
+				return nil
+			}
+		}
+		if len(batch) < batchSize {
 			break
 		}
-
-		sem := make(chan struct{}, 50)
-		var wg sync.WaitGroup
-		for _, host := range usedHosts {
-			select {
-			case <-m.tg.Done():
-				return nil
-			default:
-			}
-
-			sem <- struct{}{}
-			wg.Add(1)
-			go func(hostKey types.PublicKey) {
-				defer func() {
-					<-sem
-					wg.Done()
-				}()
-				m.performIntegrityChecksForHost(ctx, hostKey, logger)
-			}(host)
-		}
-		wg.Wait()
 	}
+
+	close(hostCh)
+	wg.Wait()
 	m.registerLostSectorsAlert()
 
 	logger.Debug("finished integrity checks", zap.Duration("elapsed", time.Since(start)))

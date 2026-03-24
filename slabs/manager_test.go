@@ -390,7 +390,18 @@ func (m *mockHostClient) addTestHost(sk types.PrivateKey) hosts.Host {
 }
 
 // Prices is a mock implementation that returns the preset host settings.
-func (m *mockHostClient) Prices(_ context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+func (m *mockHostClient) Prices(ctx context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+	m.mu.Lock()
+	delay := m.slowHosts[hostKey]
+	m.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return proto.HostPrices{}, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	prices := m.hostSettings[hostKey].Prices
@@ -477,6 +488,16 @@ func (m *mockHostClient) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	}
 
 	return filtered
+}
+
+func (m *mockHostClient) setSlowHost(hostKey types.PublicKey, delay time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if delay == 0 {
+		delete(m.slowHosts, hostKey)
+	} else {
+		m.slowHosts[hostKey] = delay
+	}
 }
 
 func newMockHostClient() *mockHostClient {

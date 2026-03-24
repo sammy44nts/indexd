@@ -66,7 +66,10 @@ func TestDownloadShards(t *testing.T) {
 	}
 
 	account := types.GeneratePrivateKey()
-	sm := slabs.NewSlabManager(chain, am, nil, hm, store, client, alerts.NewManager(), account, types.GeneratePrivateKey(), slabs.WithLogger(log.Named("slabs")))
+	sm, err := slabs.NewSlabManager(chain, am, nil, hm, store, client, alerts.NewManager(), account, types.GeneratePrivateKey(), slabs.WithLogger(log.Named("slabs")))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// assert that not enough usable hosts results in errNotEnoughShards
 	t.Run("not enough usable hosts", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -45,6 +46,7 @@ type (
 		hosts          HostClient
 		log            *zap.Logger
 		serviceAccount types.PrivateKey
+		verifyTimeout  time.Duration
 	}
 
 	// CheckSectorsResult is the result of a sector verification. It indicates
@@ -55,9 +57,13 @@ type (
 	CheckSectorsResult int
 )
 
-// NewSectorVerifier creates a new SectorVerifier.
-func NewSectorVerifier(am AccountManager, hosts HostClient, serviceAccount types.PrivateKey, log *zap.Logger) *SectorVerifier {
-	return &SectorVerifier{am: am, hosts: hosts, log: log.Named("verifier"), serviceAccount: serviceAccount}
+// NewSectorVerifier creates a new SectorVerifier. The verifyTimeout is the
+// maximum time allowed for verifying all sectors on a single host.
+func NewSectorVerifier(am AccountManager, hosts HostClient, serviceAccount types.PrivateKey, verifyTimeout time.Duration, log *zap.Logger) (*SectorVerifier, error) {
+	if verifyTimeout <= 0 {
+		return nil, errors.New("sector verifier host timeout must be positive")
+	}
+	return &SectorVerifier{am: am, hosts: hosts, log: log.Named("verifier"), serviceAccount: serviceAccount, verifyTimeout: verifyTimeout}, nil
 }
 
 // UpdateBalance debits the service account for the cost of the verify sector RPC.
@@ -77,9 +83,9 @@ func (v *SectorVerifier) ResetBalance(ctx context.Context, hostKey types.PublicK
 }
 
 // VerifySectors verifies a list of sectors on a host. If verifySectors returns
-// either errInsufficientServiceAccountBalance or context.Canceled, the caller
-// should handle any remaining results and then interrupt the integrity checks
-// for the host.
+// errInsufficientServiceAccountBalance, context.Canceled, or
+// context.DeadlineExceeded, the caller should handle any remaining results and
+// then interrupt the integrity checks for the host.
 func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) ([]CheckSectorsResult, error) {
 	log := v.log.With(zap.Stringer("hostKey", hostKey))
 
@@ -89,19 +95,27 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 		return nil, fmt.Errorf("failed to get service account balance: %w", err)
 	}
 
+	// apply the verify timeout to the entire host interaction to prevent
+	// slow hosts from blocking indefinitely
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, v.verifyTimeout)
+	defer verifyCancel()
+
 	var results []CheckSectorsResult
 	var resetOnce sync.Once
 	for _, root := range roots {
 		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
+		case <-verifyCtx.Done():
+			return results, context.Cause(verifyCtx)
 		default:
 		}
 
-		prices, err := v.hosts.Prices(ctx, hostKey)
+		prices, err := v.hosts.Prices(verifyCtx, hostKey)
 		if err != nil {
+			if verifyCtx.Err() != nil {
+				return results, context.Cause(verifyCtx)
+			}
 			log.Debug("failed to fetch host prices", zap.Error(err))
-			return nil, errHostUnreachable
+			return results, errHostUnreachable
 		}
 
 		usage := prices.RPCReadSectorCost(proto.LeafSize)
@@ -115,14 +129,14 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 		// adjust the budget and update the balance regardless of
 		// the outcome since the host may debit for the RPC anyway.
 		budget = budget.Sub(cost)
-		if err := v.UpdateBalance(ctx, hostKey, usage); err != nil {
-			return nil, fmt.Errorf("failed to update service account balance: %w", err)
+		if err := v.UpdateBalance(verifyCtx, hostKey, usage); err != nil {
+			return results, fmt.Errorf("failed to update service account balance: %w", err)
 		}
 
 		// check a random segment of the sector
 		segment := frand.Uint64n(proto.LeavesPerSector)
-		_, err = v.hosts.ReadSector(ctx, v.serviceAccount, hostKey, root, io.Discard, segment*proto.LeafSize, proto.LeafSize)
-		if errors.Is(err, context.Canceled) || errors.Is(err, mux.ErrClosedStream) {
+		_, err = v.hosts.ReadSector(verifyCtx, v.serviceAccount, hostKey, root, io.Discard, segment*proto.LeafSize, proto.LeafSize)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, mux.ErrClosedStream) {
 			return results, err // interrupted
 		}
 
