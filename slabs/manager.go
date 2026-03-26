@@ -204,10 +204,8 @@ func WithLogger(l *zap.Logger) Option {
 
 // NewManager creates a new slab manager.
 func NewManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
-	sm, err := newSlabManager(chain, am, cm, hm, store, hosts, alerter, migrationAccount, integrityAccount, opts...)
-	if err != nil {
-		return nil, err
-	}
+	sm := newSlabManager(chain, am, cm, hm, store, hosts, alerter, migrationAccount, integrityAccount, opts...)
+
 	ctx, cancel, err := sm.tg.AddContext(context.Background())
 	if err != nil {
 		return nil, err
@@ -221,7 +219,7 @@ func NewManager(chain ChainManager, am AccountManager, cm ContractManager, hm Ho
 	return sm, nil
 }
 
-func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) (*SlabManager, error) {
+func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) *SlabManager {
 	m := &SlabManager{
 		healthCheckInterval: 10 * time.Minute,
 
@@ -251,14 +249,10 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 	for _, opt := range opts {
 		opt(m)
 	}
-	var err error
-	m.verifier, err = NewSectorVerifier(am, hosts, integrityAccount, m.log)
-	if err != nil {
-		return nil, err
-	}
+	m.verifier = NewSectorVerifier(am, hosts, integrityAccount, m.log)
 
 	m.initServiceAccounts(migrationAccount.PublicKey(), integrityAccount.PublicKey())
-	return m, nil
+	return m
 }
 
 // Close closes the manager.

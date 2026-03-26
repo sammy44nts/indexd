@@ -45,10 +45,7 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	acc := proto.Account(sk.PublicKey())
 
 	// prepare slab manager
-	sm, err := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
-	if err != nil {
-		t.Fatal(err)
-	}
+	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
 
 	// prepare helper to reset balance to 3SC to avoid running out of funds
 	resetBalance := func() {
@@ -156,11 +153,7 @@ func TestIntegrityChecksVerifyTimeout(t *testing.T) {
 	acc := proto.Account(sk.PublicKey())
 
 	// prepare slab manager with a short verify timeout
-	sm, err := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sm.SetVerifySectorsTimeout(200 * time.Millisecond)
+	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond), slabs.WithVerifyTimeout(200*time.Millisecond))
 
 	// prepare sectors
 	roots := make([]types.Hash256, 3)
@@ -203,10 +196,7 @@ func TestIntegrityChecksVerifyTimeout(t *testing.T) {
 func TestIntegrityChecksAlert(t *testing.T) {
 	store := newMockStore(t)
 	alerter := alerts.NewManager()
-	sm, err := slabs.NewSlabManager(newMockChainManager(), newMockAccountManager(), nil, nil, store, nil, alerter, types.GeneratePrivateKey(), types.GeneratePrivateKey())
-	if err != nil {
-		t.Fatal(err)
-	}
+	sm := slabs.NewSlabManager(newMockChainManager(), newMockAccountManager(), nil, nil, store, nil, alerter, types.GeneratePrivateKey(), types.GeneratePrivateKey())
 
 	// assert there are no alerts
 	if alerts, err := alerter.Alerts(0, math.MaxInt64); err != nil {
@@ -218,7 +208,7 @@ func TestIntegrityChecksAlert(t *testing.T) {
 	// mock a lost sector
 	hk := types.PublicKey{1}
 	store.AddTestHost(t, hosts.Host{PublicKey: hk})
-	_, err = store.Exec(context.Background(), "UPDATE hosts SET lost_sectors = 1 WHERE public_key = $1", hk[:])
+	_, err := store.Exec(context.Background(), "UPDATE hosts SET lost_sectors = 1 WHERE public_key = $1", hk[:])
 	if err != nil {
 		t.Fatal(err)
 	}

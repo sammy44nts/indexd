@@ -56,8 +56,8 @@ type (
 )
 
 // NewSectorVerifier creates a new SectorVerifier.
-func NewSectorVerifier(am AccountManager, hosts HostClient, serviceAccount types.PrivateKey, log *zap.Logger) (*SectorVerifier, error) {
-	return &SectorVerifier{am: am, hosts: hosts, log: log.Named("verifier"), serviceAccount: serviceAccount}, nil
+func NewSectorVerifier(am AccountManager, hosts HostClient, serviceAccount types.PrivateKey, log *zap.Logger) *SectorVerifier {
+	return &SectorVerifier{am: am, hosts: hosts, log: log.Named("verifier"), serviceAccount: serviceAccount}
 }
 
 // UpdateBalance debits the service account for the cost of the verify sector RPC.

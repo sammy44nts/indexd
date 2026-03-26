@@ -47,10 +47,7 @@ func TestSectorVerifier(t *testing.T) {
 	}
 
 	// prepare verifier
-	verifier, err := slabs.NewSectorVerifier(am, client, sk, log)
-	if err != nil {
-		t.Fatal(err)
-	}
+	verifier := slabs.NewSectorVerifier(am, client, sk, log)
 
 	// prepare helper to assert account balance
 	assertBalance := func(want types.Currency) {
@@ -88,7 +85,7 @@ func TestSectorVerifier(t *testing.T) {
 	}
 
 	// assert [errInsufficientServiceAccountBalance] is returned
-	_, err = verifier.VerifySectors(t.Context(), hostKey.PublicKey(), roots[:1])
+	_, err := verifier.VerifySectors(t.Context(), hostKey.PublicKey(), roots[:1])
 	if !errors.Is(err, slabs.ErrInsufficientServiceAccountBalance) {
 		t.Fatal("unexpected err", err)
 	}

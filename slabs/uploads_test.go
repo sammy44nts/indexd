@@ -59,10 +59,7 @@ func TestUploadShards(t *testing.T) {
 
 	// create manager
 	alerter := alerts.NewManager()
-	sm, err := slabs.NewSlabManager(chain, am, nil, hm, store, client, alerter, account, types.GeneratePrivateKey())
-	if err != nil {
-		t.Fatal(err)
-	}
+	sm := slabs.NewSlabManager(chain, am, nil, hm, store, client, alerter, account, types.GeneratePrivateKey())
 	sm.SetShardTimeout(50 * time.Millisecond)
 
 	// set balance to 1SC
@@ -108,7 +105,7 @@ func TestUploadShards(t *testing.T) {
 	}
 
 	// assert passing in no hosts returns an error and no uploads
-	_, err = sm.UploadShards(context.Background(), slab, shards, nil, zap.NewNop())
+	_, err := sm.UploadShards(context.Background(), slab, shards, nil, zap.NewNop())
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
