@@ -1375,6 +1375,32 @@ func TestHostUnpinnedSectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHostUnpinned(hk4, 0)
+
+	// unpinning a slab should delete its unpinned sectors and decrement
+	// per-host unpinned sector counts accordingly
+	root6 := frand.Entropy256()
+	root7 := frand.Entropy256()
+	root8 := frand.Entropy256()
+	slabIDs, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors: []slabs.PinnedSector{
+			{Root: root6, HostKey: hk1},
+			{Root: root7, HostKey: hk1},
+			{Root: root8, HostKey: hk2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHostUnpinned(hk1, 2)
+	assertHostUnpinned(hk2, 1)
+
+	if err := db.UnpinSlab(account, slabIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	assertHostUnpinned(hk1, 0)
+	assertHostUnpinned(hk2, 0)
 }
 
 func TestStuckHosts(t *testing.T) {

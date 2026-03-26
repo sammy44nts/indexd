@@ -1,5 +1,6 @@
 bin/
 .DS_Store
 .vscode
+.worktrees
 indexd.yml
 CLAUDE.md
