@@ -370,6 +370,7 @@ type mockHostClient struct {
 	mu              sync.Mutex
 	hostSectors     map[types.PublicKey]map[types.Hash256][proto.SectorSize]byte
 	slowHosts       map[types.PublicKey]time.Duration
+	failHosts       map[types.PublicKey]error
 	integrityErrors map[types.Hash256]error
 	readHooks       map[types.Hash256]func()
 	hostKeys        map[types.PublicKey]types.PrivateKey
@@ -447,6 +448,10 @@ func (m *mockHostClient) WriteSector(ctx context.Context, accountKey types.Priva
 // ReadSector is a mock implementation that reads a sector from the mock host.
 func (m *mockHostClient) ReadSector(ctx context.Context, accountKey types.PrivateKey, hostKey types.PublicKey, root types.Hash256, w io.Writer, offset, length uint64) (rhp.RPCReadSectorResult, error) {
 	m.mu.Lock()
+	if err, ok := m.failHosts[hostKey]; ok {
+		m.mu.Unlock()
+		return rhp.RPCReadSectorResult{}, err
+	}
 	sector, ok := m.hostSectors[hostKey][root]
 	if !ok {
 		m.mu.Unlock()
@@ -512,6 +517,7 @@ func newMockHostClient() *mockHostClient {
 	return &mockHostClient{
 		hostSectors:     make(map[types.PublicKey]map[types.Hash256][proto.SectorSize]byte),
 		slowHosts:       make(map[types.PublicKey]time.Duration),
+		failHosts:       make(map[types.PublicKey]error),
 		integrityErrors: make(map[types.Hash256]error),
 		readHooks:       make(map[types.Hash256]func()),
 		hostKeys:        make(map[types.PublicKey]types.PrivateKey),
