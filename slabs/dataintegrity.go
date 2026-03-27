@@ -8,7 +8,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/indexd/client/v2"
-	"go.sia.tech/mux/v2"
+	"go.sia.tech/mux/v3"
 	"go.uber.org/zap"
 )
 
