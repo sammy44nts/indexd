@@ -1185,6 +1185,28 @@ func TestUnpinSlab(t *testing.T) {
 		}
 	}
 
+	assertSectorStats := func(pinned, unpinned, unpinnable int64) {
+		t.Helper()
+		stats, err := store.SectorStats()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stats.Pinned != pinned || stats.Unpinned != unpinned || stats.Unpinnable != unpinnable {
+			t.Fatalf("unexpected sector stats: pinned=%d unpinned=%d unpinnable=%d", stats.Pinned, stats.Unpinned, stats.Unpinnable)
+		}
+	}
+
+	assertHostUnpinned := func(hk types.PublicKey, expected int64) {
+		t.Helper()
+		var got int64
+		err := store.pool.QueryRow(t.Context(), `SELECT unpinned_sectors FROM hosts WHERE public_key = $1`, sqlPublicKey(hk)).Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		} else if got != expected {
+			t.Fatalf("expected %d unpinned sectors for host %v, got %d", expected, hk, got)
+		}
+	}
+
 	// add host
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
@@ -1232,6 +1254,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertCount("account_slabs", 4)
 	assertPinnedData(acc1, 2*slabSize, 2*slabSize)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
+	assertSectorStats(0, 6, 0)
+	assertHostUnpinned(hk, 6)
 
 	// unpinning a slab that's not pinned to an account should return [slabs.ErrNotFound]
 	err := store.UnpinSlab(acc2, slab1)
@@ -1253,6 +1277,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertCount("account_slabs", 3)
 	assertPinnedData(acc1, slabSize, slabSize)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
+	assertSectorStats(0, 4, 0)
+	assertHostUnpinned(hk, 4)
 
 	// unpin second slab
 	err = store.UnpinSlab(acc1, slab2)
@@ -1268,6 +1294,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertCount("account_slabs", 2)
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
+	assertSectorStats(0, 4, 0)
+	assertHostUnpinned(hk, 4)
 
 	// unpin second slab on second account
 	err = store.UnpinSlab(acc2, slab2)
@@ -1283,6 +1311,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertCount("account_slabs", 1)
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, slabSize, slabSize)
+	assertSectorStats(0, 2, 0)
+	assertHostUnpinned(hk, 2)
 
 	// unpin third slab on second account
 	err = store.UnpinSlab(acc2, slab3)
@@ -1298,6 +1328,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertCount("account_slabs", 0)
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, 0, 0)
+	assertSectorStats(0, 0, 0)
+	assertHostUnpinned(hk, 0)
 }
 
 func TestPinSectors(t *testing.T) {
@@ -1340,12 +1372,18 @@ func TestPinSectors(t *testing.T) {
 	}
 
 	// set the sectors' host IDs to NULL to make sure PinSectors also sets
-	// those
+	// those, and update the stats to reflect the state change
 	res, err := store.pool.Exec(t.Context(), "UPDATE sectors SET host_id = NULL")
 	if err != nil {
 		t.Fatal(err)
 	} else if res.RowsAffected() != 4 {
 		t.Fatalf("expected 4 rows affected, got %d", res.RowsAffected())
+	}
+	if _, err := store.pool.Exec(t.Context(), `UPDATE stats SET stat_value = 0 WHERE stat_name = $1`, statUnpinnedSectors); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(t.Context(), `UPDATE stats SET stat_value = 4 WHERE stat_name = $1`, statUnpinnableSectors); err != nil {
+		t.Fatal(err)
 	}
 
 	// helper to assert sector is pinned

@@ -105,7 +105,7 @@ func TestSectorStats(t *testing.T) {
 	hk2 := store.addTestHost(t)
 	hk3 := store.addTestHost(t)
 	hk4 := store.addTestHost(t)
-	store.addTestContract(t, hk2)
+	fcidHK2 := store.addTestContract(t, hk2)
 	store.addTestContract(t, hk3)
 	fcidHK1 := store.addTestContract(t, hk1, types.FileContractID{1})
 	fcidHK4 := store.addTestContract(t, hk4, types.FileContractID{2})
@@ -224,11 +224,90 @@ func TestSectorStats(t *testing.T) {
 	}
 	assertStats(0, 0, 3, 6)
 
+	// unpinning a slab should decrement sector stats for all deleted sector
+	// states: pinned, unpinned, and unpinnable.
+	mixedRoots := []types.Hash256{
+		frand.Entropy256(),
+		frand.Entropy256(),
+		frand.Entropy256(),
+	}
+	slabIDs, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors: []slabs.PinnedSector{
+			{HostKey: hk2, Root: mixedRoots[0]},
+			{HostKey: hk3, Root: mixedRoots[1]},
+			{HostKey: hk4, Root: mixedRoots[2]},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStats(0, 3, 3, 6)
+
+	if err := store.PinSectors(fcidHK2, []types.Hash256{mixedRoots[0]}); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(1, 2, 3, 6)
+
+	var mixedUploadedAt time.Time
+	if err := store.pool.QueryRow(t.Context(), `
+		SELECT uploaded_at
+		FROM sectors
+		WHERE sector_root = $1
+	`, sqlHash256(mixedRoots[1])).Scan(&mixedUploadedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(t.Context(), `
+		UPDATE sectors
+		SET uploaded_at = $2
+		WHERE sector_root = $1
+	`, sqlHash256(mixedRoots[2]), mixedUploadedAt.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSectorsUnpinnable(mixedUploadedAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(1, 1, 4, 6)
+
+	if err := store.UnpinSlab(account, slabIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(0, 0, 3, 6)
+
 	if unpinned, err := store.UnpinnedSectors(hk1, 1); err != nil {
 		t.Fatal(err)
 	} else if len(unpinned) != 0 {
 		t.Fatalf("expected 0 unpinned sectors, got %d", len(unpinned))
 	}
+
+	// pinning an unpinnable sector should decrement num_unpinnable_sectors,
+	// not num_unpinned_sectors
+	unpinnableRoot := frand.Entropy256()
+	if _, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors:       []slabs.PinnedSector{{HostKey: hk2, Root: unpinnableRoot}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(0, 1, 3, 6)
+
+	var unpinnableUploadedAt time.Time
+	if err := store.pool.QueryRow(t.Context(), `
+   SELECT uploaded_at FROM sectors WHERE sector_root = $1
+ `, sqlHash256(unpinnableRoot)).Scan(&unpinnableUploadedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSectorsUnpinnable(unpinnableUploadedAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(0, 0, 4, 6)
+
+	if err := store.PinSectors(fcidHK2, []types.Hash256{unpinnableRoot}); err != nil {
+		t.Fatal(err)
+	}
+	assertStats(1, 0, 3, 6) // unpinnable decremented, not unpinned
 }
 
 func TestIntegrityCheckStats(t *testing.T) {

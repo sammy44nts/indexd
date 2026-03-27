@@ -899,4 +899,46 @@ WHERE ack.id = sub.connect_key_id;
 		)
 		return err
 	},
+	// reset stats
+	func(ctx context.Context, tx *txn, _ *zap.Logger) error {
+		if _, err := tx.Exec(ctx, `
+		WITH counts AS (
+			SELECT
+				COUNT(*) FILTER (WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NOT NULL)::bigint AS pinned,
+				COUNT(*) FILTER (WHERE host_id IS NOT NULL AND contract_sectors_map_id IS NULL)::bigint     AS unpinned,
+				COUNT(*) FILTER (WHERE host_id IS NULL     AND contract_sectors_map_id IS NULL)::bigint     AS unpinnable
+			FROM sectors
+		)
+		UPDATE stats
+		SET stat_value = CASE stat_name
+			WHEN 'num_pinned_sectors'     THEN counts.pinned
+			WHEN 'num_unpinned_sectors'   THEN counts.unpinned
+			WHEN 'num_unpinnable_sectors' THEN counts.unpinnable
+		END
+		FROM counts
+		WHERE stat_name IN ('num_pinned_sectors', 'num_unpinned_sectors', 'num_unpinnable_sectors')`); err != nil {
+			return fmt.Errorf("failed to reset sector stats: %w", err)
+		}
+
+		_, err := tx.Exec(ctx, `
+			UPDATE hosts h
+			SET unpinned_sectors = COALESCE(sub.cnt, 0)
+			FROM (
+				SELECT host_id, COUNT(*) as cnt
+				FROM sectors
+				WHERE contract_sectors_map_id IS NULL AND host_id IS NOT NULL
+				GROUP BY host_id
+			) sub
+			WHERE h.id = sub.host_id;
+
+			UPDATE hosts
+			SET unpinned_sectors = 0
+			WHERE id NOT IN (
+				SELECT DISTINCT host_id
+				FROM sectors
+				WHERE contract_sectors_map_id IS NULL AND host_id IS NOT NULL
+			);
+		`)
+		return err
+	},
 }
