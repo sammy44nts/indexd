@@ -909,12 +909,14 @@ WHERE ack.id = sub.connect_key_id;
 				COUNT(*) FILTER (WHERE host_id IS NULL     AND contract_sectors_map_id IS NULL)::bigint     AS unpinnable
 			FROM sectors
 		)
-		UPDATE stats s
-		SET
-			num_pinned_sectors     = counts.pinned,
-			num_unpinned_sectors   = counts.unpinned,
-			num_unpinnable_sectors = counts.unpinnable
-		FROM counts`); err != nil {
+		UPDATE stats
+		SET stat_value = CASE stat_name
+			WHEN 'num_pinned_sectors'     THEN counts.pinned
+			WHEN 'num_unpinned_sectors'   THEN counts.unpinned
+			WHEN 'num_unpinnable_sectors' THEN counts.unpinnable
+		END
+		FROM counts
+		WHERE stat_name IN ('num_pinned_sectors', 'num_unpinned_sectors', 'num_unpinnable_sectors')`); err != nil {
 			return fmt.Errorf("failed to reset sector stats: %w", err)
 		}
 
