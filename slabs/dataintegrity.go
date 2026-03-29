@@ -14,6 +14,12 @@ import (
 func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey types.PublicKey, logger *zap.Logger) {
 	logger = logger.With(zap.Stringer("hostKey", hostKey))
 
+	// apply a timeout on a per-host basis, ensuring that we don't spend more than 5 minutes
+	// on integrity checks for a single host, if the host has a large number of sectors to check,
+	// or is slow to respond, the next integrity check will pick up where we left off
+	ctx, cancel := context.WithTimeoutCause(ctx, m.integrityCheckTimeout, client.ErrAbortedRPC)
+	defer cancel()
+
 	const batchSize = 1000 // batch size for sector retrieval
 	for interrupt := false; !interrupt; {
 		toCheck, err := m.store.SectorsForIntegrityCheck(hostKey, batchSize)
@@ -38,12 +44,9 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 				break
 			}
 
-			verifyCtx, cancel := context.WithTimeoutCause(ctx, m.verifyTimeout, client.ErrAbortedRPC)
-			batch, err := m.verifier.VerifySectors(verifyCtx, hostKey, toCheck[len(results):])
-			verifyCtxErr := verifyCtx.Err()
-			cancel()
+			batch, err := m.verifier.VerifySectors(ctx, hostKey, toCheck[len(results):])
 			results = append(results, batch...)
-			if (err != nil && verifyCtxErr != nil) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
+			if (err != nil && ctx.Err() != nil) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
 				logger.Debug("integrity checks got interrupted", zap.Error(err))
 				if errors.Is(err, errInsufficientServiceAccountBalance) {
 					if err := m.cm.TriggerAccountRefill(ctx, hostKey, m.verifier.account()); err != nil {

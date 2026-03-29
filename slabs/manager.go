@@ -37,7 +37,7 @@ type (
 		numIntegrityCheckGoroutines int
 		numMigrationGoroutines      int
 		shardTimeout                time.Duration
-		verifyTimeout               time.Duration
+		integrityCheckTimeout       time.Duration
 
 		alerter AlertsManager
 		chain   ChainManager
@@ -187,14 +187,14 @@ func WithMinHostDistance(km float64) Option {
 	}
 }
 
-// WithVerifyTimeout sets the maximum time allowed for verifying all sectors
-// on a single host. The default is 3 minutes.
-func WithVerifyTimeout(d time.Duration) Option {
+// WithIntegrityCheckTimeout sets the maximum time allowed for verifying all sectors
+// on a single host. The default is 5 minutes.
+func WithIntegrityCheckTimeout(d time.Duration) Option {
 	return func(m *SlabManager) {
 		if d <= 0 {
-			panic("verify timeout must be positive") // developer error
+			panic("integrity check timeout must be positive") // developer error
 		}
-		m.verifyTimeout = d
+		m.integrityCheckTimeout = d
 	}
 }
 
@@ -224,7 +224,7 @@ func NewManager(chain ChainManager, am AccountManager, cm ContractManager, hm Ho
 
 func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, hm HostManager, store Store, hosts HostClient, alerter AlertsManager, migrationAccount, integrityAccount types.PrivateKey, opts ...Option) *SlabManager {
 	m := &SlabManager{
-		healthCheckInterval: 10 * time.Minute,
+		healthCheckInterval: time.Minute,
 
 		integrityCheckInterval:       14 * 24 * time.Hour,
 		failedIntegrityCheckInterval: 12 * time.Hour,
@@ -235,7 +235,7 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 		migrationAccountKey: migrationAccount,
 
 		shardTimeout:                2 * time.Minute,
-		verifyTimeout:               3 * time.Minute,
+		integrityCheckTimeout:       5 * time.Minute,
 		numIntegrityCheckGoroutines: 50,
 		numMigrationGoroutines:      runtime.NumCPU(),
 

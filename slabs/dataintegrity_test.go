@@ -153,7 +153,7 @@ func TestIntegrityChecksVerifyTimeout(t *testing.T) {
 	acc := proto.Account(sk.PublicKey())
 
 	// prepare slab manager with a short verify timeout
-	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond), slabs.WithVerifyTimeout(200*time.Millisecond))
+	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond), slabs.WithIntegrityCheckTimeout(200*time.Millisecond))
 
 	// prepare sectors
 	roots := make([]types.Hash256, 3)
