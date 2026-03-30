@@ -109,6 +109,24 @@ func TestUpload(t *testing.T) {
 		}
 	})
 
+	t.Run("flaky", func(t *testing.T) {
+		// 10 of 50 hosts fail their first write but succeed on retry.
+		// the upload should complete because failed hosts are requeued
+		// for other shards via Retry.
+		dialer := newMockDialer(50)
+		dialer.SetFlakyHosts(10, 1)
+		s := newTestSDK(t, appKey, newMockAppClient(), dialer)
+		defer s.Close()
+
+		obj := NewEmptyObject()
+		err := s.Upload(context.Background(), &obj, bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		} else if len(obj.Slabs()) != 1 {
+			t.Fatalf("expected 1 slab, got %d", len(obj.Slabs()))
+		}
+	})
+
 	t.Run("no hosts", func(t *testing.T) {
 		dialer := newMockDialer(0)
 		s := newTestSDK(t, appKey, newMockAppClient(), dialer)
