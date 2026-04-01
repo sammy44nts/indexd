@@ -9,7 +9,6 @@ import (
 
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/mux/v3"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -61,30 +60,30 @@ func NewSectorVerifier(am AccountManager, hosts HostClient, serviceAccount types
 }
 
 // UpdateBalance debits the service account for the cost of the verify sector RPC.
-func (v *SectorVerifier) UpdateBalance(ctx context.Context, hostKey types.PublicKey, usage proto.Usage) error {
-	if err := v.am.DebitServiceAccount(ctx, hostKey, v.account(), usage.RenterCost()); err != nil {
+func (v *SectorVerifier) UpdateBalance(hostKey types.PublicKey, usage proto.Usage) error {
+	if err := v.am.DebitServiceAccount(hostKey, v.account(), usage.RenterCost()); err != nil {
 		return fmt.Errorf("failed to update service account balance: %w", err)
 	}
 	return nil
 }
 
 // ResetBalance resets the service account balance for the host.
-func (v *SectorVerifier) ResetBalance(ctx context.Context, hostKey types.PublicKey) error {
-	if err := v.am.ResetAccountBalance(ctx, hostKey, v.account()); err != nil {
+func (v *SectorVerifier) ResetBalance(hostKey types.PublicKey) error {
+	if err := v.am.ResetAccountBalance(hostKey, v.account()); err != nil {
 		return fmt.Errorf("failed to reset service account balance: %w", err)
 	}
 	return nil
 }
 
 // VerifySectors verifies a list of sectors on a host. If verifySectors returns
-// either errInsufficientServiceAccountBalance or context.Canceled, the caller
-// should handle any remaining results and then interrupt the integrity checks
-// for the host.
+// errInsufficientServiceAccountBalance, context.Canceled, or
+// context.DeadlineExceeded, the caller should handle any remaining results and
+// then interrupt the integrity checks for the host.
 func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.PublicKey, roots []types.Hash256) ([]CheckSectorsResult, error) {
 	log := v.log.With(zap.Stringer("hostKey", hostKey))
 
 	// check budget before verifying the sector
-	budget, err := v.am.ServiceAccountBalance(ctx, hostKey, v.account())
+	budget, err := v.am.ServiceAccountBalance(hostKey, v.account())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service account balance: %w", err)
 	}
@@ -92,16 +91,13 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 	var results []CheckSectorsResult
 	var resetOnce sync.Once
 	for _, root := range roots {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
 		prices, err := v.hosts.Prices(ctx, hostKey)
 		if err != nil {
+			if ctx.Err() != nil {
+				return results, ctx.Err() // interrupted
+			}
 			log.Debug("failed to fetch host prices", zap.Error(err))
-			return nil, errHostUnreachable
+			return results, errHostUnreachable
 		}
 
 		usage := prices.RPCReadSectorCost(proto.LeafSize)
@@ -115,14 +111,14 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 		// adjust the budget and update the balance regardless of
 		// the outcome since the host may debit for the RPC anyway.
 		budget = budget.Sub(cost)
-		if err := v.UpdateBalance(ctx, hostKey, usage); err != nil {
-			return nil, fmt.Errorf("failed to update service account balance: %w", err)
+		if err := v.UpdateBalance(hostKey, usage); err != nil {
+			return results, fmt.Errorf("failed to update service account balance: %w", err)
 		}
 
 		// check a random segment of the sector
 		segment := frand.Uint64n(proto.LeavesPerSector)
 		_, err = v.hosts.ReadSector(ctx, v.serviceAccount, hostKey, root, io.Discard, segment*proto.LeafSize, proto.LeafSize)
-		if errors.Is(err, context.Canceled) || errors.Is(err, mux.ErrClosedStream) {
+		if err != nil && ctx.Err() != nil {
 			return results, err // interrupted
 		}
 
@@ -143,7 +139,7 @@ func (v *SectorVerifier) VerifySectors(ctx context.Context, hostKey types.Public
 
 		// if the host returned an insufficient balance error, reset the account
 		if isErrNotEnoughFunds(err) {
-			resetOnce.Do(func() { v.ResetBalance(ctx, hostKey) })
+			resetOnce.Do(func() { v.ResetBalance(hostKey) })
 
 			// NOTE: when this happens we don't interrupt on purpose and
 			// continue as if our internal balance was ok. So if we still

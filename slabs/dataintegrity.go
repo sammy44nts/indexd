@@ -7,12 +7,18 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/mux/v3"
+	"go.sia.tech/indexd/client/v2"
 	"go.uber.org/zap"
 )
 
 func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey types.PublicKey, logger *zap.Logger) {
 	logger = logger.With(zap.Stringer("hostKey", hostKey))
+
+	// apply a timeout on a per-host basis, ensuring that we don't spend more than 5 minutes
+	// on integrity checks for a single host, if the host has a large number of sectors to check,
+	// or is slow to respond, the next integrity check will pick up where we left off
+	ctx, cancel := context.WithTimeoutCause(ctx, m.integrityCheckTimeout, client.ErrAbortedRPC)
+	defer cancel()
 
 	const batchSize = 1000 // batch size for sector retrieval
 	for interrupt := false; !interrupt; {
@@ -28,9 +34,7 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 		// perform integrity checks
 		results := make([]CheckSectorsResult, 0, len(toCheck))
 		for len(results) < len(toCheck) {
-			usableCtx, usableCancel := context.WithTimeout(ctx, time.Minute)
-			usable, err := m.hm.Usable(usableCtx, hostKey)
-			usableCancel()
+			usable, err := m.hm.Usable(ctx, hostKey)
 			if err != nil {
 				logger.Error("failed to check if host is usable", zap.Error(err))
 				return
@@ -41,7 +45,8 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 			}
 
 			batch, err := m.verifier.VerifySectors(ctx, hostKey, toCheck[len(results):])
-			if errors.Is(err, context.Canceled) || errors.Is(err, mux.ErrClosedStream) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
+			results = append(results, batch...)
+			if (err != nil && ctx.Err() != nil) || errors.Is(err, errInsufficientServiceAccountBalance) || errors.Is(err, errHostUnreachable) {
 				logger.Debug("integrity checks got interrupted", zap.Error(err))
 				if errors.Is(err, errInsufficientServiceAccountBalance) {
 					if err := m.cm.TriggerAccountRefill(ctx, hostKey, m.verifier.account()); err != nil {
@@ -55,7 +60,6 @@ func (m *SlabManager) performIntegrityChecksForHost(ctx context.Context, hostKey
 				logger.Error("failed to check sectors", zap.Error(err))
 				return
 			}
-			results = append(results, batch...)
 		}
 		if len(results) == 0 {
 			return

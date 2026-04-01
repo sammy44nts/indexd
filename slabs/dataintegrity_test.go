@@ -50,7 +50,7 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	// prepare helper to reset balance to 3SC to avoid running out of funds
 	resetBalance := func() {
 		t.Helper()
-		err := am.UpdateServiceAccountBalance(context.Background(), hostKey.PublicKey(), acc, oneSC.Mul64(3))
+		err := am.UpdateServiceAccountBalance(hostKey.PublicKey(), acc, oneSC.Mul64(3))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,12 +122,74 @@ func TestPerformIntegrityChecksForHost(t *testing.T) {
 	if cm.triggeredRefills[acc] != 0 {
 		t.Fatalf("expected 0 triggered refill, got %d", cm.triggeredRefills[acc])
 	}
-	if err := am.UpdateServiceAccountBalance(context.Background(), hostKey.PublicKey(), acc, types.ZeroCurrency); err != nil {
+	if err := am.UpdateServiceAccountBalance(hostKey.PublicKey(), acc, types.ZeroCurrency); err != nil {
 		t.Fatal(err)
 	}
 	sm.PerformIntegrityChecksForHost(context.Background(), host.PublicKey, zap.NewNop())
 	if cm.triggeredRefills[acc] != 1 {
 		t.Fatalf("expected 1 triggered refill, got %d", cm.triggeredRefills[acc])
+	}
+}
+
+func TestIntegrityChecksVerifyTimeout(t *testing.T) {
+	oneSC := types.Siacoins(1)
+
+	// prepare host
+	client := newMockHostClient()
+	hostKey := types.GeneratePrivateKey()
+	host := client.addTestHost(hostKey)
+
+	// prepare managers
+	store := newMockStore(t)
+	chain := newMockChainManager()
+	am := newMockAccountManager()
+	cm := newMockContractManager()
+	hm := newMockHostManager()
+	host.Usability = hosts.GoodUsability
+	hm.hosts[host.PublicKey] = host
+
+	// prepare account
+	sk := types.GeneratePrivateKey()
+	acc := proto.Account(sk.PublicKey())
+
+	// prepare slab manager with a short verify timeout
+	sm := slabs.NewSlabManager(chain, am, cm, hm, store, client, nil, sk, sk, slabs.WithIntegrityCheckIntervals(time.Millisecond, time.Millisecond), slabs.WithIntegrityCheckTimeout(200*time.Millisecond))
+
+	// prepare sectors
+	roots := make([]types.Hash256, 3)
+	for i := range roots {
+		root, err := client.WriteSector(t.Context(), types.GeneratePrivateKey(), host.PublicKey, []byte{byte(i + 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots[i] = root.Root
+	}
+	store.setSectorsForCheck(t, host.PublicKey, roots)
+
+	// fund the account
+	if err := am.UpdateServiceAccountBalance(hostKey.PublicKey(), acc, oneSC.Mul64(10)); err != nil {
+		t.Fatal(err)
+	}
+
+	// make the host slow — 2s per sector, much longer than the 200ms timeout
+	client.setSlowHost(host.PublicKey, 2*time.Second)
+
+	// perform integrity checks — should be interrupted by the timeout
+	start := time.Now()
+	sm.PerformIntegrityChecksForHost(t.Context(), host.PublicKey, zap.NewNop())
+	elapsed := time.Since(start)
+
+	// should have returned much faster than 6s (3 sectors × 2s)
+	if elapsed > time.Second {
+		t.Fatalf("expected fast return due to timeout, took %v", elapsed)
+	}
+
+	// sectors shouldn't have been recorded as failed
+	failedChecks := store.failedChecks(t, host.PublicKey)
+	for root, n := range failedChecks {
+		if n > 0 {
+			t.Fatalf("sector %v was incorrectly marked as failed due to timeout", root)
+		}
 	}
 }
 

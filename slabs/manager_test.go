@@ -259,11 +259,11 @@ func (m *mockAccountManager) RegisterServiceAccount(account proto.Account) {
 	}
 }
 
-func (m *mockAccountManager) ResetAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) error {
-	return m.UpdateServiceAccountBalance(ctx, hostKey, account, types.ZeroCurrency)
+func (m *mockAccountManager) ResetAccountBalance(hostKey types.PublicKey, account proto.Account) error {
+	return m.UpdateServiceAccountBalance(hostKey, account, types.ZeroCurrency)
 }
 
-func (m *mockAccountManager) ServiceAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account) (types.Currency, error) {
+func (m *mockAccountManager) ServiceAccountBalance(hostKey types.PublicKey, account proto.Account) (types.Currency, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if hostAccounts, ok := m.serviceAccounts[account]; ok {
@@ -275,7 +275,7 @@ func (m *mockAccountManager) ServiceAccountBalance(ctx context.Context, hostKey 
 	return types.ZeroCurrency, nil
 }
 
-func (m *mockAccountManager) UpdateServiceAccountBalance(ctx context.Context, hostKey types.PublicKey, account proto.Account, balance types.Currency) error {
+func (m *mockAccountManager) UpdateServiceAccountBalance(hostKey types.PublicKey, account proto.Account, balance types.Currency) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	hostAccounts, ok := m.serviceAccounts[account]
@@ -287,7 +287,7 @@ func (m *mockAccountManager) UpdateServiceAccountBalance(ctx context.Context, ho
 	return nil
 }
 
-func (m *mockAccountManager) DebitServiceAccount(ctx context.Context, hostKey types.PublicKey, account proto.Account, amount types.Currency) error {
+func (m *mockAccountManager) DebitServiceAccount(hostKey types.PublicKey, account proto.Account, amount types.Currency) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if hostAccounts, ok := m.serviceAccounts[account]; ok {
@@ -371,6 +371,7 @@ type mockHostClient struct {
 	hostSectors     map[types.PublicKey]map[types.Hash256][proto.SectorSize]byte
 	slowHosts       map[types.PublicKey]time.Duration
 	integrityErrors map[types.Hash256]error
+	readHooks       map[types.Hash256]func()
 	hostKeys        map[types.PublicKey]types.PrivateKey
 	hostSettings    map[types.PublicKey]proto.HostSettings
 	unusable        map[types.PublicKey]struct{}
@@ -393,7 +394,18 @@ func (m *mockHostClient) addTestHost(sk types.PrivateKey) hosts.Host {
 }
 
 // Prices is a mock implementation that returns the preset host settings.
-func (m *mockHostClient) Prices(_ context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+func (m *mockHostClient) Prices(ctx context.Context, hostKey types.PublicKey) (proto.HostPrices, error) {
+	m.mu.Lock()
+	delay := m.slowHosts[hostKey]
+	m.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return proto.HostPrices{}, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	prices := m.hostSettings[hostKey].Prices
@@ -440,7 +452,12 @@ func (m *mockHostClient) ReadSector(ctx context.Context, accountKey types.Privat
 		m.mu.Unlock()
 		return rhp.RPCReadSectorResult{}, proto.ErrSectorNotFound
 	}
-	if err, ok := m.integrityErrors[root]; ok {
+	hook, ok := m.readHooks[root]
+	if ok {
+		hook()
+	}
+	err, ok := m.integrityErrors[root]
+	if ok && err != nil {
 		m.mu.Unlock()
 		return rhp.RPCReadSectorResult{}, err
 	}
@@ -455,8 +472,7 @@ func (m *mockHostClient) ReadSector(ctx context.Context, accountKey types.Privat
 		}
 	}
 
-	_, err := w.Write(sector[offset : offset+length])
-	if err != nil {
+	if _, err := w.Write(sector[offset : offset+length]); err != nil {
 		return rhp.RPCReadSectorResult{}, err
 	}
 	usage := m.hostSettings[hostKey].Prices.RPCReadSectorCost(length)
@@ -482,11 +498,22 @@ func (m *mockHostClient) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	return filtered
 }
 
+func (m *mockHostClient) setSlowHost(hostKey types.PublicKey, delay time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if delay == 0 {
+		delete(m.slowHosts, hostKey)
+	} else {
+		m.slowHosts[hostKey] = delay
+	}
+}
+
 func newMockHostClient() *mockHostClient {
 	return &mockHostClient{
 		hostSectors:     make(map[types.PublicKey]map[types.Hash256][proto.SectorSize]byte),
 		slowHosts:       make(map[types.PublicKey]time.Duration),
 		integrityErrors: make(map[types.Hash256]error),
+		readHooks:       make(map[types.Hash256]func()),
 		hostKeys:        make(map[types.PublicKey]types.PrivateKey),
 		hostSettings:    make(map[types.PublicKey]proto.HostSettings),
 		unusable:        make(map[types.PublicKey]struct{}),
