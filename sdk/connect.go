@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/api/app"
-	"go.sia.tech/indexd/client/v2"
 	"go.sia.tech/indexd/keys"
 	"lukechampine.com/frand"
 )
@@ -155,12 +154,12 @@ func (b *Builder) SDK(appKey types.PrivateKey, opts ...Option) (*SDK, error) {
 	} else if !ok {
 		return nil, fmt.Errorf("app key is not authorized")
 	}
-	hostStore, err := newCachedHostStore(b.client, appKey)
+	sdk, err := initSDK(appKey, b.client, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create host store: %w", err)
+		return nil, fmt.Errorf("failed to initialize SDK: %w", err)
 	}
 	b.consume()
-	return initSDK(appKey, b.client, client.NewProvider(hostStore), opts...), nil
+	return sdk, nil
 }
 
 func deriveAppKey(mnemonic string, appID types.Hash256, sharedSecret types.Hash256) (types.PrivateKey, error) {

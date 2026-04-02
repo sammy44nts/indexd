@@ -84,6 +84,60 @@ func (s *testStore) addUsableHost(t testing.TB) types.PublicKey {
 	return pk
 }
 
+func TestProviderSettingsSample(t *testing.T) {
+	s := newTestStore(t)
+	store := hosts.NewHostStore(s.Store)
+
+	hostA := s.addUsableHost(t)
+	hostB := s.addUsableHost(t)
+	hostC := s.addUsableHost(t)
+	usable := []types.PublicKey{hostA, hostB, hostC}
+
+	provider := client.NewProvider(store)
+
+	// add a settings sample to hostA
+	provider.AddSettingsSample(hostA, 100*time.Millisecond, true)
+
+	// add a failure to hostC
+	provider.AddFailedRPC(hostC, nil)
+
+	// hostA should sort behind unknown hostB but ahead of failed hostC
+	sorted := provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(sorted))
+	} else if sorted[len(sorted)-1] != hostC {
+		t.Fatal("expected host with failed RPC to be last")
+	} else if sorted[len(sorted)-2] != hostA {
+		t.Fatal("expected host with settings sample to sort behind unknown host")
+	}
+
+	// add a faster settings sample to hostB
+	provider.AddSettingsSample(hostB, 50*time.Millisecond, true)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(sorted))
+	} else if slices.Index(sorted, hostB) >= slices.Index(sorted, hostA) {
+		t.Fatal("expected lower latency host to sort ahead of higher latency host")
+	}
+
+	// add a real read sample to hostA; read/write data should take precedence
+	provider.AddReadSample(hostA, 10*time.Millisecond)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if slices.Index(sorted, hostA) >= slices.Index(sorted, hostB) {
+		t.Fatal("expected host with read/write data to sort ahead of settings only host")
+	}
+
+	// record a failed settings RPC to hostB; it should sort behind hostA
+	provider.AddSettingsSample(hostB, 0, false)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if slices.Index(sorted, hostA) >= slices.Index(sorted, hostB) {
+		t.Fatal("expected host with failed settings RPC to sort behind host with successful RPCs")
+	}
+}
+
 func TestProviderPriority(t *testing.T) {
 	s := newTestStore(t)
 	store := hosts.NewHostStore(s.Store)

@@ -123,6 +123,10 @@ func (m *mockHostDialer) ReadSector(ctx context.Context, accountKey types.Privat
 	return rhp.RPCReadSectorResult{}, nil
 }
 
+func (m *mockHostDialer) WarmConnections() error {
+	return nil
+}
+
 func (m *mockHostDialer) ResetSlowHosts() {
 	m.delayMu.Lock()
 	defer m.delayMu.Unlock()

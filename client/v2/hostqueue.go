@@ -81,9 +81,18 @@ func (fr *failureRate) Value() float64 {
 }
 
 type hostMetric struct {
-	rpcWriteAverage rpcAverage
-	rpcReadAverage  rpcAverage
-	rpcFailRate     failureRate
+	rpcWriteAverage    rpcAverage
+	rpcReadAverage     rpcAverage
+	rpcSettingsAverage rpcAverage
+	rpcFailRate        failureRate
+}
+
+func (m *hostMetric) latency() float64 {
+	if m.rpcReadAverage.init || m.rpcWriteAverage.init {
+		return (m.rpcReadAverage.Value() + m.rpcWriteAverage.Value()) / 2
+	}
+	// fall back to settings latency if no read/write samples are available
+	return m.rpcSettingsAverage.Value()
 }
 
 // A HostQueue manages an ordered queue of hosts for uploading or
@@ -185,9 +194,7 @@ func (p *Provider) cmpMetrics(a, b types.PublicKey) int {
 	if fc != 0 {
 		return fc
 	}
-	al := (am.rpcReadAverage.Value() + am.rpcWriteAverage.Value()) / 2
-	bl := (bm.rpcReadAverage.Value() + bm.rpcWriteAverage.Value()) / 2
-	return cmp.Compare(al, bl)
+	return cmp.Compare(am.latency(), bm.latency())
 }
 
 // AddReadSample records a successful read RPC attempt to the specified host.
@@ -214,6 +221,19 @@ func (p *Provider) AddWriteSample(hostKey types.PublicKey, latency time.Duration
 	}
 	metric.rpcWriteAverage.AddSample(latency)
 	metric.rpcFailRate.AddSample(true)
+}
+
+// AddSettingsSample records a successful settings RPC to the specified host.
+func (p *Provider) AddSettingsSample(hostKey types.PublicKey, latency time.Duration, success bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	metric, exists := p.metrics[hostKey]
+	if !exists {
+		metric = &hostMetric{}
+		p.metrics[hostKey] = metric
+	}
+	metric.rpcSettingsAverage.AddSample(latency)
+	metric.rpcFailRate.AddSample(success)
 }
 
 // AddFailedRPC records a failed RPC attempt to the specified host.
@@ -287,6 +307,11 @@ func (p *Provider) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	}
 	p.sortHosts(filtered)
 	return filtered
+}
+
+// UsableHosts returns all usable hosts in an arbitrary order.
+func (p *Provider) UsableHosts() ([]hosts.HostInfo, error) {
+	return p.store.UsableHosts()
 }
 
 // NewProvider creates a new Provider to track

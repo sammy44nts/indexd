@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
@@ -307,6 +308,72 @@ func (c *Client) UploadQueue() (*HostQueue, error) {
 // The reordered slice is returned with unusable hosts removed.
 func (c *Client) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	return c.hosts.Prioritize(hosts)
+}
+
+// WarmConnections establishes siamux connections and fetches prices from
+// good for upload hosts concurrently, seeding latency metrics for host ordering.
+func (c *Client) WarmConnections() error {
+	// fetch usable hosts
+	his, err := c.hosts.UsableHosts()
+	if err != nil {
+		c.log.Error("failed to warm connections", zap.Error(err))
+		return err
+	}
+
+	// filter it down to good for upload hosts
+	var hosts []types.PublicKey
+	for _, hi := range his {
+		if hi.GoodForUpload {
+			hosts = append(hosts, hi.PublicKey)
+		}
+	}
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	// add ourselves to the threadgroup to avoid errors on close
+	cancel, err := c.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	// warm connections in parallel with a limit of 15 concurrent dials
+	var wg sync.WaitGroup
+	var warmed atomic.Uint64
+	sema := make(chan struct{}, 15)
+	for _, hk := range hosts {
+		select {
+		case <-c.tg.Done():
+			return nil
+		default:
+		}
+
+		sema <- struct{}{}
+		wg.Add(1)
+		go func(hk types.PublicKey) {
+			defer func() {
+				<-sema
+				wg.Done()
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			start := time.Now()
+			_, err := c.Prices(ctx, hk)
+			if err == nil {
+				warmed.Add(1)
+			}
+			c.hosts.AddSettingsSample(hk, time.Since(start), err == nil)
+		}(hk)
+	}
+
+	// wait for all warmups to complete
+	wg.Wait()
+
+	c.log.Debug("warmed connections", zap.Uint64("warmed", warmed.Load()), zap.Int("total", len(hosts)))
+	return nil
 }
 
 // Close waits for all inflight RPCs to complete then closes all open transports.
