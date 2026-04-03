@@ -331,7 +331,7 @@ func (c *Client) WarmConnections() error {
 		return nil
 	}
 
-	// add ourselves to the threadgroup to avoid errors on close
+	// add ourselves once to avoid errors on close
 	cancel, err := c.tg.Add()
 	if err != nil {
 		return err
@@ -346,10 +346,9 @@ func (c *Client) WarmConnections() error {
 		select {
 		case <-c.tg.Done():
 			return nil
-		default:
+		case sema <- struct{}{}:
 		}
 
-		sema <- struct{}{}
 		wg.Add(1)
 		go func(hk types.PublicKey) {
 			defer func() {
