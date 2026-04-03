@@ -237,7 +237,7 @@ func NewManager(syncer Syncer, locator Locator, client HostClient, store Store, 
 
 	m := &HostManager{
 		announcementMaxAge: time.Hour * 24 * 365,
-		scanFrequency:      time.Hour,
+		scanFrequency:      5 * time.Minute,
 		scanInterval:       time.Hour * 24,
 
 		onlineChecker: &onlineChecker{addresses: fallbackSites, syncer: syncer},
