@@ -125,6 +125,7 @@ func (s *SDK) downloadSlab(ctx context.Context, slab slabs.SlabSlice, timeout ti
 	// prioritize hosts
 	slabHosts = s.hosts.Prioritize(slabHosts)
 
+	// helper to launch download
 	type result struct {
 		index int
 		buf   []byte
@@ -132,31 +133,24 @@ func (s *SDK) downloadSlab(ctx context.Context, slab slabs.SlabSlice, timeout ti
 	}
 	responseCh := make(chan result, len(slab.Sectors))
 	var outstanding int
-	// helper to launch download
-	tryDownloadSector := func(ctx context.Context, d sectorDownload) bool {
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
+	tryDownloadSector := func(d sectorDownload) {
 		outstanding++
 		wg.Go(func() {
+			dlCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
 			buf := bytes.NewBuffer(make([]byte, 0, length))
-			err := downloadShard(ctx, s.hosts, s.appKey, d.sector.HostKey, buf, d.sector.Root, offset, length, timeout)
+			_, err := s.hosts.ReadSector(dlCtx, s.appKey, d.sector.HostKey, d.sector.Root, buf, offset, length)
 			select {
 			case <-ctx.Done():
 				return
 			case responseCh <- result{index: d.index, buf: buf.Bytes(), err: err}:
 			}
 		})
-		return true
 	}
 
 	// launch minShards downloads right away
 	for range slab.MinShards {
-		if !tryDownloadSector(ctx, slabSectors[slabHosts[0]]) {
-			return nil, ctx.Err()
-		}
+		tryDownloadSector(slabSectors[slabHosts[0]])
 		slabHosts = slabHosts[1:]
 	}
 
@@ -185,16 +179,14 @@ func (s *SDK) downloadSlab(ctx context.Context, slab slabs.SlabSlice, timeout ti
 				return nil, ErrNotEnoughShards
 			}
 			if res.err != nil && len(slabHosts) > 0 {
-				if tryDownloadSector(ctx, slabSectors[slabHosts[0]]) {
-					slabHosts = slabHosts[1:]
-				}
+				tryDownloadSector(slabSectors[slabHosts[0]])
+				slabHosts = slabHosts[1:]
 			}
 		case <-timer.C:
 			// periodically launch an extra download to race slow hosts
 			if len(slabHosts) > 0 {
-				if tryDownloadSector(ctx, slabSectors[slabHosts[0]]) {
-					slabHosts = slabHosts[1:]
-				}
+				tryDownloadSector(slabSectors[slabHosts[0]])
+				slabHosts = slabHosts[1:]
 			}
 		case <-ctx.Done():
 			// download got interrupted before it could finish
@@ -662,14 +654,6 @@ func sectorRegion(ss slabs.SlabSlice) (offset, length uint64) {
 		end += proto4.LeafSize
 	}
 	return uint64(start), uint64(end - start)
-}
-
-// downloadShard reads a sector from a host
-func downloadShard(ctx context.Context, client hostClient, accountKey types.PrivateKey, hostKey types.PublicKey, w io.Writer, root types.Hash256, offset, length uint64, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	_, err := client.ReadSector(ctx, accountKey, hostKey, root, w, offset, length)
-	return err
 }
 
 // uploadShard uploads a shard to a host
