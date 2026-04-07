@@ -668,7 +668,7 @@ func WithLogger(log *zap.Logger) Option {
 	}
 }
 
-func initSDK(appKey types.PrivateKey, app appClient, opts ...Option) (*SDK, error) {
+func initSDK(appKey types.PrivateKey, app appClient, opts ...Option) (_ *SDK, err error) {
 	// prepare sdk
 	sdk := &SDK{
 		appKey: appKey,
@@ -684,6 +684,13 @@ func initSDK(appKey types.PrivateKey, app appClient, opts ...Option) (*SDK, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host store: %w", err)
 	}
+
+	// avoid goroutine leak on error
+	defer func() {
+		if err != nil {
+			hostStore.tg.Stop()
+		}
+	}()
 
 	// init host client
 	provider := client.NewProvider(hostStore)
