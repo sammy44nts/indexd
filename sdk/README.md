@@ -67,6 +67,11 @@ if err != nil {
 	log.Fatal("failed to upload file")
 }
 
+// pin the uploaded object so the indexer maintains it on the network
+if err := client.PinObject(context.Background(), metadata); err != nil {
+	log.Fatal("failed to pin object")
+}
+
 // open a file to download to
 dstFile, err := os.Create("path/to/dst.dat")
 if err != nil {
@@ -110,6 +115,13 @@ for _, data := range smallObjects {
 objects, err := packed.Finalize(ctx)
 if err != nil {
 	log.Fatal("failed to finalize packed upload")
+}
+
+// pin each object so the indexer maintains them on the network
+for _, obj := range objects {
+	if err := client.PinObject(ctx, obj); err != nil {
+		log.Fatal("failed to pin object")
+	}
 }
 
 // each object can be downloaded individually
@@ -161,7 +173,12 @@ for len(uploads) > 0 {
 			return err
 		}
 
-		// pin objects
+		// pin objects so the indexer maintains them on the network
+		for _, obj := range objects {
+			if err := client.PinObject(ctx, obj); err != nil {
+				return err
+			}
+		}
 
 		return nil
 	}()
