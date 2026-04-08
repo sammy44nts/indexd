@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,7 +48,7 @@ func runConfigCmd(fp string) {
 
 	fmt.Println("")
 	if cfg.RecoveryPhrase != "" {
-		fmt.Println(ansiStyle("33m", "A wallet seed phrase is already set."))
+		fmt.Println(ansiStyle("33", "A wallet seed phrase is already set."))
 		fmt.Println("If you change your wallet seed phrase, your indexer will not be able to access Siacoin associated with this wallet.")
 		fmt.Println("Ensure that you have backed up your wallet seed phrase before continuing.")
 		if promptYesNo("Would you like to change your wallet seed phrase?") {
@@ -59,13 +60,31 @@ func runConfigCmd(fp string) {
 
 	fmt.Println("")
 	if cfg.AdminAPI.Password != "" {
-		fmt.Println(ansiStyle("33m", "An admin password is already set."))
+		fmt.Println(ansiStyle("33", "An admin password is already set."))
 		fmt.Println("If you change your admin password, you will need to update any scripts or applications that use the admin API.")
 		if promptYesNo("Would you like to change your admin password?") {
 			setAPIPassword()
 		}
 	} else {
 		setAPIPassword()
+	}
+
+	if cfg.Database.Password != "" {
+		fmt.Println(ansiStyle("33", "A database password is already set."))
+		if promptYesNo("Would you like to change the database password?") {
+			setDatabasePassword()
+		}
+	} else {
+		setDatabasePassword()
+	}
+
+	if cfg.ApplicationAPI.AdvertiseURL != "" {
+		fmt.Println(ansiStyle("33", "An application API advertise URL is already set."))
+		if promptYesNo("Would you like to change your application API advertise URL?") {
+			setAdvertiseURL()
+		}
+	} else {
+		setAdvertiseURL()
 	}
 
 	setAdvancedConfig()
@@ -131,7 +150,7 @@ func promptQuestion(question string, answers []string) string {
 				return answer
 			}
 		}
-		fmt.Println(ansiStyle("31m", fmt.Sprintf("Answer must be %s", humanList(answers, "or"))))
+		fmt.Println(ansiStyle("31", fmt.Sprintf("Answer must be %s", humanList(answers, "or"))))
 	}
 }
 
@@ -157,6 +176,21 @@ func readPasswordInput(context string) string {
 	return string(input)
 }
 
+func setAdvertiseURL() {
+	for {
+		cfg.ApplicationAPI.AdvertiseURL = readInput("Enter new application API advertise URL, this should be the URL you expect applications to connect to (e.g. https://sia.storage)")
+		u, err := url.Parse(cfg.ApplicationAPI.AdvertiseURL) // validate URL
+		if err != nil {
+			stdoutError(fmt.Sprintf("Invalid URL %q: %s", cfg.ApplicationAPI.AdvertiseURL, err.Error()))
+			continue
+		} else if !u.IsAbs() || u.Host == "" {
+			stdoutError(fmt.Sprintf("Advertise URL must include a scheme (e.g. http:// or https://) and host: %q", cfg.ApplicationAPI.AdvertiseURL))
+			continue
+		}
+		break
+	}
+}
+
 // setAPIPassword prompts the user to enter an API password if one is not
 // already set via environment variable or config file.
 func setAPIPassword() {
@@ -170,7 +204,7 @@ func setAPIPassword() {
 			break
 		}
 
-		fmt.Println(ansiStyle("31m", "Password must be at least 4 characters!"))
+		fmt.Println(ansiStyle("31", "Password must be at least 4 characters!"))
 		fmt.Println("")
 	}
 }
@@ -187,16 +221,17 @@ func setAdvancedConfig() {
 	fmt.Println("")
 
 	// http address of Admin API
-	fmt.Println("The HTTP address is used to serve the indexer's admin API.")
+	fmt.Println("The Admin API address is used to serve the indexer's admin API.")
 	fmt.Println("The admin API is used to configure the indexer.")
 	fmt.Println("It should only be exposed to the public internet via an https reverse proxy")
-	setListenAddress("HTTP Address", &cfg.AdminAPI.Address)
+	setListenAddress("Admin API Address", &cfg.AdminAPI.Address)
 
 	// http address of Application API
-	fmt.Println("The HTTP address is used to serve the indexer's application API.")
+	fmt.Println("")
+	fmt.Println("The Application API address is used to serve the indexer's application API.")
 	fmt.Println("The application API is used by applications to interact with the indexer.")
 	fmt.Println("It should only be exposed to the public internet via an https reverse proxy")
-	setListenAddress("HTTP Address", &cfg.ApplicationAPI.Address)
+	setListenAddress("Application API Address", &cfg.ApplicationAPI.Address)
 
 	// syncer address
 	fmt.Println("")
@@ -213,11 +248,6 @@ func setAdvancedConfig() {
 	fmt.Println("")
 	fmt.Println("The database name for the postgres connection.")
 	setDatabaseName()
-
-	// database password
-	fmt.Println("")
-	fmt.Println("The database password for the postgres connection.")
-	setDatabasePassword()
 
 	// database address
 	fmt.Println("")
@@ -238,7 +268,7 @@ func setDatabaseAddress() {
 
 	// will continue to prompt until a valid value is entered
 	for {
-		input := readInput(fmt.Sprintf("Enter new database address (currently %q)", current))
+		input := readInput(fmt.Sprintf("Enter new database address (Current: %q)", current))
 		if input == "" {
 			return
 		}
@@ -271,18 +301,9 @@ func setDatabaseName() {
 }
 
 func setDatabasePassword() {
-	if !promptYesNo("Would you like to change the database password?") {
-		return
-	}
-
 	fmt.Println("The database password is used to connect to the indexer's database.")
 	fmt.Println("It should be a strong password that is not used for any other purpose.")
 	cfg.Database.Password = readPasswordInput("Enter new database password")
-	if len(cfg.Database.Password) < 4 {
-		fmt.Println(ansiStyle("31m", "Password must be at least 4 characters!"))
-		setDatabasePassword()
-		return
-	}
 }
 
 func setDatabaseSSLMode() {
@@ -307,15 +328,15 @@ func setDataDirectory() {
 	dir, err := filepath.Abs(cfg.Directory)
 	checkFatalError("failed to get absolute path of data directory", err)
 
-	fmt.Println("The data directory is where indexd will store its metadata and consensus data.")
+	fmt.Println("The data directory is where indexd will store its consensus data.")
 	fmt.Println("This directory should be on a fast, reliable storage device, preferably an SSD.")
 	fmt.Println("")
 
 	_, existsErr := os.Stat(filepath.Join(cfg.Directory, "indexd.db"))
 	dataExists := existsErr == nil
 	if dataExists {
-		fmt.Println(ansiStyle("33m", "There is existing data in the data directory."))
-		fmt.Println(ansiStyle("33m", "If you change your data directory, you will need to manually move consensus, gateway, tpool, and indexd.db to the new directory."))
+		fmt.Println(ansiStyle("33", "There is existing data in the data directory."))
+		fmt.Println(ansiStyle("33", "If you change your data directory, you will need to manually move the contents of the previous directory to the new directory."))
 	}
 
 	if !promptYesNo("Would you like to change the data directory? (Current: " + dir + ")") {
@@ -327,7 +348,7 @@ func setDataDirectory() {
 func setListenAddress(context string, value *string) {
 	// will continue to prompt until a valid value is entered
 	for {
-		input := readInput(fmt.Sprintf("%s (currently %q)", context, *value))
+		input := readInput(fmt.Sprintf("%s (Current: %q)", context, *value))
 		if input == "" {
 			return
 		}
@@ -367,24 +388,24 @@ func setSeedPhrase() {
 			}
 			key := wallet.KeyFromSeed(&seed, 0)
 			fmt.Println("")
-			fmt.Println("A new seed phrase has been generated below. " + ansiStyle("1m", "Write it down and keep it safe."))
+			fmt.Println("A new seed phrase has been generated below. " + ansiStyle("1", "Write it down and keep it safe."))
 			fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
 			fmt.Println("You will need to re-enter this seed phrase every time you start indexd.")
 			fmt.Println("")
-			fmt.Println(ansiStyle("34;1m", "Seed Phrase:"), phrase)
-			fmt.Println(ansiStyle("34;1m", "Wallet Address:"), types.StandardUnlockHash(key.PublicKey()))
+			fmt.Println(ansiStyle("34;1", "Seed Phrase:"), phrase)
+			fmt.Println(ansiStyle("34;1", "Wallet Address:"), types.StandardUnlockHash(key.PublicKey()))
 
 			// confirm seed phrase
 			for {
 				fmt.Println("")
-				fmt.Println(ansiStyle("1m", "Please confirm your seed phrase to continue."))
+				fmt.Println(ansiStyle("1", "Please confirm your seed phrase to continue."))
 				confirmPhrase := readPasswordInput("Enter seed phrase")
 				if confirmPhrase == phrase {
 					cfg.RecoveryPhrase = phrase
 					return
 				}
 
-				fmt.Println(ansiStyle("31m", "Seed phrases do not match!"))
+				fmt.Println(ansiStyle("31", "Seed phrases do not match!"))
 				fmt.Println("You entered:", confirmPhrase)
 				fmt.Println("Actual phrase:", phrase)
 			}
@@ -392,7 +413,7 @@ func setSeedPhrase() {
 
 		var seed [32]byte
 		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
-			fmt.Println(ansiStyle("31m", "Invalid seed phrase:"), err)
+			fmt.Println(ansiStyle("31", "Invalid seed phrase:"), err)
 			fmt.Println("You entered:", phrase)
 			continue
 		}
@@ -406,7 +427,7 @@ func setSeedPhrase() {
 // stdoutError prints an error message to stdout
 func stdoutError(msg string) {
 	if cfg.Log.StdOut.EnableANSI {
-		fmt.Println(ansiStyle("31m", msg))
+		fmt.Println(ansiStyle("31", msg))
 	} else {
 		fmt.Println(msg)
 	}

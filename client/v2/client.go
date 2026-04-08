@@ -266,7 +266,7 @@ func (c *Client) WriteSector(ctx context.Context, accountKey types.PrivateKey, h
 		return err
 	})
 	if err == nil {
-		c.hosts.AddWriteSample(hostKey, time.Since(start))
+		c.hosts.AddWriteSample(hostKey, uint64(len(data)), time.Since(start))
 	}
 	return
 }
@@ -291,7 +291,7 @@ func (c *Client) ReadSector(ctx context.Context, accountKey types.PrivateKey, ho
 		return err
 	})
 	if err == nil {
-		c.hosts.AddReadSample(hostKey, time.Since(start))
+		c.hosts.AddReadSample(hostKey, length, time.Since(start))
 	}
 	return
 }

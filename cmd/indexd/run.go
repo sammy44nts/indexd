@@ -43,22 +43,116 @@ import (
 	"go.uber.org/zap"
 )
 
-func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) error {
+func consensusExists(dir string) (bool, error) {
+	_, err := os.Stat(filepath.Join(dir, "consensus.db"))
+	isNotExist := errors.Is(err, os.ErrNotExist)
+	if err == nil || isNotExist {
+		return !isNotExist, nil
+	}
+	return false, err
+}
+
+func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, instantSync bool, network *consensus.Network, genesis types.Block, log *zap.Logger) error {
 	store, err := postgres.NewStore(ctx, cfg.Database, contracts.DefaultMaintenanceSettings, hosts.DefaultUsabilitySettings, log.Named("postgres"))
 	if err != nil {
 		return fmt.Errorf("failed to create postgres store: %w", err)
 	}
 	defer store.Close()
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
+	var e *explorer.Explorer
+	if cfg.Explorer.Enabled {
+		e = explorer.New(cfg.Explorer.URL)
 	}
-	defer bdb.Close()
 
-	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
+	walletAddress := types.StandardUnlockHash(walletKey.PublicKey())
+	consensusExists, err := consensusExists(cfg.Directory)
 	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
+		return fmt.Errorf("failed to check if consensus exists: %w", err)
+	}
+
+	var dbstore *chain.DBStore
+	var tipState consensus.State
+	minPruneTarget := uint64(6 * time.Hour / network.BlockInterval)
+	if instantSync && cfg.Consensus.PruneTarget == 0 {
+		// default to 6 hours of blocks
+		cfg.Consensus.PruneTarget = minPruneTarget
+	} else if cfg.Consensus.PruneTarget > 0 && cfg.Consensus.PruneTarget < minPruneTarget {
+		return fmt.Errorf("prune target must be at least %d blocks (6 hours)", minPruneTarget)
+	}
+
+	if instantSync && !consensusExists {
+		if e == nil {
+			return errors.New("instant sync requires the explorer to be enabled")
+		}
+
+		syncCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		log.Debug("wallet address for checkpoint", zap.Stringer("address", walletAddress))
+		checkpoint, err := e.AddressCheckpoint(syncCtx, walletAddress)
+		if err != nil {
+			return fmt.Errorf("failed to get address checkpoint from explorer: %w", err)
+		}
+		checkpointHeight := checkpoint.Height
+
+		// back 6 months so the indexer can discover host announcements
+		sixMonths := uint64(6 * 30 * 24 * time.Hour / network.BlockInterval)
+		if checkpointHeight > sixMonths {
+			checkpointHeight -= sixMonths
+		} else {
+			checkpointHeight = 0
+		}
+
+		if checkpointHeight < network.HardforkV2.RequireHeight {
+			return fmt.Errorf("unable to instant sync: checkpoint height %d is before hardfork v2 require height %d", checkpointHeight, network.HardforkV2.RequireHeight)
+		}
+
+		checkpoint, err = e.TipHeight(syncCtx, checkpointHeight)
+		if err != nil {
+			return fmt.Errorf("failed to get tip height from explorer: %w", err)
+		}
+		log := log.With(zap.Stringer("checkpoint", checkpoint))
+		log.Info("starting instant sync from checkpoint")
+
+		cs, b, err := syncer.RetrieveCheckpoint(syncCtx, cfg.Syncer.Peers, checkpoint, network, genesis.ID())
+		if err != nil {
+			return fmt.Errorf("failed to retrieve checkpoint: %w", err)
+		}
+		log.Debug("retrieved checkpoint")
+
+		if err := store.ResetChainState(); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		} else if err := store.SetCheckpoint(checkpoint); err != nil {
+			return fmt.Errorf("failed to set checkpoint in store: %w", err)
+		}
+
+		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
+		dbstore, tipState, err = chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store from checkpoint: %w", err)
+		}
+
+		log.Info("instant sync complete")
+	} else {
+		if instantSync {
+			log.Debug("instant sync skipped: consensus database already exists")
+		}
+
+		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
+		dbstore, tipState, err = chain.NewDBStore(bdb, network, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store: %w", err)
+		}
 	}
 	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 
@@ -156,7 +250,10 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer slabs.Close()
 
-	subscriber, err := subscriber.New(cm, hm, contracts, wm, store, subscriber.WithLogger(log.Named("subscriber")))
+	subscriber, err := subscriber.New(cm, hm, contracts, wm, store,
+		subscriber.WithLogger(log.Named("subscriber")),
+		subscriber.WithBatchSize(cfg.Consensus.IndexBatchSize),
+		subscriber.WithPruneTarget(cfg.Consensus.PruneTarget))
 	if err != nil {
 		return fmt.Errorf("failed to create subscriber: %w", err)
 	}
@@ -176,9 +273,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		adminAPIOpts = append(adminAPIOpts, admin.WithDebug())
 	}
 
-	var e *explorer.Explorer
-	if cfg.Explorer.Enabled {
-		e = explorer.New(cfg.Explorer.URL)
+	if e != nil {
 		adminAPIOpts = append(adminAPIOpts, admin.WithExplorer(e))
 	}
 

@@ -181,7 +181,7 @@ func TestProviderPriority(t *testing.T) {
 	// simulate a successful RPC on the third host
 	// it should be above the two failed hosts, but below the
 	// hosts without any history
-	provider.AddReadSample(usable[2], 100*time.Millisecond)
+	provider.AddReadSample(usable[2], 4<<20, 100*time.Millisecond)
 	sorted = provider.Prioritize(slices.Clone(usable))
 	if len(sorted) != 10 {
 		t.Fatalf("expected 10 hosts, got %d", len(sorted))
@@ -191,6 +191,49 @@ func TestProviderPriority(t *testing.T) {
 		t.Fatal("expected host with single failed RPC to be the second worst candidate")
 	} else if sorted[len(sorted)-3] != usable[2] {
 		t.Fatal("expected host with successful RPC to be above failed hosts")
+	}
+
+	// give the fourth host higher throughput than the third, it should
+	// rank above it
+	provider.AddReadSample(usable[3], 4<<20, 10*time.Millisecond)
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 10 {
+		t.Fatalf("expected 10 hosts, got %d", len(sorted))
+	} else if sorted[len(sorted)-3] != usable[2] {
+		t.Fatal("expected slower host to rank below faster host")
+	} else if sorted[len(sorted)-4] != usable[3] {
+		t.Fatal("expected faster host to rank above slower host")
+	}
+
+	// give the fifth host a write sample with higher avg throughput than
+	// the third host's read sample, it should rank above the third host
+	provider.AddWriteSample(usable[4], 4<<20, 50*time.Millisecond)
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 10 {
+		t.Fatalf("expected 10 hosts, got %d", len(sorted))
+	} else if sorted[len(sorted)-3] != usable[2] {
+		t.Fatal("expected slower read host to rank below write host")
+	} else if sorted[len(sorted)-4] != usable[4] {
+		t.Fatal("expected write host to rank above slower read host")
+	}
+
+	// give the sixth host a faster write sample, it should rank above the
+	// fifth host
+	provider.AddWriteSample(usable[5], 4<<20, 5*time.Millisecond)
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 10 {
+		t.Fatalf("expected 10 hosts, got %d", len(sorted))
+	} else if sorted[len(sorted)-4] != usable[4] {
+		t.Fatal("expected slower write host to rank below faster write host")
+	} else if sorted[len(sorted)-6] != usable[5] {
+		t.Fatal("expected faster write host to rank above slower write host")
+	}
+
+	// zero duration should not corrupt the throughput average
+	provider.AddWriteSample(usable[6], 4<<20, 0)
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 10 {
+		t.Fatalf("expected 10 hosts, got %d", len(sorted))
 	}
 
 	// add an unknown host and ensure it is ignored

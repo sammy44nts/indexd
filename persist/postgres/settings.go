@@ -66,6 +66,14 @@ func (s *Store) LastScannedIndex() (ci types.ChainIndex, err error) {
 	return
 }
 
+// SetCheckpoint sets the consensus checkpoint index for the store.
+func (s *Store) SetCheckpoint(index types.ChainIndex) error {
+	return s.transaction(func(ctx context.Context, tx *txn) error {
+		_, err := tx.Exec(ctx, `UPDATE global_settings SET scanned_height = $1, scanned_block_id = $2`, index.Height, sqlHash256(index.ID))
+		return err
+	})
+}
+
 // UpdateLastScannedIndex updates the last scanned index.
 func (u *updateTx) UpdateLastScannedIndex(ci types.ChainIndex) error {
 	_, err := u.tx.Exec(u.ctx, `UPDATE global_settings SET scanned_height = $1, scanned_block_id = $2`, ci.Height, sqlHash256(ci.ID))

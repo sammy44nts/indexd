@@ -23,6 +23,7 @@ type (
 		Tip() types.ChainIndex
 		OnReorg(fn func(types.ChainIndex)) (cancel func())
 		UpdatesSince(index types.ChainIndex, maxBlocks int) (rus []chain.RevertUpdate, aus []chain.ApplyUpdate, err error)
+		PruneBlocks(height uint64)
 	}
 
 	// ContractManager manages contract state.
@@ -62,6 +63,7 @@ type (
 // Subscriber manages the chain state.
 type Subscriber struct {
 	updateBatchSize int
+	pruneTarget     uint64
 	shutdownFn      func()
 	syncMu          sync.Mutex
 
@@ -208,6 +210,11 @@ func (s *Subscriber) Sync(ctx context.Context) error {
 	// post-sync actions
 	if err := s.contracts.ProcessActions(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		s.log.Named("contracts").Error("failed to process actions", zap.Error(err))
+	}
+
+	// prune old blocks if pruning is enabled
+	if s.pruneTarget > 0 && index.Height > s.pruneTarget {
+		s.cm.PruneBlocks(index.Height - s.pruneTarget)
 	}
 
 	s.log.Debug("synced", zap.Uint64("height", index.Height), zap.Stringer("id", index.ID))

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -28,12 +29,13 @@ type (
 	// ConnectionInfo contains the information needed to connect to a PostgreSQL
 	// database.
 	ConnectionInfo struct {
-		Host     string `json:"host" yaml:"host"`
-		Port     int    `json:"port" yaml:"port"`
-		User     string `json:"user" yaml:"user"`
-		Password string `json:"password" yaml:"password"`
-		Database string `json:"database" yaml:"database"`
-		SSLMode  string `json:"sslmode" yaml:"sslmode"`
+		Host        string `json:"host" yaml:"host"`
+		Port        int    `json:"port" yaml:"port"`
+		User        string `json:"user" yaml:"user"`
+		Password    string `json:"password" yaml:"password"`
+		Database    string `json:"database" yaml:"database"`
+		SSLMode     string `json:"sslmode" yaml:"sslmode"`
+		SSLRootCert string `json:"sslrootcert" yaml:"sslrootcert"`
 	}
 
 	// A Store is a persistent store that uses a SQL database as its backend.
@@ -45,7 +47,18 @@ type (
 
 // String returns a connection string for the given ConnectionInfo.
 func (ci ConnectionInfo) String() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s", ci.Host, ci.Port, ci.User, ci.Password, ci.Database, ci.SSLMode)
+	params := []string{
+		fmt.Sprintf("host='%s'", ci.Host),
+		fmt.Sprintf("port='%d'", ci.Port),
+		fmt.Sprintf("user='%s'", ci.User),
+		fmt.Sprintf("password='%s'", ci.Password),
+		fmt.Sprintf("dbname='%s'", ci.Database),
+		fmt.Sprintf("sslmode='%s'", ci.SSLMode),
+	}
+	if ci.SSLRootCert != "" {
+		params = append(params, fmt.Sprintf("sslrootcert='%s'", ci.SSLRootCert))
+	}
+	return strings.Join(params, " ")
 }
 
 // transaction executes a function within a database transaction. If the
