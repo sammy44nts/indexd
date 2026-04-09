@@ -15,7 +15,10 @@ import (
 	"go.sia.tech/indexd/hosts"
 )
 
-const emaAlpha = 0.2
+const (
+	emaAlpha            = 0.2
+	settingsPayloadSize = 720 // size of host settings in bytes
+)
 
 // ErrAbortedRPC is a special error that can be used as the cancel for an RPC
 // context to indicate that the RPC was interrupted and that the corresponding
@@ -35,18 +38,18 @@ type Store interface {
 }
 
 // AddSample adds a new sample to the exponential moving average.
-func (e *rpcAverage) AddSample(v float64) {
-	if !e.init {
-		e.value = v
-		e.init = true
+func (ra *rpcAverage) AddSample(v float64) {
+	if !ra.init {
+		ra.value = v
+		ra.init = true
 	} else {
-		e.value = emaAlpha*v + (1.0-emaAlpha)*e.value
+		ra.value = emaAlpha*v + (1.0-emaAlpha)*ra.value
 	}
 }
 
 // Value returns the current average.
-func (e *rpcAverage) Value() float64 {
-	return e.value
+func (ra *rpcAverage) Value() float64 {
+	return ra.value
 }
 
 type failureRate struct {
@@ -80,24 +83,33 @@ func (fr *failureRate) Value() float64 {
 }
 
 type hostMetric struct {
-	rpcWriteAverage    rpcAverage
-	rpcReadAverage     rpcAverage
-	rpcSettingsAverage rpcAverage
-	rpcFailRate        failureRate
+	rpcWriteAverage rpcAverage
+	rpcReadAverage  rpcAverage
+	rpcFailRate     failureRate
 }
 
-func (m *hostMetric) hasThroughput() bool {
-	return m.rpcReadAverage.init || m.rpcWriteAverage.init
-}
+func (m *hostMetric) cmpThroughput(other *hostMetric) int {
+	aHas := m.rpcReadAverage.init || m.rpcWriteAverage.init
+	bHas := other.rpcReadAverage.init || other.rpcWriteAverage.init
+	if !aHas && !bHas {
+		return 0
+	} else if !aHas {
+		return 1
+	} else if !bHas {
+		return -1
+	}
 
-func (m *hostMetric) throughput() float64 {
-	if m.rpcReadAverage.init && m.rpcWriteAverage.init {
-		return (m.rpcReadAverage.Value() + m.rpcWriteAverage.Value()) / 2
-	} else if m.rpcReadAverage.init {
-		return m.rpcReadAverage.Value()
-	} else {
+	avg := func(m *hostMetric) float64 {
+		if m.rpcReadAverage.init && m.rpcWriteAverage.init {
+			return (m.rpcReadAverage.Value() + m.rpcWriteAverage.Value()) / 2
+		} else if m.rpcReadAverage.init {
+			return m.rpcReadAverage.Value()
+		}
 		return m.rpcWriteAverage.Value()
 	}
+
+	// higher throughput is better, so reverse the comparison
+	return cmp.Compare(avg(other), avg(m))
 }
 
 // A HostQueue manages an ordered queue of hosts for uploading or
@@ -200,18 +212,7 @@ func (p *Provider) cmpMetrics(a, b types.PublicKey) int {
 		return fc
 	}
 
-	// prefer hosts with throughput data over settings-only hosts
-	if am.hasThroughput() && bm.hasThroughput() {
-		// higher throughput is better, so reverse the comparison
-		return cmp.Compare(bm.throughput(), am.throughput())
-	} else if am.hasThroughput() {
-		return -1
-	} else if bm.hasThroughput() {
-		return 1
-	}
-
-	// lower latency is better
-	return cmp.Compare(am.rpcSettingsAverage.Value(), bm.rpcSettingsAverage.Value())
+	return am.cmpThroughput(bm)
 }
 
 // AddReadSample records a successful read RPC attempt to the specified host.
@@ -249,16 +250,10 @@ func (p *Provider) AddWriteSample(hostKey types.PublicKey, bytes uint64, elapsed
 }
 
 // AddSettingsSample records a successful settings RPC to the specified host.
+// The settings response is treated as a 720 byte read to feed the throughput
+// metric.
 func (p *Provider) AddSettingsSample(hostKey types.PublicKey, latency time.Duration) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	metric, exists := p.metrics[hostKey]
-	if !exists {
-		metric = &hostMetric{}
-		p.metrics[hostKey] = metric
-	}
-	metric.rpcSettingsAverage.AddSample(latency.Seconds())
-	metric.rpcFailRate.AddSample(true)
+	p.AddReadSample(hostKey, settingsPayloadSize, latency)
 }
 
 // AddFailedRPC records a failed RPC attempt to the specified host.
