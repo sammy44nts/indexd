@@ -17,7 +17,8 @@ import (
 
 const (
 	emaAlpha            = 0.2
-	settingsPayloadSize = 720 // size of host settings in bytes
+	settingsPayloadSize = 270       // size of host settings in bytes
+	defaultThroughput   = 125000000 // 1 Gbps in bytes per second
 )
 
 // ErrAbortedRPC is a special error that can be used as the cancel for an RPC
@@ -47,8 +48,12 @@ func (ra *rpcAverage) AddSample(v float64) {
 	}
 }
 
-// Value returns the current average.
+// Value returns the current average, or defaultThroughput if no samples have
+// been recorded.
 func (ra *rpcAverage) Value() float64 {
+	if !ra.init {
+		return defaultThroughput
+	}
 	return ra.value
 }
 
@@ -86,30 +91,6 @@ type hostMetric struct {
 	rpcWriteAverage rpcAverage
 	rpcReadAverage  rpcAverage
 	rpcFailRate     failureRate
-}
-
-func (m *hostMetric) cmpThroughput(other *hostMetric) int {
-	aHas := m.rpcReadAverage.init || m.rpcWriteAverage.init
-	bHas := other.rpcReadAverage.init || other.rpcWriteAverage.init
-	if !aHas && !bHas {
-		return 0
-	} else if !aHas {
-		return 1
-	} else if !bHas {
-		return -1
-	}
-
-	avg := func(m *hostMetric) float64 {
-		if m.rpcReadAverage.init && m.rpcWriteAverage.init {
-			return (m.rpcReadAverage.Value() + m.rpcWriteAverage.Value()) / 2
-		} else if m.rpcReadAverage.init {
-			return m.rpcReadAverage.Value()
-		}
-		return m.rpcWriteAverage.Value()
-	}
-
-	// higher throughput is better, so reverse the comparison
-	return cmp.Compare(avg(other), avg(m))
 }
 
 // A HostQueue manages an ordered queue of hosts for uploading or
@@ -212,7 +193,10 @@ func (p *Provider) cmpMetrics(a, b types.PublicKey) int {
 		return fc
 	}
 
-	return am.cmpThroughput(bm)
+	// higher throughput is better, so reverse the comparison
+	at := (am.rpcReadAverage.Value() + am.rpcWriteAverage.Value()) / 2
+	bt := (bm.rpcReadAverage.Value() + bm.rpcWriteAverage.Value()) / 2
+	return cmp.Compare(bt, at)
 }
 
 // AddReadSample records a successful read RPC attempt to the specified host.
@@ -250,7 +234,7 @@ func (p *Provider) AddWriteSample(hostKey types.PublicKey, bytes uint64, elapsed
 }
 
 // AddSettingsSample records a successful settings RPC to the specified host.
-// The settings response is treated as a 720 byte read to feed the throughput
+// The settings response is treated as a small read to feed the throughput
 // metric.
 func (p *Provider) AddSettingsSample(hostKey types.PublicKey, latency time.Duration) {
 	p.AddReadSample(hostKey, settingsPayloadSize, latency)

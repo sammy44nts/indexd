@@ -405,6 +405,7 @@ func (c *Client) prices(ctx context.Context, hostKey types.PublicKey, transport 
 	if err != nil {
 		return proto.HostPrices{}, err
 	}
+
 	if settings.Prices.Validate(hostKey) == nil {
 		c.mu.Lock()
 		c.cachedPrices[hostKey] = settings.Prices
