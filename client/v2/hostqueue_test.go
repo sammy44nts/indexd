@@ -527,7 +527,7 @@ func TestWarmConnections(t *testing.T) {
 
 	// warm connections; all Prices calls will fail since no hosts are
 	// actually listening, but the method should still return nil
-	if err := c.WarmConnections(); err != nil {
+	if err := c.WarmConnections(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 

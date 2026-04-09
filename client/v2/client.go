@@ -316,7 +316,7 @@ func (c *Client) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 
 // WarmConnections establishes siamux connections and fetches prices from
 // good for upload hosts concurrently, seeding latency metrics for host ordering.
-func (c *Client) WarmConnections() error {
+func (c *Client) WarmConnections(ctx context.Context) error {
 	// fetch usable hosts
 	his, err := c.hosts.UsableHosts()
 	if err != nil {
@@ -360,8 +360,8 @@ func (c *Client) WarmConnections() error {
 				wg.Done()
 			}()
 
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_, err := c.Prices(ctx, hk)
+			pCtx, cancel := context.WithTimeout(ctx, time.Second)
+			_, err := c.Prices(pCtx, hk)
 			cancel()
 
 			if err == nil {
