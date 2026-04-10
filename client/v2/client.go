@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	proto "go.sia.tech/core/rhp/v4"
@@ -233,10 +234,14 @@ func (c *Client) Prices(ctx context.Context, hostKey types.PublicKey) (prices pr
 	}
 	defer done()
 
+	start := time.Now()
 	err = c.rpcFn(ctx, hostKey, func(ctx context.Context, transport rhp.TransportClient) error {
 		prices, err = c.prices(ctx, hostKey, transport)
 		return err
 	})
+	if err == nil {
+		c.hosts.AddSettingsSample(hostKey, time.Since(start))
+	}
 	return
 }
 
@@ -309,6 +314,69 @@ func (c *Client) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	return c.hosts.Prioritize(hosts)
 }
 
+// WarmConnections establishes siamux connections and fetches prices from
+// good for upload hosts concurrently, seeding latency metrics for host ordering.
+func (c *Client) WarmConnections(ctx context.Context) error {
+	// fetch usable hosts
+	his, err := c.hosts.UsableHosts()
+	if err != nil {
+		c.log.Error("failed to warm connections", zap.Error(err))
+		return err
+	}
+
+	// filter it down to good for upload hosts
+	var hosts []types.PublicKey
+	for _, hi := range his {
+		if hi.GoodForUpload {
+			hosts = append(hosts, hi.PublicKey)
+		}
+	}
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	// add ourselves once to avoid errors on close
+	cancel, err := c.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	// warm connections in parallel with a limit of 15 concurrent dials
+	var wg sync.WaitGroup
+	var warmed atomic.Uint64
+	sema := make(chan struct{}, 15)
+	for _, hk := range hosts {
+		select {
+		case <-c.tg.Done():
+			return nil
+		case sema <- struct{}{}:
+		}
+
+		wg.Add(1)
+		go func(hk types.PublicKey) {
+			defer func() {
+				<-sema
+				wg.Done()
+			}()
+
+			pCtx, cancel := context.WithTimeout(ctx, time.Second)
+			_, err := c.Prices(pCtx, hk)
+			cancel()
+
+			if err == nil {
+				warmed.Add(1)
+			}
+		}(hk)
+	}
+
+	// wait for all warmups to complete
+	wg.Wait()
+
+	c.log.Debug("warmed connections", zap.Uint64("warmed", warmed.Load()), zap.Int("total", len(hosts)))
+	return nil
+}
+
 // Close waits for all inflight RPCs to complete then closes all open transports.
 func (c *Client) Close() error {
 	c.tg.Stop()
@@ -337,6 +405,7 @@ func (c *Client) prices(ctx context.Context, hostKey types.PublicKey, transport 
 	if err != nil {
 		return proto.HostPrices{}, err
 	}
+
 	if settings.Prices.Validate(hostKey) == nil {
 		c.mu.Lock()
 		c.cachedPrices[hostKey] = settings.Prices

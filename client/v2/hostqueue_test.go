@@ -84,6 +84,60 @@ func (s *testStore) addUsableHost(t testing.TB) types.PublicKey {
 	return pk
 }
 
+func TestProviderSettingsSample(t *testing.T) {
+	s := newTestStore(t)
+	store := hosts.NewHostStore(s.Store)
+
+	hostA := s.addUsableHost(t)
+	hostB := s.addUsableHost(t)
+	hostC := s.addUsableHost(t)
+	usable := []types.PublicKey{hostA, hostB, hostC}
+
+	provider := client.NewProvider(store)
+
+	// add a settings sample to hostA
+	provider.AddSettingsSample(hostA, 100*time.Millisecond)
+
+	// add a failure to hostC
+	provider.AddFailedRPC(hostC, nil)
+
+	// hostA should sort behind unknown hostB but ahead of failed hostC
+	sorted := provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(sorted))
+	} else if sorted[len(sorted)-1] != hostC {
+		t.Fatal("expected host with failed RPC to be last")
+	} else if sorted[len(sorted)-2] != hostA {
+		t.Fatal("expected host with settings sample to sort behind unknown host")
+	}
+
+	// add a faster settings sample to hostB
+	provider.AddSettingsSample(hostB, 50*time.Millisecond)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if len(sorted) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(sorted))
+	} else if slices.Index(sorted, hostB) >= slices.Index(sorted, hostA) {
+		t.Fatal("expected lower latency host to sort ahead of higher latency host")
+	}
+
+	// add a real read sample to hostA; read/write data should take precedence
+	provider.AddReadSample(hostA, 4<<20, 10*time.Millisecond)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if slices.Index(sorted, hostA) >= slices.Index(sorted, hostB) {
+		t.Fatal("expected host with read/write data to sort ahead of settings only host")
+	}
+
+	// record a failed RPC to hostB; it should sort behind hostA
+	provider.AddFailedRPC(hostB, nil)
+
+	sorted = provider.Prioritize(slices.Clone(usable))
+	if slices.Index(sorted, hostA) >= slices.Index(sorted, hostB) {
+		t.Fatal("expected host with failed settings RPC to sort behind host with successful RPCs")
+	}
+}
+
 func TestProviderPriority(t *testing.T) {
 	s := newTestStore(t)
 	store := hosts.NewHostStore(s.Store)
@@ -448,6 +502,44 @@ func TestHostQueueIterAttempts(t *testing.T) {
 
 	if order[3] != hostA || attemptLog[3] != 3 {
 		t.Fatalf("iteration 3: expected hostA attempt 3, got %s attempt %d", order[3], attemptLog[3])
+	}
+}
+
+func TestWarmConnections(t *testing.T) {
+	s := newTestStore(t)
+	store := hosts.NewHostStore(s.Store)
+
+	// add two GoodForUpload hosts and one that is not
+	gfuHostA := s.addUsableHost(t)
+	gfuHostB := s.addUsableHost(t)
+	nonGFUHost := s.addUsableHost(t)
+
+	// mark nonGFUHost as not good for upload by zeroing its remaining storage
+	badSettings := goodSettings
+	badSettings.RemainingStorage = 0
+	if err := s.UpdateHostScan(nonGFUHost, badSettings, geoip.Location{}, true, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := client.NewProvider(store)
+	c := client.New(provider, zaptest.NewLogger(t))
+	defer c.Close()
+
+	// warm connections; all Prices calls will fail since no hosts are
+	// actually listening, but the method should still return nil
+	if err := c.WarmConnections(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify that only GoodForUpload hosts received metrics by checking
+	// Prioritize ordering: hosts without metrics sort ahead of hosts
+	// with failure samples
+	all := []types.PublicKey{gfuHostA, gfuHostB, nonGFUHost}
+	sorted := provider.Prioritize(slices.Clone(all))
+	if len(sorted) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(sorted))
+	} else if sorted[0] != nonGFUHost {
+		t.Fatal("expected non-GFU host to sort first since it has no metrics")
 	}
 }
 

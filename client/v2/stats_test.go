@@ -10,8 +10,8 @@ import (
 func TestRPCAverage(t *testing.T) {
 	var ra rpcAverage
 
-	if ra.Value() != 0 {
-		t.Fatal("initial value should be zero")
+	if ra.Value() != defaultThroughput {
+		t.Fatal("initial value should be defaultThroughput")
 	}
 
 	ra.AddSample(100)

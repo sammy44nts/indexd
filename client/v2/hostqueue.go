@@ -15,7 +15,11 @@ import (
 	"go.sia.tech/indexd/hosts"
 )
 
-const emaAlpha = 0.2
+const (
+	emaAlpha            = 0.2
+	settingsPayloadSize = 270       // size of host settings in bytes
+	defaultThroughput   = 125000000 // 1 Gbps in bytes per second
+)
 
 // ErrAbortedRPC is a special error that can be used as the cancel for an RPC
 // context to indicate that the RPC was interrupted and that the corresponding
@@ -34,18 +38,22 @@ type Store interface {
 	Usable(types.PublicKey) (bool, error)
 }
 
-// AddSample adds a new throughput sample to the average.
-func (ra *rpcAverage) AddSample(throughput float64) {
+// AddSample adds a new sample to the exponential moving average.
+func (ra *rpcAverage) AddSample(v float64) {
 	if !ra.init {
-		ra.value = throughput
+		ra.value = v
 		ra.init = true
 	} else {
-		ra.value = emaAlpha*throughput + (1.0-emaAlpha)*ra.value
+		ra.value = emaAlpha*v + (1.0-emaAlpha)*ra.value
 	}
 }
 
-// Value returns the current average throughput in bytes per second.
+// Value returns the current average, or defaultThroughput if no samples have
+// been recorded.
 func (ra *rpcAverage) Value() float64 {
+	if !ra.init {
+		return defaultThroughput
+	}
 	return ra.value
 }
 
@@ -184,6 +192,7 @@ func (p *Provider) cmpMetrics(a, b types.PublicKey) int {
 	if fc != 0 {
 		return fc
 	}
+
 	// higher throughput is better, so reverse the comparison
 	at := (am.rpcReadAverage.Value() + am.rpcWriteAverage.Value()) / 2
 	bt := (bm.rpcReadAverage.Value() + bm.rpcWriteAverage.Value()) / 2
@@ -222,6 +231,13 @@ func (p *Provider) AddWriteSample(hostKey types.PublicKey, bytes uint64, elapsed
 		metric.rpcWriteAverage.AddSample(float64(bytes) / elapsed.Seconds())
 	}
 	metric.rpcFailRate.AddSample(true)
+}
+
+// AddSettingsSample records a successful settings RPC to the specified host.
+// The settings response is treated as a small read to feed the throughput
+// metric.
+func (p *Provider) AddSettingsSample(hostKey types.PublicKey, latency time.Duration) {
+	p.AddReadSample(hostKey, settingsPayloadSize, latency)
 }
 
 // AddFailedRPC records a failed RPC attempt to the specified host.
@@ -295,6 +311,11 @@ func (p *Provider) Prioritize(hosts []types.PublicKey) []types.PublicKey {
 	}
 	p.sortHosts(filtered)
 	return filtered
+}
+
+// UsableHosts returns all usable hosts in an arbitrary order.
+func (p *Provider) UsableHosts() ([]hosts.HostInfo, error) {
+	return p.store.UsableHosts()
 }
 
 // NewProvider creates a new Provider to track
