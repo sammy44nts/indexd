@@ -6,7 +6,9 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/indexd/accounts"
+	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
+	"go.sia.tech/indexd/slabs"
 )
 
 type (
@@ -19,22 +21,10 @@ type (
 	}
 
 	// AggregatedHostStatsResponse is the response body for the [GET] /stats/hosts
-	AggregatedHostStatsResponse struct {
-		Active        uint64 `json:"active"`
-		GoodForUpload uint64 `json:"goodForUpload"`
-		TotalScans    int64  `json:"totalScans"`
-		FailedScans   int64  `json:"failedScans"`
-	}
+	AggregatedHostStatsResponse hosts.AggregatedHostStats
 
 	// ContractsStatsResponse is the response body for the [GET] /stats/contracts
-	ContractsStatsResponse struct {
-		Contracts    uint64 `json:"contracts"`
-		BadContracts uint64 `json:"badContracts"`
-		Renewing     uint64 `json:"renewing"`
-
-		TotalCapacity uint64 `json:"totalCapacity"`
-		TotalSize     uint64 `json:"totalSize"`
-	}
+	ContractsStatsResponse contracts.ContractsStats
 
 	// ExplorerState contains static information about explorer data sources.
 	ExplorerState struct {
@@ -49,50 +39,19 @@ type (
 	}
 
 	// SectorsStatsResponse is the response body for the [GET] /stats/sectors
-	SectorsStatsResponse struct {
-		Slabs       int64 `json:"slabs"`
-		Migrated    int64 `json:"migrated"`
-		Pinned      int64 `json:"pinned"`
-		Unpinnable  int64 `json:"unpinnable"`
-		Unpinned    int64 `json:"unpinned"`
-		Lost        int64 `json:"lost"`
-		Checked     int64 `json:"checked"`
-		CheckFailed int64 `json:"checkFailed"`
-	}
+	SectorsStatsResponse slabs.SectorsStats
 
 	// AccountStatsResponse is the response body for the [GET] /stats/accounts.
-	AccountStatsResponse struct {
-		Registered uint64 `json:"registered"`
-		Active     uint64 `json:"active"`
-		PinnedData uint64 `json:"pinnedData"`
-		PinnedSize uint64 `json:"pinnedSize"`
-	}
-
-	// ConnectKeyQuotaStats contains the number of connect keys associated with a
-	// particular quota.
-	ConnectKeyQuotaStats struct {
-		Quota string `json:"quota"`
-		Total uint64 `json:"total"`
-	}
+	AccountStatsResponse accounts.AccountStats
 
 	// ConnectKeyStatsResponse is the response body for the [GET] /stats/connectkeys.
-	ConnectKeyStatsResponse struct {
-		Total  uint64                 `json:"total"`
-		Quotas []ConnectKeyQuotaStats `json:"quotas"`
-	}
+	ConnectKeyStatsResponse accounts.ConnectKeyStats
 
 	// AppStatsResponse is the response body for the [GET] /stats/apps.
 	AppStatsResponse []AppStats
 
 	// AppStats contains per-app statistics.
-	AppStats struct {
-		AppID      types.Hash256 `json:"appID"`
-		Name       string        `json:"name"`
-		Accounts   uint64        `json:"accounts"`
-		Active     uint64        `json:"active"`
-		PinnedData uint64        `json:"pinnedData"`
-		PinnedSize uint64        `json:"pinnedSize"`
-	}
+	AppStats accounts.AppStats
 
 	// HostStatsResponse is the response body for the [GET] /stats/hosts/detailed.
 	HostStatsResponse []HostStats

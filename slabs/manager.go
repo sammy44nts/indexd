@@ -118,6 +118,9 @@ type (
 		PinObject(account proto.Account, obj PinObjectRequest) error
 		ListObjects(account proto.Account, cursor Cursor, limit int) ([]ObjectEvent, error)
 		SharedObject(key types.Hash256) (SharedObject, error)
+
+		ObjectsForSlab(slabID SlabID) ([]SlabObject, error)
+		SectorStats() (SectorsStats, error)
 	}
 
 	// AlertsManager defines an interface to register alerts.
@@ -262,6 +265,12 @@ func newSlabManager(chain ChainManager, am AccountManager, cm ContractManager, h
 func (m *SlabManager) Close() error {
 	m.tg.Stop()
 	return nil
+}
+
+// ObjectsForSlab returns all (account, object key) pairs for objects that
+// reference the given slab.
+func (m *SlabManager) ObjectsForSlab(slabID SlabID) ([]SlabObject, error) {
+	return m.store.ObjectsForSlab(slabID)
 }
 
 func (m *SlabManager) initServiceAccounts(migrationAccount, integrityAccount types.PublicKey) {

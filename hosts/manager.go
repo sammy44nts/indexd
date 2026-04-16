@@ -142,6 +142,8 @@ type (
 
 		UsabilitySettings() (UsabilitySettings, error)
 		UpdateUsabilitySettings(us UsabilitySettings) error
+
+		AggregatedHostStats() (AggregatedHostStats, error)
 	}
 
 	// AlertsManager defines an interface to register alerts.

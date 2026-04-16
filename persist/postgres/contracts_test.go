@@ -15,7 +15,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/slabs"
@@ -1827,7 +1826,7 @@ func TestContractsStats(t *testing.T) {
 	// fcid5: bad, already expired
 	updateContract(fcid5, true, 9000, 10_000, 10)
 
-	expected := admin.ContractsStatsResponse{
+	expected := contracts.ContractsStats{
 		Contracts:     4,     // all but fcid5
 		BadContracts:  2,     // fcid2, fcid3
 		Renewing:      1,     // fcid4

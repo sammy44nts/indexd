@@ -14,7 +14,6 @@ import (
 	proto "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/contracts"
 	"go.sia.tech/indexd/hosts"
 	"go.uber.org/zap"
@@ -36,7 +35,7 @@ func (s *Store) ContractRevision(contractID types.FileContractID) (rhp.ContractR
 }
 
 // ContractsStats returns statistics about the contracts in the database.
-func (s *Store) ContractsStats() (resp admin.ContractsStatsResponse, _ error) {
+func (s *Store) ContractsStats() (resp contracts.ContractsStats, _ error) {
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		var numContracts, numGood, totalCapacity, totalSize uint64
 		err := tx.QueryRow(ctx, `
@@ -78,7 +77,7 @@ func (s *Store) ContractsStats() (resp admin.ContractsStatsResponse, _ error) {
 			return err
 		}
 
-		resp = admin.ContractsStatsResponse{
+		resp = contracts.ContractsStats{
 			Contracts:    numContracts,
 			BadContracts: numContracts - numGood,
 			Renewing:     numRenewing,
