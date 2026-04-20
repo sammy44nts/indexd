@@ -337,12 +337,12 @@ components:
     PublicKey:
       type: string
       pattern: "^ed25519:[0-9a-fA-F]{64}$"
-      description: A ed25519 public key
+      description: An ed25519 public key
 
     HostKey:
       type: string
       pattern: "^(ed25519:)?[0-9a-fA-F]{64}$"
-      description: A ed25519 public key, optionally without the "ed25519:" prefix
+      description: An ed25519 public key, optionally without the "ed25519:" prefix
 
     SemVer:
       type: array
