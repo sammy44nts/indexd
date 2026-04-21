@@ -48,10 +48,7 @@ type (
 	ConnectKeyStatsResponse accounts.ConnectKeyStats
 
 	// AppStatsResponse is the response body for the [GET] /stats/apps.
-	AppStatsResponse []AppStats
-
-	// AppStats contains per-app statistics.
-	AppStats accounts.AppStats
+	AppStatsResponse []accounts.AppStats
 
 	// HostStatsResponse is the response body for the [GET] /stats/hosts/detailed.
 	HostStatsResponse []hosts.HostStats

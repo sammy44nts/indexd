@@ -1215,11 +1215,7 @@ func (a *admin) handleGETStatsApps(jc jape.Context) {
 	if jc.Check("failed to retrieve app stats", err) != nil {
 		return
 	}
-	resp := make(AppStatsResponse, 0, len(stats))
-	for _, s := range stats {
-		resp = append(resp, AppStats(s))
-	}
-	writeResponse(jc, resp)
+	writeResponse(jc, AppStatsResponse(stats))
 }
 
 func (a *admin) handleGETStatsContracts(jc jape.Context) {
@@ -1329,11 +1325,6 @@ func (a *admin) handleGETPrometheusMetrics(jc jape.Context) {
 		return
 	}
 
-	appStats := make(AppStatsResponse, 0, len(apps))
-	for _, s := range apps {
-		appStats = append(appStats, AppStats(s))
-	}
-
 	jc.ResponseWriter.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	enc := prometheus.NewEncoder(jc.ResponseWriter)
 	for _, m := range []prometheus.Marshaller{
@@ -1344,7 +1335,7 @@ func (a *admin) handleGETPrometheusMetrics(jc jape.Context) {
 		ContractsStatsResponse(contractsStats),
 		AggregatedHostStatsResponse(aggHostStats),
 		SectorsStatsResponse(sectorStats),
-		AppStatsResponse(appStats),
+		AppStatsResponse(apps),
 		HostStatsResponse(hosts),
 	} {
 		if err := enc.Append(m); err != nil {

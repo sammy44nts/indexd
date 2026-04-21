@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"go.sia.tech/indexd/accounts"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/internal/prometheus"
 )
@@ -50,37 +51,38 @@ func (s ConnectKeyStatsResponse) PrometheusMetric() (metrics []prometheus.Metric
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
 // app stats response.
-func (s AppStatsResponse) PrometheusMetric() []prometheus.Metric {
-	return prometheus.Slice([]AppStats(s)).PrometheusMetric()
+func (s AppStatsResponse) PrometheusMetric() (metrics []prometheus.Metric) {
+	for _, a := range s {
+		metrics = append(metrics, appStatsMetrics(a)...)
+	}
+	return
 }
 
-// PrometheusMetric implements the prometheus.Marshaller interface for a single
-// app's stats.
-func (s AppStats) PrometheusMetric() []prometheus.Metric {
+func appStatsMetrics(a accounts.AppStats) []prometheus.Metric {
 	labels := map[string]any{
-		"app_id":   s.AppID.String(),
-		"app_name": s.Name,
+		"app_id":   a.AppID.String(),
+		"app_name": a.Name,
 	}
 	return []prometheus.Metric{
 		{
 			Name:   "indexd_app_num_accounts",
 			Labels: labels,
-			Value:  float64(s.Accounts),
+			Value:  float64(a.Accounts),
 		},
 		{
 			Name:   "indexd_app_num_active_accounts",
 			Labels: labels,
-			Value:  float64(s.Active),
+			Value:  float64(a.Active),
 		},
 		{
 			Name:   "indexd_app_pinned_data_bytes",
 			Labels: labels,
-			Value:  float64(s.PinnedData),
+			Value:  float64(a.PinnedData),
 		},
 		{
 			Name:   "indexd_app_pinned_size_bytes",
 			Labels: labels,
-			Value:  float64(s.PinnedSize),
+			Value:  float64(a.PinnedSize),
 		},
 	}
 }
