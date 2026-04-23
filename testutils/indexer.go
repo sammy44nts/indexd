@@ -291,6 +291,9 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 		if err := closeWithTimeout(contracts.Close); err != nil {
 			t.Errorf("failed to close contract manager: %v", err)
 		}
+		if err := closeWithTimeout(client.Close); err != nil {
+			t.Errorf("failed to close client: %v", err)
+		}
 		if err := closeWithTimeout(am.Close); err != nil {
 			t.Errorf("failed to close account manager: %v", err)
 		}
