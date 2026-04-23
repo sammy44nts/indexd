@@ -61,6 +61,10 @@ type (
 		HasAccount(types.PublicKey) (bool, error)
 		DeleteAccount(acc proto.Account) error
 		UpdateAccount(types.PublicKey, UpdateAccountRequest) error
+
+		AccountStats() (AccountStats, error)
+		AppStats(offset, limit int) ([]AppStats, error)
+		ConnectKeyStats() (ConnectKeyStats, error)
 	}
 
 	// AccountManager manages accounts.

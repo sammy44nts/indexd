@@ -61,6 +61,14 @@ type (
 
 		Contract(ctx context.Context, contractID types.FileContractID) (contracts.Contract, error)
 		Contracts(ctx context.Context, offset, limit int, queryOpts ...contracts.ContractQueryOpt) ([]contracts.Contract, error)
+
+		ContractsStats() (contracts.Stats, error)
+		DeleteContract(contractID types.FileContractID) error
+	}
+
+	// Subscriber exposes chain-subscriber state used by the admin API.
+	Subscriber interface {
+		LastScannedIndex() (types.ChainIndex, error)
 	}
 
 	// HostManager defines an interface that allows triggering a host scan.
@@ -80,6 +88,8 @@ type (
 		UpdateUsabilitySettings(ctx context.Context, us hosts.UsabilitySettings) error
 
 		Stats(ctx context.Context, offset, limit int) ([]hosts.HostStats, error)
+
+		AggregatedHostStats() (hosts.AggregatedHostStats, error)
 	}
 
 	// PinManager defines an interface for managing pinned settings.
@@ -112,23 +122,18 @@ type (
 		DeleteQuota(ctx context.Context, key string) error
 		Quota(ctx context.Context, key string) (accounts.Quota, error)
 		Quotas(ctx context.Context, offset, limit int) ([]accounts.Quota, error)
+
+		AccountStats() (accounts.AccountStats, error)
+		AppStats(offset, limit int) ([]accounts.AppStats, error)
+		ConnectKeyStats() (accounts.ConnectKeyStats, error)
 	}
 
-	// A Store is a persistent store for the indexer.
-	Store interface {
-		AccountStats() (AccountStatsResponse, error)
-		AggregatedHostStats() (AggregatedHostStatsResponse, error)
-		ConnectKeyStats() (ConnectKeyStatsResponse, error)
-		AppStats(offset, limit int) ([]AppStats, error)
-		ContractsStats() (ContractsStatsResponse, error)
-		HostStats(offset, limit int) ([]hosts.HostStats, error)
-		SectorStats() (SectorsStatsResponse, error)
-
-		DeleteContract(contractID types.FileContractID) error
-		DeleteObject(account proto.Account, objectKey types.Hash256) error
-		LastScannedIndex() (types.ChainIndex, error)
+	// SlabManager defines the slab-related interface used by the admin API.
+	SlabManager interface {
+		DeleteObject(ctx context.Context, account proto.Account, objectKey types.Hash256) error
 		ObjectsForSlab(slabID slabs.SlabID) ([]slabs.SlabObject, error)
-		PruneSlabs(account proto.Account) error
+		PruneSlabs(ctx context.Context, account proto.Account) error
+		SectorStats() (slabs.SectorsStats, error)
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
@@ -166,16 +171,17 @@ type (
 	admin struct {
 		debug bool
 
-		accounts  Accounts
-		alerter   Alerter
-		chain     ChainManager
-		contracts ContractManager
-		explorer  Explorer
-		hosts     HostManager
-		pins      PinManager
-		store     Store
-		syncer    Syncer
-		wallet    Wallet
+		accounts   Accounts
+		alerter    Alerter
+		chain      ChainManager
+		contracts  ContractManager
+		explorer   Explorer
+		hosts      HostManager
+		pins       PinManager
+		slabs      SlabManager
+		subscriber Subscriber
+		syncer     Syncer
+		wallet     Wallet
 
 		log *zap.Logger
 	}
@@ -186,18 +192,19 @@ type (
 // API exposes endpoints to manage accounts, hosts, settings and the wallet.
 // This is different from the application API, which users, or rather their
 // applications, can use to pin slabs.
-func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, hosts HostManager, pm PinManager, syncer Syncer, wallet Wallet, store Store, alerter Alerter, opts ...Option) http.Handler {
+func NewAPI(chain ChainManager, accounts Accounts, contracts ContractManager, hosts HostManager, pm PinManager, sm SlabManager, sub Subscriber, syncer Syncer, wallet Wallet, alerter Alerter, opts ...Option) http.Handler {
 	a := &admin{
-		chain:     chain,
-		accounts:  accounts,
-		contracts: contracts,
-		hosts:     hosts,
-		pins:      pm,
-		store:     store,
-		syncer:    syncer,
-		wallet:    wallet,
-		alerter:   alerter,
-		log:       zap.NewNop(),
+		chain:      chain,
+		accounts:   accounts,
+		contracts:  contracts,
+		hosts:      hosts,
+		pins:       pm,
+		slabs:      sm,
+		subscriber: sub,
+		syncer:     syncer,
+		wallet:     wallet,
+		alerter:    alerter,
+		log:        zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -343,14 +350,14 @@ func (a *admin) handleDELETESlab(jc jape.Context) {
 	}
 
 	// fetch all objects referencing the slab
-	objects, err := a.store.ObjectsForSlab(slabID)
+	objects, err := a.slabs.ObjectsForSlab(slabID)
 	if jc.Check("failed to get objects for slab", err) != nil {
 		return
 	}
 
 	// delete each object
 	for _, obj := range objects {
-		if err := a.store.DeleteObject(obj.Account, obj.ObjectID); err != nil {
+		if err := a.slabs.DeleteObject(jc.Request.Context(), obj.Account, obj.ObjectID); err != nil {
 			jc.Check("failed to delete object", err)
 			return
 		}
@@ -371,7 +378,7 @@ func (a *admin) handlePOSTPruneAccounts(jc jape.Context) {
 			if err := jc.Request.Context().Err(); err != nil {
 				return
 			}
-			if err := a.store.PruneSlabs(acc.AccountKey); err != nil {
+			if err := a.slabs.PruneSlabs(jc.Request.Context(), acc.AccountKey); err != nil {
 				jc.Check("failed to prune slabs", err)
 				return
 			}
@@ -643,7 +650,7 @@ func (a *admin) handlePOSTAccountPrune(jc jape.Context) {
 	if jc.DecodeParam("accountkey", &ak) != nil {
 		return
 	}
-	if err := a.store.PruneSlabs(ak); errors.Is(err, accounts.ErrNotFound) {
+	if err := a.slabs.PruneSlabs(jc.Request.Context(), ak); errors.Is(err, accounts.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
 	} else if err != nil {
@@ -720,7 +727,7 @@ func (a *admin) handlePOSTAlertsDismiss(jc jape.Context) {
 }
 
 func (a *admin) handleGETState(jc jape.Context) {
-	ci, err := a.store.LastScannedIndex()
+	ci, err := a.subscriber.LastScannedIndex()
 	if jc.Check("failed to get last scanned index", err) != nil {
 		return
 	}
@@ -806,7 +813,7 @@ func (a *admin) handleDELETEContract(jc jape.Context) {
 		return
 	}
 
-	err := a.store.DeleteContract(contractID)
+	err := a.contracts.DeleteContract(contractID)
 	if errors.Is(err, contracts.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
@@ -1184,19 +1191,19 @@ func (a *admin) handlePOSTWalletSend(jc jape.Context) {
 }
 
 func (a *admin) handleGETStatsAccounts(jc jape.Context) {
-	stats, err := a.store.AccountStats()
+	stats, err := a.accounts.AccountStats()
 	if jc.Check("failed to retrieve account stats", err) != nil {
 		return
 	}
-	writeResponse(jc, stats)
+	writeResponse(jc, AccountStatsResponse(stats))
 }
 
 func (a *admin) handleGETStatsConnectKeys(jc jape.Context) {
-	stats, err := a.store.ConnectKeyStats()
+	stats, err := a.accounts.ConnectKeyStats()
 	if jc.Check("failed to retrieve connect key stats", err) != nil {
 		return
 	}
-	writeResponse(jc, stats)
+	writeResponse(jc, ConnectKeyStatsResponse(stats))
 }
 
 func (a *admin) handleGETStatsApps(jc jape.Context) {
@@ -1204,7 +1211,7 @@ func (a *admin) handleGETStatsApps(jc jape.Context) {
 	if !ok {
 		return
 	}
-	stats, err := a.store.AppStats(offset, limit)
+	stats, err := a.accounts.AppStats(offset, limit)
 	if jc.Check("failed to retrieve app stats", err) != nil {
 		return
 	}
@@ -1212,11 +1219,11 @@ func (a *admin) handleGETStatsApps(jc jape.Context) {
 }
 
 func (a *admin) handleGETStatsContracts(jc jape.Context) {
-	stats, err := a.store.ContractsStats()
+	stats, err := a.contracts.ContractsStats()
 	if jc.Check("failed to retrieve contracts stats", err) != nil {
 		return
 	}
-	writeResponse(jc, stats)
+	writeResponse(jc, ContractsStatsResponse(stats))
 }
 
 func (a *admin) handleGETStatsHostsDetailed(jc jape.Context) {
@@ -1233,23 +1240,23 @@ func (a *admin) handleGETStatsHostsDetailed(jc jape.Context) {
 }
 
 func (a *admin) handleGETStatsHostsAggregated(jc jape.Context) {
-	stats, err := a.store.AggregatedHostStats()
+	stats, err := a.hosts.AggregatedHostStats()
 	if jc.Check("failed to retrieve aggregated hosts stats", err) != nil {
 		return
 	}
-	writeResponse(jc, stats)
+	writeResponse(jc, AggregatedHostStatsResponse(stats))
 }
 
 func (a *admin) handleGETStatsSectors(jc jape.Context) {
-	stats, err := a.store.SectorStats()
+	stats, err := a.slabs.SectorStats()
 	if jc.Check("failed to retrieve sector stats", err) != nil {
 		return
 	}
-	writeResponse(jc, stats)
+	writeResponse(jc, SectorsStatsResponse(stats))
 }
 
 func (a *admin) handleGETPrometheusMetrics(jc jape.Context) {
-	ci, err := a.store.LastScannedIndex()
+	ci, err := a.subscriber.LastScannedIndex()
 	if jc.Check("failed to get last scanned index", err) != nil {
 		return
 	}
@@ -1283,32 +1290,32 @@ func (a *admin) handleGETPrometheusMetrics(jc jape.Context) {
 		Address: a.wallet.Address(),
 	}
 
-	accountStats, err := a.store.AccountStats()
+	accountStats, err := a.accounts.AccountStats()
 	if jc.Check("failed to retrieve account stats", err) != nil {
 		return
 	}
 
-	connectKeyStats, err := a.store.ConnectKeyStats()
+	connectKeyStats, err := a.accounts.ConnectKeyStats()
 	if jc.Check("failed to retrieve connect key stats", err) != nil {
 		return
 	}
 
-	contractsStats, err := a.store.ContractsStats()
+	contractsStats, err := a.contracts.ContractsStats()
 	if jc.Check("failed to retrieve contracts stats", err) != nil {
 		return
 	}
 
-	aggHostStats, err := a.store.AggregatedHostStats()
+	aggHostStats, err := a.hosts.AggregatedHostStats()
 	if jc.Check("failed to retrieve aggregated host stats", err) != nil {
 		return
 	}
 
-	sectorStats, err := a.store.SectorStats()
+	sectorStats, err := a.slabs.SectorStats()
 	if jc.Check("failed to retrieve sector stats", err) != nil {
 		return
 	}
 
-	apps, err := a.store.AppStats(0, 1000)
+	apps, err := a.accounts.AppStats(0, 1000)
 	if jc.Check("failed to retrieve app stats", err) != nil {
 		return
 	}
@@ -1323,11 +1330,11 @@ func (a *admin) handleGETPrometheusMetrics(jc jape.Context) {
 	for _, m := range []prometheus.Marshaller{
 		state,
 		walletResp,
-		accountStats,
-		connectKeyStats,
-		contractsStats,
-		aggHostStats,
-		sectorStats,
+		AccountStatsResponse(accountStats),
+		ConnectKeyStatsResponse(connectKeyStats),
+		ContractsStatsResponse(contractsStats),
+		AggregatedHostStatsResponse(aggHostStats),
+		SectorsStatsResponse(sectorStats),
 		AppStatsResponse(apps),
 		HostStatsResponse(hosts),
 	} {

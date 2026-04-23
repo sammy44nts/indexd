@@ -85,6 +85,11 @@ func (s *Subscriber) Close() error {
 	return nil
 }
 
+// LastScannedIndex returns the last scanned index.
+func (s *Subscriber) LastScannedIndex() (types.ChainIndex, error) {
+	return s.store.LastScannedIndex()
+}
+
 // New creates a new chain subscriber. The returned subscriber is already
 // processing chain updates and needs to be closed.
 func New(cm ChainManager, hm HostManager, contracts ContractManager, wm WalletManager, store Store, opts ...Option) (*Subscriber, error) {

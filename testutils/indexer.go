@@ -230,7 +230,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 
 	password := hex.EncodeToString(frand.Bytes(16))
 	adminAPI := http.Server{
-		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, am, contracts, hm, pm, syncer, wm, store, alerter, adminAPIOpts...)),
+		Handler: jape.BasicAuth(password)(admin.NewAPI(c.cm, am, contracts, hm, pm, slabs, subscriber, syncer, wm, alerter, adminAPIOpts...)),
 	}
 
 	adminListener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -257,7 +257,7 @@ func NewIndexer(t testing.TB, c *ConsensusNode, log *zap.Logger, opts ...Indexer
 	if cfg.advertiseURL == "" {
 		cfg.advertiseURL = appAPIAddr
 	}
-	appHandler, err := app.NewAPI(cfg.advertiseURL, store, am, contracts, slabs, appAPIOpts...)
+	appHandler, err := app.NewAPI(cfg.advertiseURL, hm, am, contracts, slabs, appAPIOpts...)
 	if err != nil {
 		t.Fatalf("failed to create application API: %v", err)
 	}

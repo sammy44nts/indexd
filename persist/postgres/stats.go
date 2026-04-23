@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/hosts"
+	"go.sia.tech/indexd/slabs"
 )
 
 const (
@@ -173,8 +173,8 @@ func (s *Store) FlushStatsDelta(limit int) (more bool, err error) {
 
 // SectorStats reports statistics about the sectors and slabs stored in the
 // database.
-func (s *Store) SectorStats() (admin.SectorsStatsResponse, error) {
-	var stats admin.SectorsStatsResponse
+func (s *Store) SectorStats() (slabs.SectorsStats, error) {
+	var stats slabs.SectorsStats
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		return tx.QueryRow(ctx, sqlStatSelect(statSlabs, statMigratedSectors, statPinnedSectors, statUnpinnableSectors, statUnpinnedSectors, statSectorsLost, statSectorsChecked, statSectorsCheckFailed)).
 			Scan(&stats.Slabs, &stats.Migrated, &stats.Pinned, &stats.Unpinnable, &stats.Unpinned, &stats.Lost, &stats.Checked, &stats.CheckFailed)
@@ -184,8 +184,8 @@ func (s *Store) SectorStats() (admin.SectorsStatsResponse, error) {
 
 // AppStats reports per-app statistics including total accounts, active
 // accounts, and total pinned data for all apps.
-func (s *Store) AppStats(offset, limit int) ([]admin.AppStats, error) {
-	var stats []admin.AppStats
+func (s *Store) AppStats(offset, limit int) ([]accounts.AppStats, error) {
+	var stats []accounts.AppStats
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		stats = stats[:0] // reuse same slice if transaction retries
 		rows, err := tx.Query(ctx, `
@@ -209,7 +209,7 @@ OFFSET $2 LIMIT $3`,
 		defer rows.Close()
 
 		for rows.Next() {
-			var as admin.AppStats
+			var as accounts.AppStats
 			if err := rows.Scan((*sqlHash256)(&as.AppID), &as.Name, &as.Accounts, &as.Active, &as.PinnedData, &as.PinnedSize); err != nil {
 				return err
 			}
@@ -221,8 +221,8 @@ OFFSET $2 LIMIT $3`,
 }
 
 // AccountStats reports statistics about the accounts stored in the database.
-func (s *Store) AccountStats() (admin.AccountStatsResponse, error) {
-	var stats admin.AccountStatsResponse
+func (s *Store) AccountStats() (accounts.AccountStats, error) {
+	var stats accounts.AccountStats
 	err := s.transaction(func(ctx context.Context, tx *txn) error {
 		err := tx.QueryRow(ctx, sqlStatSelect(statAccountsRegistered)).Scan(&stats.Registered)
 		if err != nil {
@@ -243,7 +243,7 @@ func (s *Store) AccountStats() (admin.AccountStatsResponse, error) {
 
 // ConnectKeyStats reports statistics about connect keys, including the total
 // number of keys and the breakdown by quota.
-func (s *Store) ConnectKeyStats() (stats admin.ConnectKeyStatsResponse, err error) {
+func (s *Store) ConnectKeyStats() (stats accounts.ConnectKeyStats, err error) {
 	err = s.transaction(func(ctx context.Context, tx *txn) error {
 		rows, err := tx.Query(ctx, `
 			SELECT quota_name, COUNT(*)
@@ -256,7 +256,7 @@ func (s *Store) ConnectKeyStats() (stats admin.ConnectKeyStatsResponse, err erro
 		defer rows.Close()
 
 		for rows.Next() {
-			var qs admin.ConnectKeyQuotaStats
+			var qs accounts.ConnectKeyQuotaStats
 			if err := rows.Scan(&qs.Quota, &qs.Total); err != nil {
 				return err
 			}
@@ -270,7 +270,7 @@ func (s *Store) ConnectKeyStats() (stats admin.ConnectKeyStatsResponse, err erro
 
 // AggregatedHostStats reports aggregated statistics about all hosts, including the
 // number of active hosts and scan counts.
-func (s *Store) AggregatedHostStats() (stats admin.AggregatedHostStatsResponse, err error) {
+func (s *Store) AggregatedHostStats() (stats hosts.AggregatedHostStats, err error) {
 	err = s.transaction(func(ctx context.Context, tx *txn) error {
 		if err := tx.QueryRow(ctx, sqlStatSelect(statScans, statScansFailed)).
 			Scan(&stats.TotalScans, &stats.FailedScans); err != nil {

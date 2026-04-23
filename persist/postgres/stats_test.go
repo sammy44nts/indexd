@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/indexd/accounts"
-	"go.sia.tech/indexd/api/admin"
 	"go.sia.tech/indexd/geoip"
 	"go.sia.tech/indexd/hosts"
 	"go.sia.tech/indexd/slabs"
@@ -524,7 +523,7 @@ func TestAppStats(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var stats admin.AppStats
+		var stats accounts.AppStats
 		var found bool
 		for _, s := range all {
 			if s.AppID == appID {

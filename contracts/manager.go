@@ -135,6 +135,9 @@ type (
 		UpdateStuckHosts(stuck []types.PublicKey) error
 
 		LastScannedIndex() (ci types.ChainIndex, err error)
+
+		ContractsStats() (Stats, error)
+		DeleteContract(contractID types.FileContractID) error
 	}
 
 	// Syncer is the minimal interface of Syncer functionality the
@@ -449,6 +452,12 @@ func (cm *ContractManager) TriggerAccountRefill(ctx context.Context, hostKey typ
 // UpdateMaintenanceSettings updates the maintenance settings.
 func (cm *ContractManager) UpdateMaintenanceSettings(ctx context.Context, settings MaintenanceSettings) error {
 	return cm.store.UpdateMaintenanceSettings(settings)
+}
+
+// DeleteContract unpins all sectors from a contract, updates stats, and marks
+// the contract as bad.
+func (cm *ContractManager) DeleteContract(contractID types.FileContractID) error {
+	return cm.store.DeleteContract(contractID)
 }
 
 // Close closes the contract manager, terminates any background tasks and waits
