@@ -326,7 +326,8 @@ func (s *Store) PinSlabs(account proto.Account, nextIntegrityCheck time.Time, to
 			for i, sector := range slab.Sectors {
 				if _, ok := goodHosts[sector.HostKey]; !ok {
 					badHosts++
-				} else if _, used := usedHosts[sector.HostKey]; used {
+				}
+				if _, used := usedHosts[sector.HostKey]; used {
 					br.Close()
 					return fmt.Errorf("%w: %q", slabs.ErrDuplicateHost, sector.HostKey)
 				}
