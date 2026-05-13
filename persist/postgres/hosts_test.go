@@ -1054,35 +1054,24 @@ func TestHostsWithLostSectors(t *testing.T) {
 	db.addTestContract(t, hk1)
 	db.addTestContract(t, hk2)
 
-	// pin a slab that adds 2 sectors to each host
+	// pin two slabs, each with one sector per host (slabs can't have duplicate
+	// hosts), so each host ends up with 2 sectors
 	root1 := frand.Entropy256()
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
 	root4 := frand.Entropy256()
-	_, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk1,
+	for _, pair := range [][2]types.Hash256{{root1, root3}, {root2, root4}} {
+		_, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors: []slabs.PinnedSector{
+				{Root: pair[0], HostKey: hk1},
+				{Root: pair[1], HostKey: hk2},
 			},
-			{
-				Root:    root2,
-				HostKey: hk1,
-			},
-			{
-				Root:    root3,
-				HostKey: hk2,
-			},
-			{
-				Root:    root4,
-				HostKey: hk2,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	assertHosts := func(hks []types.PublicKey) {
@@ -1262,7 +1251,8 @@ func TestHostUnpinnedSectors(t *testing.T) {
 	assertHostUnpinned(hk1, 0)
 	assertHostUnpinned(hk2, 0)
 
-	// pin a slab, h1 gets 2 sectors
+	// pin slabs so h1 gets 2 sectors and h2 gets 1 (slabs can't have duplicate
+	// hosts, so split across two slabs)
 	root1 := frand.Entropy256()
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
@@ -1271,9 +1261,16 @@ func TestHostUnpinnedSectors(t *testing.T) {
 		MinShards:     1,
 		Sectors: []slabs.PinnedSector{
 			{Root: root1, HostKey: hk1},
-			{Root: root2, HostKey: hk1},
 			{Root: root3, HostKey: hk2},
 		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors:       []slabs.PinnedSector{{Root: root2, HostKey: hk1}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1398,19 +1395,27 @@ func TestHostUnpinnedSectors(t *testing.T) {
 	}
 	assertHostUnpinned(hk4, 0)
 
-	// unpinning a slab should delete its unpinned sectors and decrement
-	// per-host unpinned sector counts accordingly
+	// unpinning slabs should delete their unpinned sectors and decrement
+	// per-host unpinned sector counts accordingly (slabs can't have duplicate
+	// hosts, so split hk1's two sectors across two slabs)
 	root6 := frand.Entropy256()
 	root7 := frand.Entropy256()
 	root8 := frand.Entropy256()
-	slabIDs, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+	slabIDs1, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
 		EncryptionKey: frand.Entropy256(),
 		MinShards:     1,
 		Sectors: []slabs.PinnedSector{
 			{Root: root6, HostKey: hk1},
-			{Root: root7, HostKey: hk1},
 			{Root: root8, HostKey: hk2},
 		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slabIDs2, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
+		Sectors:       []slabs.PinnedSector{{Root: root7, HostKey: hk1}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1418,7 +1423,10 @@ func TestHostUnpinnedSectors(t *testing.T) {
 	assertHostUnpinned(hk1, 2)
 	assertHostUnpinned(hk2, 1)
 
-	if err := db.UnpinSlab(account, slabIDs[0]); err != nil {
+	if err := db.UnpinSlab(account, slabIDs1[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UnpinSlab(account, slabIDs2[0]); err != nil {
 		t.Fatal(err)
 	}
 	assertHostUnpinned(hk1, 0)
@@ -1583,35 +1591,28 @@ func TestHostsWithUnpinnableSectors(t *testing.T) {
 	hk4 := db.addTestHost(t)
 	hk4FCID := db.addTestContract(t, hk4)
 
+	// PinSlabs rejects slabs where more than 20% of parity shards are on bad
+	// hosts. Add filler hosts (with good contracts) so the slab containing
+	// hk3 (no contract → bad) has enough good parity shards.
+	fillerHosts := make([]types.PublicKey, 4)
+	for i := range fillerHosts {
+		fillerHosts[i] = db.addTestHost(t)
+		db.addTestContract(t, fillerHosts[i])
+	}
+
+	// single slab: hk3 (1 bad) + hk4 + 4 filler hosts (5 good). parityShards=5,
+	// badHosts=1 → not rejected
+	sectors := []slabs.PinnedSector{
+		{Root: types.Hash256(hk3), HostKey: hk3},
+		{Root: types.Hash256(hk4), HostKey: hk4},
+	}
+	for _, hk := range fillerHosts {
+		sectors = append(sectors, slabs.PinnedSector{Root: frand.Entropy256(), HostKey: hk})
+	}
 	_, err := db.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
+		EncryptionKey: frand.Entropy256(),
 		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    types.Hash256(hk3),
-				HostKey: hk3,
-			},
-			{
-				Root:    types.Hash256(hk4),
-				HostKey: hk4,
-			},
-			{
-				Root:    frand.Entropy256(),
-				HostKey: hk4,
-			},
-			{
-				Root:    frand.Entropy256(),
-				HostKey: hk4,
-			},
-			{
-				Root:    frand.Entropy256(),
-				HostKey: hk4,
-			},
-			{
-				Root:    frand.Entropy256(),
-				HostKey: hk4,
-			},
-		},
+		Sectors:       sectors,
 	})
 	if err != nil {
 		t.Fatal(err)

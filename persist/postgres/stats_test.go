@@ -24,11 +24,13 @@ import (
 func TestSectorStatsNumSlabs(t *testing.T) {
 	store := initPostgres(t, zaptest.NewLogger(t).Named("postgres"))
 
-	// add account and host
+	// add account and two hosts (slabs can't have duplicate hosts)
 	account := proto.Account{1}
 	store.addTestAccount(t, types.PublicKey(account))
-	hk := store.addTestHost(t)
-	store.addTestContract(t, hk)
+	hk1 := store.addTestHost(t)
+	hk2 := store.addTestHost(t)
+	store.addTestContract(t, hk1)
+	store.addTestContract(t, hk2)
 
 	// helper to create slabs
 	newSlab := func(i byte) slabs.SlabPinParams {
@@ -38,11 +40,11 @@ func TestSectorStatsNumSlabs(t *testing.T) {
 			Sectors: []slabs.PinnedSector{
 				{
 					Root:    frand.Entropy256(),
-					HostKey: hk,
+					HostKey: hk1,
 				},
 				{
 					Root:    frand.Entropy256(),
-					HostKey: hk,
+					HostKey: hk2,
 				},
 			},
 		}
@@ -377,26 +379,19 @@ func TestIntegrityCheckStats(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	// pin a slab to add 2 sectors
+	// pin two single-sector slabs on hk (slabs can't have duplicate hosts)
 	pinTime := time.Now().Round(time.Microsecond)
 	root1 := types.Hash256{1}
 	root2 := types.Hash256{2}
-	_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk,
-			},
-			{
-				Root:    root2,
-				HostKey: hk,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	for _, root := range []types.Hash256{root1, root2} {
+		_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: root, HostKey: hk}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	assertSectorStats := func(expectedLost, expectedChecked, expectedCheckFailed int64) {

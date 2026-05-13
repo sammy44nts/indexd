@@ -366,7 +366,7 @@ func (a *app) handlePOSTSlabs(jc jape.Context, pk types.PublicKey) {
 	}
 
 	slabIDs, err := a.slabs.PinSlabs(jc.Request.Context(), proto.Account(pk), time.Now().Add(6*time.Hour), params...)
-	if errors.Is(err, slabs.ErrBadHosts) || errors.Is(err, slabs.ErrMinShards) {
+	if errors.Is(err, slabs.ErrBadHosts) || errors.Is(err, slabs.ErrMinShards) || errors.Is(err, slabs.ErrDuplicateHost) {
 		jc.Error(err, http.StatusBadRequest)
 		return
 	} else if jc.Check("failed to pin slab", err) != nil {

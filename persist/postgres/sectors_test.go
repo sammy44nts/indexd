@@ -34,46 +34,43 @@ func TestMigrateSector(t *testing.T) {
 	// add contract for first host
 	fcid1 := store.addTestContract(t, hk1)
 
-	// pin a slab to add 2 sectors which are both stored on the first host
+	// pin two single-sector slabs on hk1 (slabs can't have duplicate hosts)
 	pinTime := time.Now().Round(time.Microsecond)
 	root1 := types.Hash256{1}
 	root2 := types.Hash256{2}
-	_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk1,
-			},
-			{
-				Root:    root2,
-				HostKey: hk1,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	encKey1 := frand.Entropy256()
+	encKey2 := frand.Entropy256()
+	for _, sp := range []struct {
+		key  slabs.EncryptionKey
+		root types.Hash256
+	}{
+		{encKey1, root1},
+		{encKey2, root2},
+	} {
+		_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
+			EncryptionKey: sp.key,
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: sp.root, HostKey: hk1}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// create an object using the pinned slab
+	// create an object referencing the two pinned slabs
 	so := slabs.SealedObject{
 		EncryptedDataKey:     frand.Bytes(72),
 		EncryptedMetadataKey: frand.Bytes(72),
 		Slabs: []slabs.SlabSlice{
 			{
-				EncryptionKey: [32]byte{},
+				EncryptionKey: encKey1,
 				MinShards:     1,
-				Sectors: []slabs.PinnedSector{
-					{
-						Root:    root1,
-						HostKey: hk1,
-					},
-					{
-						Root:    root2,
-						HostKey: hk2,
-					},
-				},
+				Sectors:       []slabs.PinnedSector{{Root: root1, HostKey: hk1}},
+			},
+			{
+				EncryptionKey: encKey2,
+				MinShards:     1,
+				Sectors:       []slabs.PinnedSector{{Root: root2, HostKey: hk2}},
 			},
 		},
 	}
@@ -100,8 +97,7 @@ func TestMigrateSector(t *testing.T) {
 		}
 	}
 
-	err = store.PinObject(account, so.PinRequest())
-	if err != nil {
+	if err := store.PinObject(account, so.PinRequest()); err != nil {
 		t.Fatal(err)
 	}
 	assertUpdated(true) // creation
@@ -164,7 +160,7 @@ func TestMigrateSector(t *testing.T) {
 		t.Helper()
 
 		var got int64
-		err = store.pool.QueryRow(t.Context(), sqlStatSelect(statMigratedSectors)).Scan(&got)
+		err := store.pool.QueryRow(t.Context(), sqlStatSelect(statMigratedSectors)).Scan(&got)
 		if err != nil {
 			t.Fatal(err)
 		} else if got != expected {
@@ -229,26 +225,19 @@ func TestRecordIntegrityCheck(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	// pin a slab to add 2 sectors
+	// pin two single-sector slabs on hk (slabs can't have duplicate hosts)
 	pinTime := time.Now().Round(time.Microsecond)
 	root1 := types.Hash256{1}
 	root2 := types.Hash256{2}
-	_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk,
-			},
-			{
-				Root:    root2,
-				HostKey: hk,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	for _, root := range []types.Hash256{root1, root2} {
+		_, err := store.PinSlabs(account, pinTime, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: root, HostKey: hk}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// helper to assert sector state
@@ -385,35 +374,20 @@ func TestSectorsForIntegrityCheck(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	// pin a slab to add a few sectors to the database
+	// pin four single-sector slabs on hk (slabs can't have duplicate hosts)
 	root1 := frand.Entropy256()
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
 	root4 := frand.Entropy256()
-	_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk,
-			},
-			{
-				Root:    root2,
-				HostKey: hk,
-			},
-			{
-				Root:    root3,
-				HostKey: hk,
-			},
-			{
-				Root:    root4,
-				HostKey: hk,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	for _, root := range []types.Hash256{root1, root2, root3, root4} {
+		_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: root, HostKey: hk}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// update next integrity check time for roots and assert the ordering works
@@ -1222,20 +1196,22 @@ func TestUnpinSlab(t *testing.T) {
 		}
 	}
 
-	// add host
-	hk := store.addTestHost(t)
-	store.addTestContract(t, hk)
+	// add two hosts (slabs can't have duplicate hosts)
+	hk1 := store.addTestHost(t)
+	hk2 := store.addTestHost(t)
+	store.addTestContract(t, hk1)
+	store.addTestContract(t, hk2)
 
-	// precreate 3 slabs, 2 sectors each
+	// precreate 3 slabs, 2 sectors each (one per host)
 	var params []slabs.SlabPinParams
 	slabSize := uint64(2 * proto.SectorSize) // 2 sectors per slab
 	for range 3 {
 		params = append(params, slabs.SlabPinParams{
-			EncryptionKey: [32]byte{},
+			EncryptionKey: frand.Entropy256(),
 			MinShards:     2,
 			Sectors: []slabs.PinnedSector{
-				{Root: frand.Entropy256(), HostKey: hk},
-				{Root: frand.Entropy256(), HostKey: hk},
+				{Root: frand.Entropy256(), HostKey: hk1},
+				{Root: frand.Entropy256(), HostKey: hk2},
 			},
 		})
 	}
@@ -1270,7 +1246,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertPinnedData(acc1, 2*slabSize, 2*slabSize)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
 	assertSectorStats(0, 6, 0)
-	assertHostUnpinned(hk, 6)
+	assertHostUnpinned(hk1, 3)
+	assertHostUnpinned(hk2, 3)
 
 	// unpinning a slab that's not pinned to an account should return [slabs.ErrNotFound]
 	err := store.UnpinSlab(acc2, slab1)
@@ -1293,7 +1270,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertPinnedData(acc1, slabSize, slabSize)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
 	assertSectorStats(0, 4, 0)
-	assertHostUnpinned(hk, 4)
+	assertHostUnpinned(hk1, 2)
+	assertHostUnpinned(hk2, 2)
 
 	// unpin second slab
 	err = store.UnpinSlab(acc1, slab2)
@@ -1310,7 +1288,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, 2*slabSize, 2*slabSize)
 	assertSectorStats(0, 4, 0)
-	assertHostUnpinned(hk, 4)
+	assertHostUnpinned(hk1, 2)
+	assertHostUnpinned(hk2, 2)
 
 	// unpin second slab on second account
 	err = store.UnpinSlab(acc2, slab2)
@@ -1327,7 +1306,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, slabSize, slabSize)
 	assertSectorStats(0, 2, 0)
-	assertHostUnpinned(hk, 2)
+	assertHostUnpinned(hk1, 1)
+	assertHostUnpinned(hk2, 1)
 
 	// unpin third slab on second account
 	err = store.UnpinSlab(acc2, slab3)
@@ -1344,7 +1324,8 @@ func TestUnpinSlab(t *testing.T) {
 	assertPinnedData(acc1, 0, 0)
 	assertPinnedData(acc2, 0, 0)
 	assertSectorStats(0, 0, 0)
-	assertHostUnpinned(hk, 0)
+	assertHostUnpinned(hk1, 0)
+	assertHostUnpinned(hk2, 0)
 }
 
 func TestPinSectors(t *testing.T) {
@@ -1359,31 +1340,16 @@ func TestPinSectors(t *testing.T) {
 	contractID1 := store.addTestContract(t, hk, types.FileContractID{1})
 	contractID2 := store.addTestContract(t, hk, types.FileContractID{2})
 
-	// create 4 sectors
-	_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: frand.Entropy256(),
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				HostKey: hk,
-				Root:    types.Hash256{1},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{2},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{3},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{4},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	// create 4 sectors as 4 single-sector slabs (slabs can't have duplicate hosts)
+	for _, root := range []types.Hash256{{1}, {2}, {3}, {4}} {
+		_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{HostKey: hk, Root: root}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// set the sectors' host IDs to NULL to make sure PinSectors also sets
@@ -1491,9 +1457,9 @@ func TestUnhealthySlabs(t *testing.T) {
 	hk := store.addTestHost(t)
 	contractID := store.addTestContract(t, hk)
 
-	// add two slabs
-	slabID1 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
-	slabID2 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk, hk})
+	// add two single-sector slabs on hk (slabs can't have duplicate hosts)
+	slabID1 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk})
+	slabID2 := store.pinTestSlab(t, account, 1, []types.PublicKey{hk})
 	resetNextRepairAttemptTime()
 
 	// pin all sectors to the contract
@@ -1634,30 +1600,19 @@ func TestMarkSectorsUnpinnable(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	// pin a slab to add a few sectors to the database
+	// pin three single-sector slabs on hk (slabs can't have duplicate hosts)
 	root1 := frand.Entropy256()
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
-	_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk,
-			},
-			{
-				Root:    root2,
-				HostKey: hk,
-			},
-			{
-				Root:    root3,
-				HostKey: hk,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	for _, root := range []types.Hash256{root1, root2, root3} {
+		_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: root, HostKey: hk}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// assert initial count
@@ -1728,31 +1683,16 @@ func TestUnpinnedSectors(t *testing.T) {
 	hk := store.addTestHost(t)
 	store.addTestContract(t, hk)
 
-	// create 4 sectors
-	_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: frand.Entropy256(),
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				HostKey: hk,
-				Root:    types.Hash256{1},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{2},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{3},
-			},
-			{
-				HostKey: hk,
-				Root:    types.Hash256{4},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	// create 4 sectors as 4 single-sector slabs (slabs can't have duplicate hosts)
+	for _, root := range []types.Hash256{{1}, {2}, {3}, {4}} {
+		_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{HostKey: hk, Root: root}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// helper to update sector's pinned state
@@ -2619,35 +2559,24 @@ func TestMarkSectorsLost(t *testing.T) {
 	fcid1 := store.addTestContract(t, hk1)
 	_ = store.addTestContract(t, hk2)
 
-	// pin a slab that adds 2 sectors to each host
+	// pin two slabs, each with one sector per host (slabs can't have duplicate
+	// hosts), so each host ends up with 2 sectors
 	root1 := frand.Entropy256()
 	root2 := frand.Entropy256()
 	root3 := frand.Entropy256()
 	root4 := frand.Entropy256()
-	_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
-		EncryptionKey: [32]byte{},
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{
-				Root:    root1,
-				HostKey: hk1,
+	for _, pair := range [][2]types.Hash256{{root1, root3}, {root2, root4}} {
+		_, err := store.PinSlabs(account, time.Time{}, slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors: []slabs.PinnedSector{
+				{Root: pair[0], HostKey: hk1},
+				{Root: pair[1], HostKey: hk2},
 			},
-			{
-				Root:    root2,
-				HostKey: hk1,
-			},
-			{
-				Root:    root3,
-				HostKey: hk2,
-			},
-			{
-				Root:    root4,
-				HostKey: hk2,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	assertSectorStats := func(expectedPinned, expectedUnpinned, expectedUnpinnable int64) {

@@ -1515,19 +1515,18 @@ func TestDeleteContract(t *testing.T) {
 	account := proto.Account{1}
 	store.addTestAccount(t, types.PublicKey(account))
 
-	// add a slab with sectors
-	params := slabs.SlabPinParams{
-		EncryptionKey: frand.Entropy256(),
-		MinShards:     1,
-		Sectors: []slabs.PinnedSector{
-			{Root: frand.Entropy256(), HostKey: hk},
-			{Root: frand.Entropy256(), HostKey: hk},
-			{Root: frand.Entropy256(), HostKey: hk},
-		},
-	}
-	_, err = store.PinSlabs(account, time.Now().Add(time.Hour), params)
-	if err != nil {
-		t.Fatal(err)
+	// add three single-sector slabs on the same host (slabs can't have
+	// duplicate hosts, so we need one slab per sector)
+	sectorRoots := []types.Hash256{frand.Entropy256(), frand.Entropy256(), frand.Entropy256()}
+	for _, root := range sectorRoots {
+		params := slabs.SlabPinParams{
+			EncryptionKey: frand.Entropy256(),
+			MinShards:     1,
+			Sectors:       []slabs.PinnedSector{{Root: root, HostKey: hk}},
+		}
+		if _, err := store.PinSlabs(account, time.Now().Add(time.Hour), params); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// get unpinned sectors and pin them to the contract
@@ -1562,9 +1561,9 @@ func TestDeleteContract(t *testing.T) {
 	}
 
 	// get uploaded_at before deleting
-	sqlRoots := make([]sqlHash256, len(params.Sectors))
-	for i, s := range params.Sectors {
-		sqlRoots[i] = sqlHash256(s.Root)
+	sqlRoots := make([]sqlHash256, len(sectorRoots))
+	for i, root := range sectorRoots {
+		sqlRoots[i] = sqlHash256(root)
 	}
 	var uploadedAtBefore time.Time
 	err = store.pool.QueryRow(t.Context(), `SELECT MAX(uploaded_at) FROM sectors WHERE sector_root = ANY($1)`, sqlRoots).Scan(&uploadedAtBefore)

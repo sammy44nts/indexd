@@ -36,8 +36,12 @@ func TestObject(t *testing.T) {
 	store := initPostgres(t, zap.NewNop())
 	acc := proto.Account{1}
 	store.addTestAccount(t, types.PublicKey(acc))
-	hk := store.addTestHost(t)
-	fcid := store.addTestContract(t, hk)
+	hk1 := store.addTestHost(t)
+	hk2 := store.addTestHost(t)
+	hk3 := store.addTestHost(t)
+	fcid := store.addTestContract(t, hk1)
+	store.addTestContract(t, hk2)
+	store.addTestContract(t, hk3)
 
 	params := slabs.SlabPinParams{
 		EncryptionKey: frand.Entropy256(),
@@ -45,15 +49,15 @@ func TestObject(t *testing.T) {
 		Sectors: []slabs.PinnedSector{
 			{
 				Root:    frand.Entropy256(),
-				HostKey: hk,
+				HostKey: hk1,
 			},
 			{
 				Root:    frand.Entropy256(),
-				HostKey: hk,
+				HostKey: hk2,
 			},
 			{
 				Root:    frand.Entropy256(),
-				HostKey: hk,
+				HostKey: hk3,
 			},
 		},
 	}
@@ -66,7 +70,7 @@ func TestObject(t *testing.T) {
 	// pin sector 1, keep sector 2 the way it is and mark sector 3 as lost
 	if err := store.PinSectors(fcid, []types.Hash256{params.Sectors[0].Root}); err != nil {
 		t.Fatal(err)
-	} else if err := store.MarkSectorsLost(hk, []types.Hash256{params.Sectors[2].Root}); err != nil {
+	} else if err := store.MarkSectorsLost(hk3, []types.Hash256{params.Sectors[2].Root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,12 +125,19 @@ func TestObjects(t *testing.T) {
 		store.addTestAccount(t, types.PublicKey(acc))
 	}
 
-	hk := store.addTestHost(t)
-	store.addTestContract(t, hk)
+	// slabs can't have duplicate hosts; create enough hosts to fill the
+	// 10-sector slabs used below
+	hks := make([]types.PublicKey, 10)
+	for i := range hks {
+		hks[i] = store.addTestHost(t)
+		store.addTestContract(t, hks[i])
+	}
+	hk := hks[0]
 
 	// pin slab for both accounts
 	slab := slabs.SlabPinParams{
-		MinShards: 1,
+		EncryptionKey: frand.Entropy256(),
+		MinShards:     1,
 		Sectors: []slabs.PinnedSector{{
 			Root:    frand.Entropy256(),
 			HostKey: hk,
@@ -176,10 +187,10 @@ func TestObjects(t *testing.T) {
 				EncryptionKey: frand.Entropy256(),
 				MinShards:     1,
 			}
-			for range 10 {
+			for j := range hks {
 				s[i].Sectors = append(s[i].Sectors, slabs.PinnedSector{
 					Root:    types.Hash256(frand.Entropy256()),
-					HostKey: hk,
+					HostKey: hks[j],
 				})
 			}
 		}
